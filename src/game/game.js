@@ -140,7 +140,7 @@ export class Game {
     this.hud.root.classList.add('hidden');
     const el = this._screen(`
       <div class="screen gate">
-        <div class="gate-logo">NOVA<span>SWARM</span></div>
+        <div class="gate-logo">HYPER<span>NOVA</span></div>
         <button class="btn-launch" id="btn-enter">▶ Entrer dans la légende</button>
       </div>
     `);
@@ -211,7 +211,7 @@ export class Game {
           <span class="pilot-avatar">${pilot ? esc(pilot.name[0]) : '?'}</span>
           <span class="pilot-badge-name">${pilot ? esc(pilot.name) : 'Choisir un pilote'}</span>
         </button>
-        <div class="title-logo">NOVA<span>SWARM</span></div>
+        <div class="title-logo">HYPER<span>NOVA</span></div>
         <div class="title-tag">— Faites décoller la légende —</div>
         <div class="title-menu">
           <button class="btn-launch" id="btn-arcade">
@@ -475,7 +475,7 @@ export class Game {
     el.querySelector('#btn-map').addEventListener('click', () => this.showGalaxy());
     el.querySelector('#btn-share').addEventListener('click', () => {
       this._share(
-        `🚀 ${activePilot()?.name || 'Un pilote'} a libéré ${system.name} (${this.score} points) dans la campagne « ${campaign.title} » de NOVA SWARM ! À ton tour !`
+        `🚀 ${activePilot()?.name || 'Un pilote'} a libéré ${system.name} (${this.score} points) dans la campagne « ${campaign.title} » d’HYPERNOVA ! À ton tour !`
       );
     });
   }
@@ -574,13 +574,13 @@ export class Game {
       if (n === 1) {
         this.hud.announce(system.name, this.mission.campaign.title, 2600);
       } else {
-        this.hud.announce(`Vague ${n}/${system.waves}`, def.boss ? '⚠ Vaisseau-amiral ⚠' : '');
+        this.hud.announce(`Vague ${n}/${system.waves}`, def.boss ? '⚠ VORAX ⚠' : '');
       }
     } else {
       def = makeWave(n);
       this.enemies.startWave(def, n, DEFAULT_MODS);
       this.hud.setWave(n);
-      this.hud.announce(`Vague ${n}`, def.boss ? '⚠ Vaisseau-amiral détecté ⚠' : '');
+      this.hud.announce(`Vague ${n}`, def.boss ? '⚠ VORAX en approche ⚠' : '');
     }
     if (!def.boss) this.audio.waveStart();
   }

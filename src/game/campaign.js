@@ -50,7 +50,7 @@ export const BUILTIN_CAMPAIGN = {
     {
       id: 'betelgeuse',
       name: 'Bételgeuse',
-      desc: 'La supergéante rouge abrite un vaisseau-amiral. Détruisez-le.',
+      desc: 'Le cuirassé de VORAX rôde près de la supergéante rouge. Détruisez-le.',
       waves: 3,
       baseWave: 5,
       bossFinal: true,
@@ -67,7 +67,7 @@ export const BUILTIN_CAMPAIGN = {
     {
       id: 'sgrA',
       name: 'Sagittarius A★',
-      desc: 'Le cœur noir de la galaxie. L’amiral de l’essaim vous y attend.',
+      desc: 'Le cœur noir de la galaxie. VORAX, le Dévoreur d’Étoiles, vous y attend.',
       waves: 4,
       baseWave: 9,
       bossFinal: true,
@@ -206,7 +206,7 @@ export async function enableAlerts() {
 export async function notifyNewCampaigns(fresh) {
   if (!('Notification' in window) || Notification.permission !== 'granted' || !fresh.length) return;
   const c = fresh[0];
-  const title = 'NOVA SWARM — nouvelle campagne !';
+  const title = 'HYPERNOVA — nouvelle campagne !';
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     if (reg?.active) {

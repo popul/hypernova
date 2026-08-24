@@ -30,7 +30,7 @@ export class Hud {
       </div>
       <div class="hud-lives" id="hud-lives"></div>
       <div class="boss-bar" id="boss-bar">
-        <div class="boss-label">Vaisseau-amiral</div>
+        <div class="boss-label">VORAX — Dévoreur d’Étoiles</div>
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
       </div>
       <div class="announce" id="announce"></div>

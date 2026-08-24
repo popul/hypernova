@@ -297,8 +297,8 @@ export class AudioEngine {
     }
   }
 
-  // Voix de KRRK : grondement saccadé grave (amiral vexé).
-  voiceKrrk() {
+  // Voix de VORAX : grondement saccadé grave (Dévoreur d’Étoiles vexé).
+  voiceVorax() {
     for (let i = 0; i < 3; i++) {
       this._tone({
         type: 'sawtooth',

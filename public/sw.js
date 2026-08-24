@@ -1,4 +1,4 @@
-/* Service worker NOVA SWARM :
+/* Service worker HYPERNOVA :
    - cache hors-ligne (network-first pour les navigations et les campagnes,
      stale-while-revalidate pour les assets) ;
    - vérification périodique des nouvelles campagnes (Periodic Background Sync,
@@ -97,7 +97,7 @@ async function checkForNewCampaigns() {
   const fresh = ids.filter((id) => !known.has(id));
   if (fresh.length && known.size > 0) {
     const first = (index.campaigns || []).find((c) => c.id === fresh[0]);
-    await self.registration.showNotification('NOVA SWARM — nouvelle campagne !', {
+    await self.registration.showNotification('HYPERNOVA — nouvelle campagne !', {
       body: first?.title
         ? `« ${first.title} » vient d’arriver. Ouvrez la carte de la galaxie !`
         : 'Une nouvelle campagne vous attend dans la Voie lactée.',

@@ -1,7 +1,7 @@
 {
-  "name": "nova-swarm",
+  "name": "hypernova",
   "version": "1.0.0",
-  "description": "NOVA SWARM — shoot'em up spatial 3D : vagues d'ennemis, crédits, boutique d'améliorations, campagnes. Three.js + Vite.",
+  "description": "HYPERNOVA — shoot'em up spatial 3D : vagues d'ennemis, crédits, boutique d'améliorations, campagnes. Three.js + Vite.",
   "private": true,
   "type": "module",
   "scripts": {

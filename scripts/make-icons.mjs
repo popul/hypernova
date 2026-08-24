@@ -1,5 +1,5 @@
 // Génère les icônes PWA (PNG) sans aucune dépendance : encodeur PNG minimal
-// (zlib de Node) + rendu du vaisseau NOVA SWARM par remplissage de pixels.
+// (zlib de Node) + rendu du vaisseau HYPERNOVA par remplissage de pixels.
 // Usage : node scripts/make-icons.mjs
 
 import { deflateSync } from 'node:zlib';

@@ -1,4 +1,4 @@
-# NOVA SWARM
+# HYPERNOVA
 
 > Shoot'em up spatial 3D — vagues d'ennemis en formation, plongées kamikazes, crédits à ramasser
 > et boutique d'améliorations entre chaque vague. Three.js + Vite, zéro asset externe : tous les

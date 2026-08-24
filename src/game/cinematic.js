@@ -190,7 +190,7 @@ export class Cinematic {
       <div class="cine-bar bottom"></div>
       <div class="cine-sub" id="cine-sub"></div>
       <div class="cine-card" id="cine-card">
-        <div class="cine-card-logo">NOVA<span>SWARM</span></div>
+        <div class="cine-card-logo">HYPER<span>NOVA</span></div>
         <div class="cine-card-tag">Faites décoller la légende.</div>
       </div>
       <button class="cine-skip" id="cine-skip">Passer ▸</button>
@@ -221,7 +221,7 @@ export class Cinematic {
         t: 12.7,
         fn: () =>
           this.characters?.sayText('Cette petite planète bleue ? À MOI.', {
-            speaker: 'krrk',
+            speaker: 'vorax',
             priority: true,
           }),
       },

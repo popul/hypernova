@@ -41,5 +41,5 @@ export function sanitizeName(raw) {
 
 // Texte de défi à partager (Web Share sur mobile, presse-papier sinon).
 export function challengeText(name, score, wave) {
-  return `⭐ ${name || 'Un pilote'} a marqué ${score} points (vague ${wave}) sur NOVA SWARM ! Qui fait mieux ?`;
+  return `⭐ ${name || 'Un pilote'} a marqué ${score} points (vague ${wave}) sur HYPERNOVA ! Qui fait mieux ?`;
 }
