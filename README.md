@@ -1,6 +1,6 @@
 # NOVA SWARM
 
-> Un hommage 3D à **Galaga** — vagues d'ennemis en formation, plongées kamikazes, crédits à ramasser
+> Shoot'em up spatial 3D — vagues d'ennemis en formation, plongées kamikazes, crédits à ramasser
 > et boutique d'améliorations entre chaque vague. Three.js + Vite, zéro asset externe : tous les
 > vaisseaux sont des meshes low-poly générés en code, tous les sons sont synthétisés en WebAudio.
 > Jouable au clavier **et au tactile** (PWA installable), avec un panthéon local pour se défier

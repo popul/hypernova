@@ -212,7 +212,7 @@ export class Game {
           <span class="pilot-badge-name">${pilot ? esc(pilot.name) : 'Choisir un pilote'}</span>
         </button>
         <div class="title-logo">NOVA<span>SWARM</span></div>
-        <div class="title-tag">— un hommage 3D à Galaga —</div>
+        <div class="title-tag">— Faites décoller la légende —</div>
         <div class="title-menu">
           <button class="btn-launch" id="btn-arcade">
             Partie rapide${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}

@@ -1,7 +1,7 @@
 {
   "name": "nova-swarm",
   "version": "1.0.0",
-  "description": "NOVA SWARM — un hommage 3D à Galaga : vagues d'ennemis, crédits, boutique d'améliorations. Three.js + Vite.",
+  "description": "NOVA SWARM — shoot'em up spatial 3D : vagues d'ennemis, crédits, boutique d'améliorations, campagnes. Three.js + Vite.",
   "private": true,
   "type": "module",
   "scripts": {
