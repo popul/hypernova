@@ -1,0 +1,30 @@
+# Copie de référence de l'Application ArgoCD (la version vivante est dans le
+# repo homelab : argo/apps/services/hypernova.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hypernova
+  namespace: argocd
+spec:
+  project: default
+  # Chart OCI publié par la CI de github.com/popul/hypernova
+  # (registry public : aucun secret de repository nécessaire).
+  source:
+    repoURL: ghcr.io/popul/charts
+    chart: hypernova
+    targetRevision: 1.0.0
+    helm:
+      valuesObject:
+        httpRoute:
+          hostnames:
+            - hypernova.lab.musso.io
+            - hypernova.musso.io
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hypernova
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

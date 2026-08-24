@@ -1,0 +1,17 @@
+apiVersion: v2
+name: hypernova
+description: HYPERNOVA — shoot'em up spatial 3D (Three.js), servi par nginx.
+type: application
+# Ces deux versions sont réécrites par la CI au moment du packaging (tag Git).
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - game
+  - threejs
+  - static-site
+home: https://github.com/popul/hypernova
+sources:
+  - https://github.com/popul/hypernova
+maintainers:
+  - name: popul
+icon: https://raw.githubusercontent.com/popul/hypernova/main/public/icons/icon-192.png

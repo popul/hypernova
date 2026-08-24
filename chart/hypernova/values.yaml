@@ -1,0 +1,85 @@
+# Valeurs par défaut du chart hypernova.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/popul/hypernova
+  # Vide = on prend appVersion du Chart (recommandé : versions liées).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+# HTTPRoute (Gateway API) — le mode d'exposition du homelab.
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - hypernova.lab.musso.io
+  annotations: {}
+
+# Ingress classique, pour un cluster sans Gateway API.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: hypernova.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Le jeu est un site statique : quelques Mo de RAM suffisent.
+resources:
+  requests:
+    cpu: 10m
+    memory: 24Mi
+  limits:
+    memory: 64Mi
+
+# L'image nginx-unprivileged écoute en 8080 et tourne déjà sans privilèges.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# readOnlyRootFilesystem impose des volumes inscriptibles pour nginx.
+emptyDirs:
+  cache: 32Mi
+  run: 8Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 20
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 1
+  periodSeconds: 10
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

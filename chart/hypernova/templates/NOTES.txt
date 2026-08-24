@@ -1,0 +1,17 @@
+HYPERNOVA est déployé.
+
+{{- if .Values.httpRoute.enabled }}
+{{ range .Values.httpRoute.hostnames }}
+  https://{{ . }}
+{{- end }}
+{{- else if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+  Aucune route exposée. Pour essayer localement :
+    kubectl port-forward svc/{{ include "hypernova.fullname" . }} 8080:{{ .Values.service.port }}
+    puis http://localhost:8080
+{{- end }}
+
+Flèches pour se déplacer, Ctrl ou Espace pour tirer, Entrée pour commencer.

@@ -1,0 +1,8 @@
+# Valeurs utilisées par le homelab (référence — la source de vérité est
+# l'Application ArgoCD dans le repo homelab : argo/apps/services/hypernova.yaml).
+httpRoute:
+  hostnames:
+    # LAN / Tailscale
+    - hypernova.lab.musso.io
+    # Public, via le tunnel Cloudflare (*.musso.io -> Traefik)
+    - hypernova.musso.io

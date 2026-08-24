@@ -1,0 +1,14 @@
+services:
+  hypernova:
+    build: .
+    image: hypernova:latest
+    container_name: hypernova
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - '8090:8080'

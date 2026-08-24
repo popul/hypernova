@@ -1,0 +1,211 @@
+name: Image et chart
+
+on:
+  push:
+    branches: [main]
+    # Une modification de doc ou d'exemple de déploiement ne change ni l'image
+    # ni le chart : inutile de reconstruire. Les tags, eux, publient toujours.
+    paths-ignore:
+      - '**/*.md'
+      - 'deploy/values-homelab.yaml'
+      - 'deploy/argocd-application.yaml'
+      - 'LICENSE'
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ${{ github.repository }}
+
+jobs:
+  verifier:
+    name: Vérifications
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Lint, format et build
+        run: |
+          npm ci
+          npx eslint src scripts vite.config.js
+          npx prettier --check "src/**/*.{js,css}" index.html
+          npm run build
+          echo "✅ lint + format + build"
+
+      - name: Intégrité des campagnes publiées
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const index = JSON.parse(readFileSync("public/campaigns/index.json"));
+            for (const entry of index.campaigns) {
+              const c = JSON.parse(readFileSync(`public/campaigns/${entry.file}`));
+              if (c.id !== entry.id) throw new Error(`${entry.file}: id incohérent`);
+              if (!Array.isArray(c.systems) || c.systems.length === 0)
+                throw new Error(`${entry.file}: systems vide`);
+              for (const s of c.systems) {
+                if (!s.id || !s.name) throw new Error(`${entry.file}/${s.id}: id/name requis`);
+                if (!Number.isInteger(s.waves) || s.waves < 1)
+                  throw new Error(`${entry.file}/${s.id}: waves invalide`);
+                if (!Number.isInteger(s.baseWave) || s.baseWave < 1)
+                  throw new Error(`${entry.file}/${s.id}: baseWave invalide`);
+              }
+              console.log(`✅ ${entry.file} — ${c.systems.length} systèmes`);
+            }
+          '
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Lint et rendu du chart
+        run: |
+          helm lint chart/hypernova
+          helm template essai chart/hypernova > /dev/null
+          helm template essai chart/hypernova \
+            --set httpRoute.enabled=false --set ingress.enabled=true > /dev/null
+          echo "✅ chart valide"
+
+      - name: Test de fumée de l'image
+        run: |
+          docker build -t hypernova:essai .
+          # Mêmes contraintes qu'en production : racine en lecture seule, non-root.
+          docker run -d --name essai -p 8137:8080 \
+            --read-only --tmpfs /var/cache/nginx --tmpfs /tmp \
+            --security-opt no-new-privileges:true hypernova:essai
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8137/healthz >/dev/null && break || sleep 1
+          done
+          echec=0
+          verifier() {
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8137/$1")
+            type=$(curl -s -o /dev/null -w '%{content_type}' "http://localhost:8137/$1")
+            printf '%-40s %s  %s\n' "$1" "$code" "$type"
+            [ "$code" = "200" ] || echec=1
+            [ -n "$2" ] && case "$type" in *"$2"*) ;; *) echo "  ❌ type attendu : $2"; echec=1 ;; esac
+            return 0
+          }
+          verifier healthz
+          verifier index.html text/html
+          verifier manifest.webmanifest manifest
+          verifier sw.js javascript
+          verifier campaigns/index.json json
+          verifier campaigns/orion-2026-w35.json json
+          verifier icons/icon-192.png image/png
+          # Bundle hashé par Vite : extrait de l'index, doit être servi immutable.
+          bundle=$(curl -s http://localhost:8137/ | grep -o '/assets/[^"]*\.js' | head -1)
+          verifier "${bundle#/}" javascript
+          echo "--- politiques de cache ---"
+          curl -sI "http://localhost:8137${bundle}" | grep -i '^cache-control' \
+            | grep -q immutable || { echo "❌ assets non immutables"; echec=1; }
+          curl -sI http://localhost:8137/sw.js | grep -i '^cache-control' \
+            | grep -q no-cache || { echo "❌ sw.js ne doit pas être caché"; echec=1; }
+          curl -sI http://localhost:8137/campaigns/index.json | grep -i '^cache-control' \
+            | grep -q no-store || { echo "❌ campagnes cachées"; echec=1; }
+          # L'utilisateur doit tourner en non-root (contrainte du cluster).
+          uid=$(docker exec essai id -u)
+          echo "uid dans le conteneur : $uid"
+          [ "$uid" != "0" ] || { echo "❌ conteneur en root"; echec=1; }
+          docker rm -f essai >/dev/null
+          [ "$echec" = "0" ] && echo "✅ image conforme" || exit 1
+
+  image:
+    name: Image de conteneur
+    needs: verifier
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion au registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Construction et publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  chart:
+    name: Chart Helm (OCI)
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Version du chart
+        id: version
+        run: |
+          # Un tag vX.Y.Z donne la version publiée ; sinon on construit une version
+          # de développement horodatée, valide au sens semver.
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0-main.$(date -u +%Y%m%d%H%M%S)+${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Version du chart : ${VERSION}"
+
+      - name: Packaging
+        run: |
+          # appVersion pointe le tag d'image correspondant.
+          APP="${{ needs.image.outputs.version }}"
+          helm package chart/hypernova \
+            --version "${{ steps.version.outputs.version }}" \
+            --app-version "${APP}" \
+            --destination dist
+
+      - name: Publication dans GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} \
+            --username ${{ github.actor }} --password-stdin
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          helm push dist/*.tgz "oci://${{ env.REGISTRY }}/${OWNER}/charts"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chart
+          path: dist/*.tgz
