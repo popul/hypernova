@@ -10,7 +10,7 @@ import { slotBasePosition, difficulty } from './waves.js';
 const EXPLOSION_COLORS = { drone: 0xff5db1, wasp: 0xff3df0, brute: 0xff9f43, boss: 0xff4757 };
 
 class Enemy {
-  constructor(scene, spawn, waveNumber) {
+  constructor(scene, spawn, waveNumber, hpMul = 1) {
     this.type = spawn.type;
     this.def = ENEMY_TYPES[spawn.type];
     if (this.type === 'boss') {
@@ -20,6 +20,9 @@ class Enemy {
       const every = this.type === 'brute' ? ENEMY.hpEveryWavesBrute : ENEMY.hpEveryWavesSmall;
       this.hp = this.def.hp + Math.floor(scaledWaves / every);
     }
+    // Le boss scale déjà par vague : le mod de mission ne s'applique qu'aux autres types,
+    // sinon les boss de fin de campagne deviennent des sacs à PV interminables.
+    if (this.type !== 'boss') this.hp = Math.max(1, Math.round(this.hp * hpMul));
     this.maxHp = this.hp;
     this.alive = true;
     this.state = 'entering';
@@ -52,6 +55,7 @@ export class Enemies {
     this.waveClock = 0;
     this.formationTime = 0;
     this.waveNumber = 1;
+    this.mods = { hp: 1, fire: 1, dive: 1, credits: 1 };
     this.diff = difficulty(1);
     this.diveTimer = 2.5;
     this.fireTimer = 2;
@@ -60,10 +64,11 @@ export class Enemies {
     this._tmp2 = new THREE.Vector3();
   }
 
-  startWave(waveDef, waveNumber) {
+  startWave(waveDef, waveNumber, mods = { hp: 1, fire: 1, dive: 1, credits: 1 }) {
     this.clear();
+    this.mods = mods;
     this.waveNumber = waveNumber;
-    this.diff = difficulty(waveNumber);
+    this.diff = difficulty(waveNumber, mods);
     this.pending = [...waveDef.spawns];
     this.waveClock = 0;
     this.diveTimer = this.diff.diveInterval + 2; // répit le temps de l'entrée
@@ -117,11 +122,13 @@ export class Enemies {
     // Fait entrer les vaisseaux dont l'heure est venue.
     for (let i = this.pending.length - 1; i >= 0; i--) {
       if (this.pending[i].delay <= this.waveClock) {
-        const enemy = new Enemy(this.scene, this.pending[i], this.waveNumber);
+        const enemy = new Enemy(this.scene, this.pending[i], this.waveNumber, this.mods?.hp ?? 1);
         if (enemy.type === 'boss') {
           this.boss = enemy;
           game.audio.bossAlarm();
+          game.audio.setMode('boss'); // la musique martèle tant que l'amiral est en vie
           game.hud.showBossBar();
+          game.characters?.onBossIntro();
         }
         this.list.push(enemy);
         this.pending.splice(i, 1);
@@ -267,6 +274,7 @@ export class Enemies {
       return w(a) - w(b);
     });
     const e = candidates[0];
+    game.characters?.onDive(); // NOVA alerte (anti-spam géré côté personnage)
     const start = e.group.position.clone();
     const px = game.player.position.x;
     e.curve = new THREE.CubicBezierCurve3(
@@ -315,7 +323,13 @@ export class Enemies {
     if (!e.alive) return false;
     e.hp -= amount;
     e.flashTime = 0.14;
-    if (e.type === 'boss') game.hud.setBossHp(e.hp / e.maxHp);
+    if (e.type === 'boss') {
+      game.hud.setBossHp(e.hp / e.maxHp);
+      if (!e.halfTaunted && e.hp > 0 && e.hp <= e.maxHp / 2) {
+        e.halfTaunted = true;
+        game.characters?.onBossHalf();
+      }
+    }
     if (e.hp > 0) {
       game.fx.burst(e.group.position, 0xffffff, { count: 4, speed: 5, life: 0.25 });
       return false;
@@ -327,6 +341,8 @@ export class Enemies {
       game.hud.hideBossBar();
       game.fx.explosionBig(e.group.position, EXPLOSION_COLORS.boss);
       game.audio.explosionBig();
+      game.audio.setMode('play');
+      game.characters?.onBossDown();
     } else if (e.type === 'brute') {
       game.fx.explosionBig(e.group.position, EXPLOSION_COLORS.brute);
       game.audio.explosionBig();

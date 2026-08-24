@@ -4,6 +4,21 @@
 import * as THREE from 'three';
 import { ARENA } from './constants.js';
 
+// Halo doux réutilisé par les projectiles ennemis (lisibilité sur fond étoilé).
+function makeGlowTexture() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.35, 'rgba(255,61,240,0.55)');
+  grad.addColorStop(1, 'rgba(255,61,240,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
 function outOfBounds(p) {
   return (
     p.z < ARENA.bulletCullZMin || p.z > ARENA.bulletCullZMax || Math.abs(p.x) > ARENA.bulletCullXMax
@@ -66,9 +81,35 @@ export class PlayerBullets extends Pool {
 
 export class EnemyBullets extends Pool {
   constructor(scene) {
-    const geo = new THREE.SphereGeometry(0.24, 8, 8);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xff5df0, toneMapped: false });
-    super(scene, 90, () => new THREE.Mesh(geo, mat), 0.38);
+    // Noyau blanc chaud + coque magenta + halo : impossible à confondre avec une étoile
+    // (les étoiles sont petites, bleutées et lentes ; les tirs sont gros, roses et rapides).
+    const coreGeo = new THREE.SphereGeometry(0.15, 8, 8);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xfff3fb, toneMapped: false });
+    const shellGeo = new THREE.SphereGeometry(0.27, 10, 10);
+    const shellMat = new THREE.MeshBasicMaterial({
+      color: 0xff3df0,
+      transparent: true,
+      opacity: 0.75,
+      toneMapped: false,
+    });
+    const glowTex = makeGlowTexture();
+    const makeMesh = () => {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(coreGeo, coreMat));
+      g.add(new THREE.Mesh(shellGeo, shellMat));
+      const halo = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: glowTex,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      halo.scale.setScalar(1.7);
+      g.add(halo);
+      return g;
+    };
+    super(scene, 90, makeMesh, 0.38);
   }
 
   update(dt) {

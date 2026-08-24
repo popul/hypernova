@@ -45,8 +45,10 @@ function makeEntryCurve(variant, end) {
 const VARIANTS = ['left', 'right', 'top'];
 
 // Renvoie { spawns: [{type, row, col, cols, curve, delay}], boss: bool }
-export function makeWave(n) {
-  const isBossWave = n % WAVES.bossEvery === 0;
+// opts.forceBoss / opts.noBoss : contrôle du boss par les missions de campagne
+// (en arcade, le boss revient toutes les WAVES.bossEvery vagues).
+export function makeWave(n, opts = {}) {
+  const isBossWave = opts.forceBoss || (!opts.noBoss && n % WAVES.bossEvery === 0);
   const cols = Math.min(WAVES.colsBase + Math.floor(n / 3), WAVES.colsMax);
   const spawns = [];
   const tmp = new THREE.Vector3();
@@ -96,14 +98,18 @@ export function makeWave(n) {
   return { spawns, boss: isBossWave };
 }
 
-// Paramètres de difficulté dérivés du numéro de vague.
-export function difficulty(n) {
+// Paramètres de difficulté dérivés du numéro de vague, modulés par les
+// modificateurs de mission (campagne) : fire = densité de tir, dive = agressivité.
+export function difficulty(n, mods = { fire: 1, dive: 1 }) {
   return {
-    diveInterval: Math.max(ENEMY.diveIntervalMin, ENEMY.diveIntervalBase - n * 0.18),
-    diveSpeed: ENEMY.diveSpeedBase + n * ENEMY.diveSpeedPerWave,
+    diveInterval: Math.max(
+      ENEMY.diveIntervalMin / mods.dive,
+      (ENEMY.diveIntervalBase - n * 0.18) / mods.dive
+    ),
+    diveSpeed: (ENEMY.diveSpeedBase + n * ENEMY.diveSpeedPerWave) * Math.sqrt(mods.dive),
     formationFireInterval: Math.max(
-      ENEMY.formationFireIntervalMin,
-      ENEMY.formationFireIntervalBase - n * 0.14
+      ENEMY.formationFireIntervalMin / mods.fire,
+      (ENEMY.formationFireIntervalBase - n * 0.14) / mods.fire
     ),
     bulletSpeed: Math.min(
       ENEMY.bulletSpeedMax,

@@ -1,5 +1,5 @@
-// Chef d'orchestre : machine à états (titre → jeu → boutique → game over),
-// collisions, score, combo, économie, persistance du record.
+// Chef d'orchestre : machine à états (titre → jeu → boutique → game over, carte de
+// campagne, victoire de mission), collisions, score, combo, économie, persistance.
 
 import * as THREE from 'three';
 import { Player } from './player.js';
@@ -8,9 +8,38 @@ import { PlayerBullets, EnemyBullets, Missiles } from './bullets.js';
 import { Pickups } from './pickups.js';
 import { Hud } from './hud.js';
 import { Shop } from './shop.js';
+import { GalaxyMap } from './galaxymap.js';
+import { Cinematic } from './cinematic.js';
 import { makeWave } from './waves.js';
 import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
 import { COMBO, PLAYER, STORAGE_KEYS } from './constants.js';
+import { loadScores, saveScore, challengeText } from './leaderboard.js';
+import {
+  loadCampaigns,
+  unseenCampaigns,
+  markCampaignsSeen,
+  saveMissionResult,
+  loadProgress,
+  enableAlerts,
+  notifyNewCampaigns,
+  DEFAULT_MODS,
+} from './campaign.js';
+import {
+  listPilots,
+  activePilot,
+  setActivePilot,
+  createPilot,
+  hasPin,
+  verifyPin,
+} from './pilots.js';
+import { Characters } from './characters.js';
+import { isTouchDevice } from '../core/input.js';
+
+const IS_TOUCH = isTouchDevice();
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
 export class Game {
   constructor({ scene, camera, renderer, input, audio, fx, hudRoot, overlayRoot }) {
@@ -33,30 +62,116 @@ export class Game {
       onBuy: (id) => this.buy(id),
       onLaunch: () => this.launchNextWave(),
     });
+    this.galaxyMap = new GalaxyMap(overlayRoot, {
+      onLaunch: (campaign, systemIdx) => this.startRun('campaign', { campaign, systemIdx }),
+      onBack: () => this.showTitle(),
+      onEnableAlerts: () => enableAlerts(),
+      audio,
+    });
+    this.characters = new Characters(hudRoot.parentElement, audio);
+    this.cinematic = new Cinematic({
+      scene,
+      audio,
+      fx,
+      overlayRoot,
+      player: this.player,
+      characters: this.characters,
+    });
+    this.cameraOverride = null;
 
     this.state = 'title';
+    this.mode = 'arcade';
+    this.mission = null; // { campaign, systemIdx, system } en mode campagne
     this.paused = false;
     this.hiscore = Number(localStorage.getItem(STORAGE_KEYS.hiscore)) || 0;
     this.bestWave = Number(localStorage.getItem(STORAGE_KEYS.bestWave)) || 0;
     this._tmp = new THREE.Vector3();
 
-    input.on('Space', () => {
-      if (this.state === 'title') this.startRun();
-      else if (this.state === 'gameover') this.startRun();
-    });
-    input.on('KeyP', () => this.togglePause());
-    input.on('Escape', () => this.togglePause());
-    input.on('KeyM', () => {
-      const muted = this.audio.toggleMute();
-      this.hud.announce(muted ? 'Son coupé' : 'Son activé', '', 900);
+    // Campagnes : chargées en tâche de fond (réseau + fallback embarqué).
+    this.campaigns = [];
+    this.unseenIds = [];
+    loadCampaigns().then((campaigns) => {
+      this.campaigns = campaigns;
+      const fresh = unseenCampaigns(campaigns);
+      this.unseenIds = fresh.map((c) => c.id);
+      if (fresh.length) notifyNewCampaigns(fresh);
+      if (this.state === 'title') this.showTitle(); // rafraîchit le badge « nouveau »
     });
 
-    this.showTitle();
+    const typing = (e) => e.target instanceof Element && e.target.closest('input, button');
+    input.on('Space', (e) => {
+      if (typing(e)) return;
+      if (this.state === 'cinematic') this.cinematic.skip();
+      else if (this.state === 'gate') {
+        this.audio.unlock();
+        this.playCinematic();
+      } else if (this.state === 'title') this.startRun('arcade');
+      else if (this.state === 'gameover' || this.state === 'mission-complete') this._replay();
+    });
+    input.on('KeyP', () => this.togglePause());
+    input.on('Escape', () => {
+      if (this.state === 'cinematic') this.cinematic.skip();
+      else this.togglePause();
+    });
+    input.on('KeyM', (e) => {
+      if (typing(e)) return;
+      this._toggleSound();
+    });
+
+    this.hud.root.querySelector('#btn-pause-touch').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.togglePause();
+    });
+    this.hud.root.querySelector('#btn-sound-touch').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._toggleSound();
+    });
+
+    // Premier lancement : petit écran-porte (le geste débloque l'audio), puis la cinématique.
+    if (!localStorage.getItem(STORAGE_KEYS.introSeen)) {
+      this.showGate();
+    } else {
+      this.showTitle();
+    }
+  }
+
+  showGate() {
+    this.state = 'gate';
+    this.hud.root.classList.add('hidden');
+    const el = this._screen(`
+      <div class="screen gate">
+        <div class="gate-logo">NOVA<span>SWARM</span></div>
+        <button class="btn-launch" id="btn-enter">▶ Entrer dans la légende</button>
+      </div>
+    `);
+    el.querySelector('#btn-enter').addEventListener('click', () => {
+      this.audio.unlock();
+      this.playCinematic();
+    });
+  }
+
+  playCinematic() {
+    this.state = 'cinematic';
+    this.audio.setMode('cinematic');
+    this.hud.root.classList.add('hidden');
+    this.galaxyMap.close();
+    this.shop.close();
+    this.overlayRoot.innerHTML = '';
+    this.cinematic.play(() => {
+      localStorage.setItem(STORAGE_KEYS.introSeen, '1');
+      this.showTitle();
+    });
+  }
+
+  _toggleSound() {
+    const muted = this.audio.toggleMute();
+    this.hud.announce(muted ? 'Son coupé' : 'Son activé', '', 900);
   }
 
   // ---- Écrans ----
 
   _screen(html) {
+    this.galaxyMap.close();
     this.overlayRoot.innerHTML = '';
     const div = document.createElement('div');
     div.innerHTML = html;
@@ -65,34 +180,216 @@ export class Game {
     return el;
   }
 
+  _leaderboardHtml(scores, highlightRank = -1) {
+    if (!scores.length) {
+      return '<div class="lb-empty">Aucun pilote au panthéon — soyez le premier !</div>';
+    }
+    return `<ol class="lb-list">${scores
+      .map(
+        (s, i) => `
+        <li class="lb-row${i + 1 === highlightRank ? ' me' : ''}${i === 0 ? ' first' : ''}">
+          <span class="lb-rank">${i + 1}</span>
+          <span class="lb-name">${esc(s.name)}</span>
+          <span class="lb-wave">v.${s.wave}</span>
+          <span class="lb-score">${s.score}</span>
+        </li>`
+      )
+      .join('')}</ol>`;
+  }
+
   showTitle() {
     this.state = 'title';
+    this.mission = null;
     this.audio.setMode('title');
     this.hud.root.classList.add('hidden');
+    const scores = loadScores().slice(0, 5);
+    const hasNew = this.unseenIds.length > 0;
+    const pilot = activePilot();
     const el = this._screen(`
       <div class="screen title">
+        <button class="pilot-badge" id="btn-pilot" title="Changer de pilote">
+          <span class="pilot-avatar">${pilot ? esc(pilot.name[0]) : '?'}</span>
+          <span class="pilot-badge-name">${pilot ? esc(pilot.name) : 'Choisir un pilote'}</span>
+        </button>
         <div class="title-logo">NOVA<span>SWARM</span></div>
         <div class="title-tag">— un hommage 3D à Galaga —</div>
-        <div class="title-press">Espace pour décoller</div>
-        <div class="title-controls">
-          <span>← → ou Q / D&nbsp;&nbsp;bouger</span>
-          <span>Espace&nbsp;&nbsp;tirer</span>
-          <span>M&nbsp;&nbsp;son</span>
+        <div class="title-menu">
+          <button class="btn-launch" id="btn-arcade">
+            Partie rapide${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}
+          </button>
+          <button class="btn-secondary" id="btn-campaign">
+            Campagne · Voie lactée
+            ${hasNew ? '<span class="badge-new">Nouveau</span>' : ''}
+          </button>
         </div>
+        <div class="title-controls">
+          ${
+            IS_TOUCH
+              ? '<span>Glissez pour piloter</span><span>Le tir est automatique</span>'
+              : '<span>← → ou Q / D&nbsp;&nbsp;bouger</span><span>Espace&nbsp;&nbsp;tirer</span><span>M&nbsp;&nbsp;son</span>'
+          }
+        </div>
+        <button class="btn-ghost" id="btn-story">◈ Histoire</button>
         ${
-          this.hiscore > 0
-            ? `<div class="title-hiscore">Record&nbsp;<b class="gold">${this.hiscore}</b>&nbsp;·&nbsp;Meilleure vague&nbsp;<b>${this.bestWave}</b></div>`
+          scores.length
+            ? `<div class="title-lb"><div class="lb-title">— Meilleurs pilotes —</div>${this._leaderboardHtml(scores)}</div>`
             : ''
         }
       </div>
     `);
-    el.addEventListener('click', () => this.startRun());
+    el.querySelector('#btn-arcade').addEventListener('click', () => this.startRun('arcade'));
+    el.querySelector('#btn-campaign').addEventListener('click', () => this.showGalaxy());
+    el.querySelector('#btn-story').addEventListener('click', () => this.playCinematic());
+    el.querySelector('#btn-pilot').addEventListener('click', () => this.showPilotSelect());
+  }
+
+  // Sélecteur de profils : chaque copain a son badge ; un code secret optionnel (4 chiffres)
+  // dissuade l'emprunt de pseudo sur un appareil partagé.
+  showPilotSelect(onDone = null) {
+    this.state = 'pilots';
+    this.hud.root.classList.add('hidden');
+    const done = () => (onDone ? onDone() : this.showTitle());
+    const pilots = listPilots();
+    const el = this._screen(`
+      <div class="screen pilots">
+        <h2 class="shop-title">Qui pilote ?</h2>
+        <div class="pilot-grid">
+          ${pilots
+            .map(
+              (p, i) => `
+            <button class="pilot-card" data-pilot="${i}">
+              <span class="pilot-avatar big">${esc(p.name[0])}</span>
+              <span class="pilot-card-name">${esc(p.name)}${hasPin(p) ? ' <span class="pin-lock">🔒</span>' : ''}</span>
+            </button>`
+            )
+            .join('')}
+          <button class="pilot-card new" id="pilot-new">
+            <span class="pilot-avatar big">+</span>
+            <span class="pilot-card-name">Nouveau pilote</span>
+          </button>
+        </div>
+        <div class="pilot-form-zone" id="pilot-form-zone"></div>
+        <button class="btn-ghost" id="pilots-back">← Retour</button>
+      </div>
+    `);
+    const zone = el.querySelector('#pilot-form-zone');
+    el.querySelector('#pilots-back').addEventListener('click', () => this.showTitle());
+
+    el.querySelectorAll('.pilot-card[data-pilot]').forEach((card) =>
+      card.addEventListener('click', () => {
+        const pilot = pilots[Number(card.dataset.pilot)];
+        if (!hasPin(pilot)) {
+          setActivePilot(pilot.name);
+          this.audio.buy();
+          done();
+          return;
+        }
+        zone.innerHTML = `
+          <form class="lb-form" id="pin-form">
+            <input id="pin-input" type="password" inputmode="numeric" maxlength="4"
+                   placeholder="Code de ${esc(pilot.name)}" autocomplete="off" aria-label="Code secret" />
+            <button class="btn-launch" type="submit">OK</button>
+          </form>`;
+        const input = zone.querySelector('#pin-input');
+        input.focus();
+        zone.querySelector('#pin-form').addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (verifyPin(pilot, input.value)) {
+            setActivePilot(pilot.name);
+            this.audio.buy();
+            done();
+          } else {
+            this.audio.deny();
+            input.value = '';
+            input.placeholder = 'Mauvais code…';
+          }
+        });
+      })
+    );
+
+    el.querySelector('#pilot-new').addEventListener('click', () => {
+      zone.innerHTML = `
+        <form class="lb-form pilot-create" id="create-form">
+          <input id="new-name" type="text" maxlength="10" placeholder="TON NOM" autocomplete="off" aria-label="Nom du pilote" />
+          <input id="new-pin" type="password" inputmode="numeric" maxlength="4"
+                 placeholder="Code secret (option)" autocomplete="off" aria-label="Code secret optionnel" />
+          <button class="btn-launch" type="submit">C'est moi !</button>
+          <div class="pilot-error" id="pilot-error"></div>
+        </form>`;
+      const nameInput = zone.querySelector('#new-name');
+      nameInput.focus();
+      zone.querySelector('#create-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const result = createPilot(nameInput.value, zone.querySelector('#new-pin').value);
+        if (result.ok) {
+          this.audio.buy();
+          done();
+        } else {
+          this.audio.deny();
+          zone.querySelector('#pilot-error').textContent =
+            result.error === 'exists'
+              ? 'Ce nom est déjà pris sur cet appareil.'
+              : result.error === 'full'
+                ? 'Trop de pilotes ! Supprime-en un (à venir).'
+                : 'Choisis un nom (lettres et chiffres).';
+        }
+      });
+    });
+  }
+
+  showGalaxy() {
+    if (!this.campaigns.length) return; // chargement pas terminé (rare : clic immédiat)
+    this.state = 'galaxy';
+    this.audio.setMode('title');
+    this.hud.root.classList.add('hidden');
+    this.overlayRoot.innerHTML = '';
+    this.galaxyMap.open({
+      campaigns: this.campaigns,
+      unseenIds: this.unseenIds,
+      selectedId: this.mission?.campaign.id ?? null,
+    });
+    markCampaignsSeen(this.campaigns);
+  }
+
+  _replay() {
+    if (this.mode === 'campaign' && this.mission) {
+      const next =
+        this.state === 'mission-complete' &&
+        this.mission.systemIdx + 1 < this.mission.campaign.systems.length
+          ? this.mission.systemIdx + 1
+          : this.mission.systemIdx;
+      this.startRun('campaign', { campaign: this.mission.campaign, systemIdx: next });
+    } else {
+      this.startRun('arcade');
+    }
   }
 
   showGameOver() {
     this.state = 'gameover';
     this.audio.setMode('title');
     this.audio.gameOver();
+    this.hud.root.classList.add('hidden');
+
+    if (this.mode === 'campaign') {
+      const el = this._screen(`
+        <div class="screen gameover">
+          <div class="go-title">Mission échouée</div>
+          <div class="go-stats">
+            <div><span class="hud-label">Système</span><b>${esc(this.mission.system.name)}</b></div>
+            <div><span class="hud-label">Score</span><b>${this.score}</b></div>
+          </div>
+          <div class="title-menu">
+            <button class="btn-launch" id="btn-retry">Réessayer${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}</button>
+            <button class="btn-secondary" id="btn-map">Carte de la galaxie</button>
+          </div>
+        </div>
+      `);
+      el.querySelector('#btn-retry').addEventListener('click', () => this._replay());
+      el.querySelector('#btn-map').addEventListener('click', () => this.showGalaxy());
+      return;
+    }
+
+    // Arcade : records + inscription au panthéon local.
     const newRecord = this.score > 0 && this.score >= this.hiscore;
     if (this.score > this.hiscore) {
       this.hiscore = this.score;
@@ -102,7 +399,21 @@ export class Game {
       this.bestWave = this.wave;
       localStorage.setItem(STORAGE_KEYS.bestWave, String(this.bestWave));
     }
-    this.hud.root.classList.add('hidden');
+    // Inscription automatique au panthéon sous le pilote actif : zéro friction.
+    const pilot = activePilot();
+    let rank = -1;
+    let scores;
+    if (this.score > 0 && pilot) {
+      ({ rank, scores } = saveScore(pilot.name, this.score, this.wave));
+    } else {
+      scores = loadScores();
+    }
+    const pilotLine =
+      this.score > 0 && pilot
+        ? rank > 0
+          ? `<div class="go-pilot">${esc(pilot.name)} — inscrit au panthéon <b class="gold">n°${rank}</b></div>`
+          : `<div class="go-pilot">${esc(pilot.name)} — pas encore dans le top 10, retente !</div>`
+        : '';
     const el = this._screen(`
       <div class="screen gameover">
         <div class="go-title">Partie terminée</div>
@@ -112,24 +423,111 @@ export class Game {
           <div><span class="hud-label">Vague</span><b>${this.wave}</b></div>
           <div><span class="hud-label">Record</span><b class="gold">${this.hiscore}</b></div>
         </div>
-        <div class="title-press">Espace pour rejouer</div>
+        ${pilotLine}
+        <div class="title-lb">
+          <div class="lb-title">— Panthéon —</div>
+          ${this._leaderboardHtml(scores, rank)}
+        </div>
+        <div class="title-menu">
+          <button class="btn-secondary" id="btn-share">📣 Défier les copains</button>
+          <button class="btn-launch" id="btn-replay">Rejouer${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}</button>
+        </div>
       </div>
     `);
-    el.addEventListener('click', () => this.startRun());
+    this.characters.onGameOver();
+    el.querySelector('#btn-share').addEventListener('click', () => {
+      this._share(challengeText(pilot?.name || 'Un pilote', this.score, this.wave));
+    });
+    el.querySelector('#btn-replay').addEventListener('click', () => this._replay());
+  }
+
+  showMissionComplete() {
+    this.state = 'mission-complete';
+    this.audio.setMode('shop');
+    this.audio.waveStart();
+    this.hud.root.classList.add('hidden');
+    const { campaign, systemIdx, system } = this.mission;
+    saveMissionResult(campaign.id, system.id, this.score, this.levels, this.credits);
+    this.characters.onMissionWon();
+    const isLast = systemIdx + 1 >= campaign.systems.length;
+    const next = isLast ? null : campaign.systems[systemIdx + 1];
+    const el = this._screen(`
+      <div class="screen mission-won">
+        <div class="announce-title">Système libéré</div>
+        <div class="mw-name">${esc(system.name)}</div>
+        ${isLast ? '<div class="go-record">★ Campagne terminée — la galaxie est libre ! ★</div>' : ''}
+        <div class="go-stats">
+          <div><span class="hud-label">Score</span><b>${this.score}</b></div>
+          <div><span class="hud-label">Vagues</span><b>${system.waves}</b></div>
+        </div>
+        <div class="title-menu">
+          ${
+            next
+              ? `<button class="btn-launch" id="btn-next">Cap sur ${esc(next.name)}${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}</button>`
+              : ''
+          }
+          <button class="btn-secondary" id="btn-map">Carte de la galaxie</button>
+          <button class="btn-secondary" id="btn-share">📣 Défier les copains</button>
+        </div>
+      </div>
+    `);
+    el.querySelector('#btn-next')?.addEventListener('click', () => this._replay());
+    el.querySelector('#btn-map').addEventListener('click', () => this.showGalaxy());
+    el.querySelector('#btn-share').addEventListener('click', () => {
+      this._share(
+        `🚀 ${activePilot()?.name || 'Un pilote'} a libéré ${system.name} (${this.score} points) dans la campagne « ${campaign.title} » de NOVA SWARM ! À ton tour !`
+      );
+    });
+  }
+
+  async _share(text) {
+    try {
+      if (navigator.share) {
+        await navigator.share({ text });
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      this.hud.announce('Défi copié !', 'Collez-le à vos copains', 1600);
+    } catch {
+      // Partage annulé par l'utilisateur : rien à faire.
+    }
   }
 
   // ---- Cycle de vie d'une partie ----
 
-  startRun() {
-    this.overlayRoot.innerHTML = '';
+  startRun(mode = 'arcade', missionRef = null) {
+    // En arcade, chaque partie appartient à un pilote (panthéon automatique).
+    if (mode === 'arcade' && !activePilot()) {
+      this.showPilotSelect(() => this.startRun('arcade'));
+      return;
+    }
+    this.mode = mode;
+    this.mission = missionRef
+      ? {
+          campaign: missionRef.campaign,
+          systemIdx: missionRef.systemIdx,
+          system: missionRef.campaign.systems[missionRef.systemIdx],
+        }
+      : null;
+
+    this.galaxyMap.close();
     this.shop.close();
+    this.overlayRoot.innerHTML = '';
     this.hud.root.classList.remove('hidden');
 
     this.score = 0;
-    this.credits = 0;
     this.wave = 0;
-    this.lives = PLAYER.baseLives;
-    this.levels = emptyLevels();
+    if (this.mode === 'campaign') {
+      // Le vaisseau se construit au fil de la campagne : améliorations et crédits persistés.
+      const progress = loadProgress(this.mission.campaign.id);
+      this.levels = { ...emptyLevels(), ...(progress.levels || {}) };
+      this.credits = progress.credits || 0;
+      this.lives = Math.min(PLAYER.maxLives, PLAYER.baseLives + (this.levels.hull || 0));
+    } else {
+      this.levels = emptyLevels();
+      this.credits = 0;
+      this.lives = PLAYER.baseLives;
+    }
     this.stats = computeStats(this.levels);
     this.combo = { chain: 0, mult: 1, timer: 0 };
     this.respawnTimer = 0;
@@ -153,6 +551,7 @@ export class Game {
     this.hud.hideBossBar();
 
     this.startWave(1);
+    this.characters.onRunStart(this.mode === 'campaign');
   }
 
   startWave(n) {
@@ -161,15 +560,29 @@ export class Game {
     this.audio.setMode('play');
     this.waveEndTimer = 0;
     this.waveBonusGiven = false;
-    this.hud.setWave(n);
-    const def = makeWave(n);
-    this.enemies.startWave(def, n);
-    if (def.boss) {
-      this.hud.announce(`Vague ${n}`, '⚠ Vaisseau-amiral détecté ⚠');
+
+    let def;
+    if (this.mode === 'campaign') {
+      const { system } = this.mission;
+      const diffWave = system.baseWave + n - 1;
+      def = makeWave(diffWave, {
+        forceBoss: !!system.bossFinal && n === system.waves,
+        noBoss: true,
+      });
+      this.enemies.startWave(def, diffWave, { ...DEFAULT_MODS, ...system.mods });
+      this.hud.setWave(`${n}/${system.waves}`);
+      if (n === 1) {
+        this.hud.announce(system.name, this.mission.campaign.title, 2600);
+      } else {
+        this.hud.announce(`Vague ${n}/${system.waves}`, def.boss ? '⚠ Vaisseau-amiral ⚠' : '');
+      }
     } else {
-      this.hud.announce(`Vague ${n}`);
-      this.audio.waveStart();
+      def = makeWave(n);
+      this.enemies.startWave(def, n, DEFAULT_MODS);
+      this.hud.setWave(n);
+      this.hud.announce(`Vague ${n}`, def.boss ? '⚠ Vaisseau-amiral détecté ⚠' : '');
     }
+    if (!def.boss) this.audio.waveStart();
   }
 
   launchNextWave() {
@@ -189,6 +602,7 @@ export class Game {
     this.combo = { chain: 0, mult: 1, timer: 0 };
     this.hud.setCombo(1, 0);
     this.shop.open(this._shopState());
+    this.characters.onShopOpen();
   }
 
   _shopState() {
@@ -214,6 +628,7 @@ export class Game {
     this.stats = computeStats(this.levels);
     this.hud.setCredits(this.credits);
     this.audio.buy();
+    this.characters.onBuy();
     this.shop.refresh(this._shopState());
   }
 
@@ -222,9 +637,12 @@ export class Game {
     this.paused = !this.paused;
     this.audio.setMode(this.paused ? 'off' : 'play');
     if (this.paused) {
-      this._screen(
-        '<div class="screen pause"><div class="go-title">Pause</div><div class="title-press">P pour reprendre</div></div>'
+      const el = this._screen(
+        `<div class="screen pause"><div class="go-title">Pause</div><div class="title-press">${
+          IS_TOUCH ? 'Touchez pour reprendre' : 'P pour reprendre'
+        }</div></div>`
       );
+      el.addEventListener('click', () => this.togglePause());
     } else {
       this.overlayRoot.innerHTML = '';
     }
@@ -234,6 +652,12 @@ export class Game {
 
   update(dt) {
     if (this.paused) return;
+
+    if (this.state === 'cinematic') {
+      this.cameraOverride = this.cinematic.update(dt);
+      return;
+    }
+    this.cameraOverride = null;
 
     if (this.state === 'playing') {
       this._updatePlaying(dt);
@@ -282,9 +706,10 @@ export class Game {
       }
     }
 
-    // Fin de vague → bonus puis boutique une fois les gemmes ramassées.
+    // Fin de vague → bonus, puis boutique (ou victoire de mission en campagne).
     if (vacuum && this.player.alive) {
-      if (!this.waveBonusGiven) {
+      const lastMissionWave = this.mode === 'campaign' && this.wave >= this.mission.system.waves;
+      if (!this.waveBonusGiven && !lastMissionWave) {
         this.waveBonusGiven = true;
         const bonus = 25 + this.wave * 10;
         this.credits += bonus;
@@ -293,7 +718,8 @@ export class Game {
       }
       this.waveEndTimer += dt;
       if (this.waveEndTimer > 1.7 && this.pickups.activeCount() === 0) {
-        this.openShop();
+        if (lastMissionWave) this.showMissionComplete();
+        else this.openShop();
       }
     }
   }
@@ -356,6 +782,7 @@ export class Game {
 
   _playerHit() {
     const result = this.player.takeHit(this);
+    if (result === 'shield') this.characters.onShieldLost();
     if (result !== 'hit') return;
     this.lives--;
     this.hud.setLives(this.lives);
@@ -363,6 +790,7 @@ export class Game {
     this.player.die(this);
     if (this.lives > 0) {
       this.respawnTimer = 1.3;
+      this.characters.onLifeLost();
     } else {
       this.gameOverTimer = 1.8;
     }
@@ -381,15 +809,17 @@ export class Game {
       this.audio.comboUp(newMult);
       this.hud.pulseCombo();
       this.hud.announce(`Combo ×${newMult}`, '', 800);
+      this.characters.onComboUp(newMult);
     }
 
     // Score.
     this.score += e.def.score * this.combo.mult;
     this.hud.setScore(this.score);
-    if (this.score > this.hiscore) this.hud.setHiscore(this.score);
+    if (this.mode === 'arcade' && this.score > this.hiscore) this.hud.setHiscore(this.score);
 
-    // Crédits (multiplicateur appliqué à la collecte).
-    this.pickups.dropFrom(e.group.position, e.def.credits, e.def.gemCount);
+    // Crédits (multiplicateur de combo appliqué à la collecte, mods de mission au drop).
+    const creditMul = this.enemies.mods?.credits ?? 1;
+    this.pickups.dropFrom(e.group.position, e.def.credits * creditMul, e.def.gemCount);
   }
 
   _collectCredit(value, pos3d) {

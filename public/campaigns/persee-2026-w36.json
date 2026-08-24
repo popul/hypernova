@@ -1,0 +1,87 @@
+{
+  "id": "persee-2026-w36",
+  "title": "Le Bras de Persée",
+  "subtitle": "Campagne de la semaine 36 — pilotes confirmés",
+  "publishedAt": "2026-08-31",
+  "systems": [
+    {
+      "id": "algol",
+      "name": "Algol — l’Étoile du Démon",
+      "desc": "Une binaire à éclipses où l’essaim se cache dans l’ombre. Ouvrez la voie.",
+      "waves": 3,
+      "baseWave": 4,
+      "mods": {
+        "hp": 1.1,
+        "fire": 1.1,
+        "dive": 1.1,
+        "credits": 1.2
+      }
+    },
+    {
+      "id": "capella",
+      "name": "Capella",
+      "desc": "Quatre soleils, quatre angles d’attaque. Les plongées viennent de partout.",
+      "waves": 3,
+      "baseWave": 5,
+      "mods": {
+        "hp": 1.1,
+        "fire": 1.15,
+        "dive": 1.45,
+        "credits": 1.25
+      }
+    },
+    {
+      "id": "crabe",
+      "name": "Nébuleuse du Crabe",
+      "desc": "Le pouls du pulsar affole les capteurs. Tirs ennemis en rafales serrées.",
+      "waves": 3,
+      "baseWave": 6,
+      "mods": {
+        "hp": 1.2,
+        "fire": 1.5,
+        "dive": 1.1,
+        "credits": 1.35
+      }
+    },
+    {
+      "id": "califorArm",
+      "name": "Nébuleuse de Californie",
+      "desc": "Un mur de blindés patrouille la côte stellaire. Percez-le.",
+      "waves": 3,
+      "baseWave": 8,
+      "mods": {
+        "hp": 1.5,
+        "fire": 1.1,
+        "dive": 1.1,
+        "credits": 1.45
+      }
+    },
+    {
+      "id": "doubleAmas",
+      "name": "Double Amas de Persée",
+      "desc": "Deux essaims jumeaux, un seul vaisseau. Tenez bon.",
+      "waves": 4,
+      "baseWave": 9,
+      "mods": {
+        "hp": 1.35,
+        "fire": 1.35,
+        "dive": 1.35,
+        "credits": 1.55
+      }
+    },
+    {
+      "id": "heartSoul",
+      "name": "Nébuleuses du Cœur et de l’Âme",
+      "desc": "Le cœur du bras de Persée bat pour l’amiral ennemi. Faites-le taire.",
+      "waves": 4,
+      "baseWave": 11,
+      "bossFinal": true,
+      "mods": {
+        "hp": 1.6,
+        "fire": 1.4,
+        "dive": 1.4,
+        "credits": 1.8
+      }
+    }
+  ]
+}

@@ -41,9 +41,11 @@ export class Starfield {
     this.layers = [];
     const starTex = makeStarTexture();
 
+    // Étoiles volontairement discrètes (petites, bleutées, semi-transparentes) :
+    // les projectiles ennemis doivent rester le seul élément rose et brillant du fond.
     for (const [count, size, speed, opacity] of [
-      [420, 0.55, 9, 0.9],
-      [260, 1.0, 16, 0.65],
+      [420, 0.42, 9, 0.55],
+      [240, 0.78, 16, 0.4],
     ]) {
       const positions = new Float32Array(count * 3);
       for (let i = 0; i < count; i++) {

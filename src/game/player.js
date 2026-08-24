@@ -56,8 +56,20 @@ export class Player {
     const { input, stats, bullets, missiles, enemies, audio, fx } = game;
 
     // Déplacement avec accélération/friction pour un feeling précis mais vivant.
-    const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    const targetVx = dir * stats.speed;
+    // Tactile : le vaisseau rejoint la position du doigt (vitesse plafonnée par les stats,
+    // pour que l'amélioration Propulseurs garde son intérêt sur mobile).
+    let targetVx;
+    if (input.touchActive) {
+      const targetX = this._touchWorldX(input.touchNdc, game.camera);
+      targetVx = THREE.MathUtils.clamp(
+        (targetX - this.group.position.x) * 8,
+        -stats.speed,
+        stats.speed
+      );
+    } else {
+      const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      targetVx = dir * stats.speed;
+    }
     this.vx += (targetVx - this.vx) * Math.min(1, 14 * dt);
     this.group.position.x = THREE.MathUtils.clamp(
       this.group.position.x + this.vx * dt,
@@ -111,6 +123,13 @@ export class Player {
       this.group.visible = Math.sin(this.time * 30) > -0.4;
       if (this.invulnTimer <= 0) this.group.visible = true;
     }
+  }
+
+  // Projette la position du doigt (NDC) sur la ligne de déplacement du vaisseau (y=0, z=playerZ).
+  _touchWorldX(ndc, camera) {
+    this._tmp.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position);
+    const t = (ARENA.playerZ - camera.position.z) / this._tmp.z;
+    return camera.position.x + this._tmp.x * t;
   }
 
   _shoot(stats, bullets, audio, fx) {

@@ -90,4 +90,5 @@ export const STORAGE_KEYS = {
   hiscore: 'novaswarm.hiscore',
   bestWave: 'novaswarm.bestwave',
   muted: 'novaswarm.muted',
+  introSeen: 'novaswarm.introseen',
 };

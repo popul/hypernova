@@ -1,6 +1,10 @@
 // HUD en DOM par-dessus le canvas : score, crédits, combo, vies, annonces, barre de boss.
 // Les valeurs sont mises en cache pour ne toucher le DOM que lorsqu'elles changent.
 
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 export class Hud {
   constructor(root) {
     this.root = root;
@@ -31,6 +35,10 @@ export class Hud {
       </div>
       <div class="announce" id="announce"></div>
       <div class="hud-hints">P pause · M son</div>
+      <div class="hud-touch">
+        <button id="btn-pause-touch" aria-label="Pause">⏸</button>
+        <button id="btn-sound-touch" aria-label="Couper le son">♪</button>
+      </div>
       <div class="credit-pops" id="credit-pops"></div>
     `;
     this.el = Object.fromEntries(
@@ -114,10 +122,11 @@ export class Hud {
     this.el['boss-bar'].classList.remove('visible');
   }
 
+  // title/sub sont échappés : ils peuvent venir des JSON de campagne (noms de systèmes).
   announce(title, sub = '', duration = 2200) {
     const el = this.el['announce'];
-    el.innerHTML = `<div class="announce-title">${title}</div>${
-      sub ? `<div class="announce-sub">${sub}</div>` : ''
+    el.innerHTML = `<div class="announce-title">${esc(title)}</div>${
+      sub ? `<div class="announce-sub">${esc(sub)}</div>` : ''
     }`;
     el.classList.remove('visible');
     void el.offsetWidth;
