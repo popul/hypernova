@@ -10,9 +10,9 @@ import { Hud } from './hud.js';
 import { Shop } from './shop.js';
 import { GalaxyMap } from './galaxymap.js';
 import { Cinematic } from './cinematic.js';
-import { makeWave } from './waves.js';
+import { makeWave, dailySeed } from './waves.js';
 import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
-import { COMBO, PLAYER, STORAGE_KEYS } from './constants.js';
+import { COMBO, PLAYER, STORAGE_KEYS, GRAZE, OVERDRIVE, PICKUPS } from './constants.js';
 import { loadScores, saveScore, challengeText } from './leaderboard.js';
 import {
   loadCampaigns,
@@ -108,6 +108,14 @@ export class Game {
       } else if (this.state === 'title') this.startRun('arcade');
       else if (this.state === 'gameover' || this.state === 'mission-complete') this._replay();
     });
+    // Une seule touche pour les deux dépenses d'énergie : tap = bombe, maintien = Overdrive.
+    input.on('KeyX', (e) => {
+      if (typing(e)) return;
+      this._energyPressStart = performance.now();
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyX') this._releaseEnergyButton();
+    });
     input.on('KeyP', () => this.togglePause());
     input.on('Escape', () => {
       if (this.state === 'cinematic') this.cinematic.skip();
@@ -126,6 +134,23 @@ export class Game {
       e.stopPropagation();
       this._toggleSound();
     });
+
+    // Bouton d'énergie tactile : même geste que la touche X (tap / maintien).
+    const energyBtn = this.hud.root.querySelector('#btn-energy-touch');
+    const press = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      this._energyPressStart = performance.now();
+    };
+    const release = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      this._releaseEnergyButton();
+    };
+    energyBtn.addEventListener('touchstart', press, { passive: false });
+    energyBtn.addEventListener('touchend', release, { passive: false });
+    energyBtn.addEventListener('mousedown', press);
+    energyBtn.addEventListener('mouseup', release);
 
     // Premier lancement : petit écran-porte (le geste débloque l'audio), puis la cinématique.
     if (!localStorage.getItem(STORAGE_KEYS.introSeen)) {
@@ -166,6 +191,69 @@ export class Game {
   _toggleSound() {
     const muted = this.audio.toggleMute();
     this.hud.announce(muted ? 'Son coupé' : 'Son activé', '', 900);
+  }
+
+  // ---- Énergie : frôler pour charger, dépenser en bombe ou en Overdrive ----
+
+  _releaseEnergyButton() {
+    if (!this._energyPressStart) return;
+    const held = (performance.now() - this._energyPressStart) / 1000;
+    this._energyPressStart = 0;
+    if (this.state !== 'playing' || this.paused || !this.player.alive) return;
+    if (held >= OVERDRIVE.holdTime) this._tryOverdrive();
+    else this._tryBomb();
+  }
+
+  _addEnergy(amount) {
+    if (this.odTimer > 0) return; // gain gelé pendant l'Overdrive : pas de boucle infinie
+    this.energy = Math.min(OVERDRIVE.max, this.energy + amount);
+    this.hud.setEnergy(this.energy / OVERDRIVE.max);
+  }
+
+  _tryBomb() {
+    if (this.energy < OVERDRIVE.bombCost) {
+      this.audio.deny();
+      return;
+    }
+    this.energy -= OVERDRIVE.bombCost;
+    this.hud.setEnergy(this.energy / OVERDRIVE.max);
+
+    // Efface les tirs ennemis (sans crédit de graze), cogne les ennemis proches
+    // et renvoie les plongeurs : c'est le bouton panique.
+    this.enemyBullets.forEachActive((b) => {
+      this.fx.burst(b.mesh.position, 0xff3df0, { count: 2, speed: 4, life: 0.25 });
+      this.enemyBullets.kill(b);
+    });
+    for (const e of [...this.enemies.list]) {
+      if (!e.alive) continue;
+      if (e.type === 'boss') {
+        this.enemies.damage(e, OVERDRIVE.bombBossDamage, this);
+      } else if (e.group.position.z > -8) {
+        // Les kills de bombe rapportent des crédits mais ni score ni combo.
+        if (this.enemies.damage(e, OVERDRIVE.bombDamage, this)) this._dropCredits(e);
+      } else if (e.state === 'diving') {
+        e.state = 'returning';
+      }
+    }
+    this.fx.shockwave(this.player.position, 0x8ffbff, 26);
+    this.fx.addShake(1.2);
+    this.fx.hitStop(0.12);
+    this.audio.explosionBig();
+    this.hud.announce('NOVA BOMB', '', 900);
+  }
+
+  _tryOverdrive() {
+    if (this.energy < OVERDRIVE.odCost) {
+      this._tryBomb(); // pas assez pour l'Overdrive : au moins la bombe si possible
+      return;
+    }
+    this.energy = 0;
+    this.hud.setEnergy(0);
+    this.odTimer = OVERDRIVE.odDuration;
+    this.hud.setOverdrive(true);
+    this.fx.shockwave(this.player.position, 0xffc857, 8);
+    this.audio.comboUp(4);
+    this.hud.announce('OVERDRIVE', 'score ×2', 1400);
   }
 
   // ---- Écrans ----
@@ -534,6 +622,15 @@ export class Game {
     this.gameOverTimer = 0;
     this.waveEndTimer = 0;
     this.waveBonusGiven = false;
+    this.waveGrazes = 0;
+    this.energy = 0;
+    this.odTimer = 0;
+    this._energyPressStart = 0;
+    // Graine de la partie : en arcade, celle du jour (mêmes vagues pour tous les
+    // copains) ; en campagne, celle de la mission si elle en définit une.
+    this.seed = this.mode === 'campaign' ? (this.mission.campaign.seed ?? 1) : dailySeed();
+    this.hud.setEnergy(0);
+    this.hud.setOverdrive(false);
 
     this.bullets.clear();
     this.enemyBullets.clear();
@@ -560,6 +657,7 @@ export class Game {
     this.audio.setMode('play');
     this.waveEndTimer = 0;
     this.waveBonusGiven = false;
+    this.waveGrazes = 0;
 
     let def;
     if (this.mode === 'campaign') {
@@ -568,6 +666,7 @@ export class Game {
       def = makeWave(diffWave, {
         forceBoss: !!system.bossFinal && n === system.waves,
         noBoss: true,
+        seed: this.seed + this.mission.systemIdx * 131,
       });
       this.enemies.startWave(def, diffWave, { ...DEFAULT_MODS, ...system.mods });
       this.hud.setWave(`${n}/${system.waves}`);
@@ -577,7 +676,7 @@ export class Game {
         this.hud.announce(`Vague ${n}/${system.waves}`, def.boss ? '⚠ VORAX ⚠' : '');
       }
     } else {
-      def = makeWave(n);
+      def = makeWave(n, { seed: this.seed });
       this.enemies.startWave(def, n, DEFAULT_MODS);
       this.hud.setWave(n);
       this.hud.announce(`Vague ${n}`, def.boss ? '⚠ VORAX en approche ⚠' : '');
@@ -668,11 +767,19 @@ export class Game {
   }
 
   _updatePlaying(dt) {
+    // Overdrive : cadence accrue, balles perforantes, tirs ennemis au ralenti.
+    if (this.odTimer > 0) {
+      this.odTimer -= dt;
+      if (this.odTimer <= 0) this.hud.setOverdrive(false);
+    }
+    const odActive = this.odTimer > 0;
+
     this.player.update(dt, this);
     this.enemies.update(dt, this);
     this.bullets.update(dt);
-    this.enemyBullets.update(dt);
+    this.enemyBullets.update(dt, odActive ? OVERDRIVE.odBulletSlow : 1);
     this.missiles.update(dt);
+    this._updateGraze();
 
     const vacuum = this.enemies.waveCleared();
     this.pickups.update(
@@ -683,7 +790,7 @@ export class Game {
       vacuum
     );
 
-    // Combo.
+    // Combo : la fenêtre se resserre à chaque palier, les frôlements la rallongent.
     if (this.combo.chain > 0) {
       this.combo.timer -= dt;
       if (this.combo.timer <= 0) {
@@ -691,7 +798,7 @@ export class Game {
         this.combo.mult = 1;
       }
     }
-    this.hud.setCombo(this.combo.mult, this.combo.timer / COMBO.window);
+    this.hud.setCombo(this.combo.mult, this.combo.timer / this._comboWindow());
 
     this._collisions();
 
@@ -724,18 +831,55 @@ export class Game {
     }
   }
 
+  _comboWindow() {
+    return COMBO.windows[Math.min(this.combo.mult, COMBO.windows.length - 1)];
+  }
+
+  // Frôlement : on mémorise la distance minimale de chaque balle ennemie et on
+  // crédite quand elle DÉPASSE le joueur — jamais avant, sinon une balle qui touche
+  // rapporterait un graze la frame d'avant.
+  _updateGraze() {
+    if (!this.player.alive) return;
+    const p = this.player.position;
+    const grazeRR = (GRAZE.radius + this.enemyBullets.radius) ** 2;
+    this.enemyBullets.forEachActive((b) => {
+      const d = b.mesh.position.distanceToSquared(p);
+      if (d < b.minDistSq) b.minDistSq = d;
+      if (!b.grazed && b.mesh.position.z > p.z + 0.6) {
+        b.grazed = true;
+        if (b.minDistSq < grazeRR) this._onGraze(b.mesh.position);
+      }
+    });
+  }
+
+  _onGraze(pos) {
+    this.waveGrazes++;
+    this.score += GRAZE.score * this.combo.mult * (this.odTimer > 0 ? OVERDRIVE.odScoreMul : 1);
+    this.hud.setScore(this.score);
+    this._addEnergy(GRAZE.energy);
+    // Sursis de combo : c'est ce qui rend les paliers ×6-×8 tenables.
+    if (this.combo.chain > 0) {
+      this.combo.timer = Math.min(this._comboWindow(), this.combo.timer + GRAZE.comboRefill);
+    }
+    this.fx.burst(pos, 0x8ffbff, { count: 3, speed: 5, life: 0.25, spread: 0.3 });
+    this.audio.uiTick();
+  }
+
   _collisions() {
     const enemies = this.enemies.list;
 
-    // Tirs du joueur → ennemis.
+    // Tirs du joueur → ennemis (perforants pendant l'Overdrive).
+    const pierceMax = this.odTimer > 0 ? OVERDRIVE.odPierce : 1;
     this.bullets.forEachActive((b) => {
       for (const e of enemies) {
-        if (!e.alive) continue;
+        if (!e.alive || b.hitIds.includes(e.id)) continue;
         const rr = e.def.radius + this.bullets.radius;
         if (b.mesh.position.distanceToSquared(e.group.position) < rr * rr) {
-          this.bullets.kill(b);
-          if (this.enemies.damage(e, 1, this)) this._onEnemyKilled(e);
-          break;
+          b.hitIds.push(e.id);
+          b.pierce++;
+          if (b.pierce >= pierceMax) this.bullets.kill(b);
+          if (this.enemies.damage(e, 1, this)) this._onEnemyKilled(e, 'cannon');
+          if (b.pierce >= pierceMax) break;
         }
       }
     });
@@ -748,7 +892,7 @@ export class Game {
         if (m.mesh.position.distanceToSquared(e.group.position) < rr * rr) {
           this.missiles.kill(m);
           this.fx.explosionSmall(m.mesh.position, 0xffc857);
-          if (this.enemies.damage(e, 3, this)) this._onEnemyKilled(e);
+          if (this.enemies.damage(e, 3, this)) this._onEnemyKilled(e, 'missile');
           break;
         }
       }
@@ -772,7 +916,7 @@ export class Game {
       const rr = PLAYER.radius + e.def.radius;
       if (e.group.position.distanceToSquared(pPos) < rr * rr) {
         if (e.type !== 'boss') {
-          if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e);
+          if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e, 'ram');
         }
         this._playerHit();
         break;
@@ -796,10 +940,12 @@ export class Game {
     }
   }
 
-  _onEnemyKilled(e) {
+  // source : 'cannon' | 'missile' | 'ram' | 'bomb'. Seuls les kills au canon
+  // rechargent l'énergie (sinon les missiles automatiques la rempliraient tout seuls).
+  _onEnemyKilled(e, source = 'cannon') {
     // Combo.
     this.combo.chain++;
-    this.combo.timer = COMBO.window;
+    this.combo.timer = this._comboWindow();
     const newMult = Math.min(
       1 + Math.floor(this.combo.chain / COMBO.killsPerTier),
       COMBO.maxMultiplier
@@ -810,20 +956,34 @@ export class Game {
       this.hud.pulseCombo();
       this.hud.announce(`Combo ×${newMult}`, '', 800);
       this.characters.onComboUp(newMult);
+      this._addEnergy(OVERDRIVE.energyPerComboTier);
+    }
+    if (source === 'cannon' && e.state === 'diving') {
+      this._addEnergy(OVERDRIVE.energyPerDiverKill); // abattre une menace récompense
     }
 
     // Score.
-    this.score += e.def.score * this.combo.mult;
+    const odMul = this.odTimer > 0 ? OVERDRIVE.odScoreMul : 1;
+    this.score += e.def.score * this.combo.mult * odMul;
     this.hud.setScore(this.score);
     if (this.mode === 'arcade' && this.score > this.hiscore) this.hud.setHiscore(this.score);
 
-    // Crédits (multiplicateur de combo appliqué à la collecte, mods de mission au drop).
+    this._dropCredits(e);
+  }
+
+  _dropCredits(e) {
     const creditMul = this.enemies.mods?.credits ?? 1;
-    this.pickups.dropFrom(e.group.position, e.def.credits * creditMul, e.def.gemCount);
+    this.pickups.dropFrom(
+      e.group.position,
+      e.def.credits * creditMul * PICKUPS.gemValueScale,
+      e.def.gemCount
+    );
   }
 
   _collectCredit(value, pos3d) {
-    const gain = value * this.combo.mult;
+    // Le score grimpe jusqu'à ×8 mais les crédits plafonnent à ×3 : le combo
+    // récompense le panache sans emballer l'économie.
+    const gain = Math.round(value * Math.min(this.combo.mult, COMBO.creditCap));
     this.credits += gain;
     this.hud.setCredits(this.credits);
     this.audio.pickup(this.combo.mult);

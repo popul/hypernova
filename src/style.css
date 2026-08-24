@@ -221,6 +221,116 @@ body {
   filter: drop-shadow(0 0 6px var(--cyan-dim));
 }
 
+/* Jauge d'énergie (frôlements) : bombe à 50 %, Overdrive à 100 % */
+
+.hud-energy {
+  position: absolute;
+  left: max(28px, env(safe-area-inset-left));
+  bottom: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.energy-track {
+  width: 9px;
+  height: 112px;
+  background: rgba(79, 242, 255, 0.12);
+  border: 1px solid var(--cyan-dim);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.energy-fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: bottom;
+  transform: scaleY(0);
+  background: linear-gradient(to top, var(--cyan), #bffcff);
+  transition: transform 0.12s ease-out;
+}
+
+.hud-energy.bomb-ready .energy-fill {
+  box-shadow: 0 0 10px var(--cyan);
+}
+
+.hud-energy.od-ready .energy-track {
+  border-color: var(--gold);
+  animation: od-pulse 0.8s ease-in-out infinite;
+}
+
+.hud-energy.od-ready .energy-fill {
+  background: linear-gradient(to top, var(--gold), #fff2c8);
+}
+
+@keyframes od-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(255, 200, 87, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(255, 200, 87, 0.9);
+  }
+}
+
+.energy-label {
+  font-family: var(--display);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.hud-energy.od-ready .energy-label {
+  color: var(--gold);
+}
+
+/* Overdrive actif : le cadre de l'écran s'embrase. */
+#hud.overdrive::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 90px rgba(255, 200, 87, 0.28);
+  animation: od-frame 0.5s ease-in-out infinite;
+}
+
+@keyframes od-frame {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.btn-energy-touch {
+  position: absolute;
+  left: max(20px, env(safe-area-inset-left));
+  bottom: max(74px, calc(env(safe-area-inset-bottom) + 60px));
+  display: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  font-size: 26px;
+  color: var(--cyan);
+  background: rgba(8, 12, 30, 0.7);
+  border: 1px solid var(--cyan-dim);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+body.touch .btn-energy-touch {
+  display: block;
+}
+
+body.touch .hud-energy {
+  left: 92px;
+  bottom: max(74px, calc(env(safe-area-inset-bottom) + 60px));
+}
+
 /* Barre de boss */
 
 .boss-bar {

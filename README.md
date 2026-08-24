@@ -23,8 +23,23 @@ Build de production : `npm run build` puis `npm run preview`.
 | --- | --- | --- |
 | Déplacement | ← → ou Q / D (AZERTY) ou A / D | glisser le doigt |
 | Tir | Espace ou clic (maintenu = tir auto) | automatique tant qu'on touche |
+| **Nova Bomb** (50 d'énergie) | **X** (appui bref) | bouton ✦ (appui bref) |
+| **Overdrive** (100 d'énergie) | **X** (maintenir 0,35 s) | bouton ✦ (maintenir) |
 | Boutique / menus | Souris ou 1-9 + Entrée | tap |
 | Pause / son | P ou Échap · M | boutons ⏸ / ♪ en bas à droite |
+
+## Le frôlement : la mécanique qui paie le risque
+
+Laisser une balle ennemie passer **à moins de 2 unités** sans être touché = un **frôlement** :
++25 points (×combo), **+6 d'énergie**, et un sursis sur la fenêtre de combo. C'est la seule
+façon de tenir les paliers ×6 à ×8, dont la fenêtre se resserre de 2,5 s à 1,5 s.
+
+L'énergie se dépense sur **une seule touche**, deux usages :
+
+- **appui bref à 50** — *Nova Bomb* : efface tous les tirs à l'écran, frappe les ennemis
+  proches, renvoie les plongeurs. Le bouton panique.
+- **maintien à 100** — *Overdrive* (4 s) : cadence ×1,5, balles perforantes, tirs ennemis
+  au ralenti et **score ×2**. Le bouton panache.
 
 ## Boucle de jeu
 

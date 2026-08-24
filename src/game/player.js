@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { createPlayerShip, createShieldMesh } from './ships.js';
-import { ARENA, PLAYER } from './constants.js';
+import { ARENA, PLAYER, OVERDRIVE } from './constants.js';
 
 export class Player {
   constructor(scene) {
@@ -84,10 +84,11 @@ export class Player {
     const pulse = 1 + Math.sin(this.time * 30) * 0.25 + Math.abs(this.vx) * 0.02;
     for (const e of this.exhausts) e.scale.setScalar(pulse);
 
-    // Tir principal.
+    // Tir principal (accéléré pendant l'Overdrive).
     this.fireCooldown -= dt;
     if (input.fire && this.fireCooldown <= 0) {
-      this.fireCooldown = 1 / stats.fireRate;
+      const rate = stats.fireRate * (game.odTimer > 0 ? OVERDRIVE.odFireMul : 1);
+      this.fireCooldown = 1 / rate;
       this._shoot(stats, bullets, audio, fx);
     }
 

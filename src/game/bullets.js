@@ -45,6 +45,12 @@ class Pool {
     entry.mesh.position.copy(pos);
     entry.vel.copy(vel);
     entry.mesh.visible = true;
+    // Suivi du frôlement (balles ennemies) et de la perforation (balles joueur).
+    entry.minDistSq = Infinity;
+    entry.grazed = false;
+    entry.pierce = 0;
+    if (entry.hitIds) entry.hitIds.length = 0;
+    else entry.hitIds = [];
     return entry;
   }
 
@@ -112,9 +118,10 @@ export class EnemyBullets extends Pool {
     super(scene, 90, makeMesh, 0.38);
   }
 
-  update(dt) {
+  // slow < 1 ralentit les balles ennemies (effet Overdrive).
+  update(dt, slow = 1) {
     this.forEachActive((e) => {
-      e.mesh.position.addScaledVector(e.vel, dt);
+      e.mesh.position.addScaledVector(e.vel, dt * slow);
       // Légère pulsation pour la lisibilité des tirs ennemis.
       const s = 1 + Math.sin(e.age * 20) * 0.15;
       e.age += dt;

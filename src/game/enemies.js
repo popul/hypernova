@@ -4,13 +4,18 @@
 
 import * as THREE from 'three';
 import { createEnemyShip } from './ships.js';
-import { ENEMY_TYPES, ENEMY, BOSS, WAVES } from './constants.js';
-import { slotBasePosition, difficulty } from './waves.js';
+import { ENEMY_TYPES, ENEMY, BOSS, WAVES, DIVES } from './constants.js';
+import { slotBasePosition, difficulty, pickDiveStyle } from './waves.js';
+
+const between = ([lo, hi]) => lo + Math.random() * (hi - lo);
+
+let nextEnemyId = 1; // identifiant unique : les balles perforantes ne frappent pas deux fois
 
 const EXPLOSION_COLORS = { drone: 0xff5db1, wasp: 0xff3df0, brute: 0xff9f43, boss: 0xff4757 };
 
 class Enemy {
   constructor(scene, spawn, waveNumber, hpMul = 1) {
+    this.id = nextEnemyId++;
     this.type = spawn.type;
     this.def = ENEMY_TYPES[spawn.type];
     if (this.type === 'boss') {
@@ -143,14 +148,19 @@ export class Enemies {
       for (let n = 0; n < want; n++) this._launchDive(game);
     }
 
-    // Tirs depuis la formation.
+    // Tirs depuis la formation : plusieurs tireurs par volée, choisis par roulette
+    // pondérée sur fireChance — une grosse formation menace enfin proportionnellement.
     this.fireTimer -= dt;
     if (this.fireTimer <= 0) {
       this.fireTimer = this.diff.formationFireInterval;
       const shooters = this.list.filter((e) => e.alive && e.state === 'formation');
-      if (shooters.length > 0) {
-        const shooter = shooters[Math.floor(Math.random() * shooters.length)];
-        this._fireAimed(shooter, game, 0.12);
+      const n = Math.min(
+        ENEMY.shootersMax,
+        1 + Math.floor(shooters.length / ENEMY.shootersPerVolley)
+      );
+      for (let k = 0; k < n; k++) {
+        const shooter = this._pickShooter(shooters);
+        if (shooter) this._fireAimed(shooter, game, 0.12);
       }
     }
 
@@ -201,14 +211,14 @@ export class Enemies {
         break;
       }
       case 'diving': {
-        e.t += dt * this.diff.diveSpeed;
+        e.t += dt * this.diff.diveSpeed * (e.diveSpeedMul || 1);
         const pos = e.curve.getPoint(Math.min(1, e.t));
         this._faceTravel(e, pos);
         e.group.position.copy(pos);
-        // Deux tirs visés pendant la descente.
-        if ((e.t > 0.3 && e.diveShots === 0) || (e.t > 0.55 && e.diveShots === 1)) {
+        // Plan de tir tiré au sort à chaque plongée : plus d'esquive apprise par cœur.
+        while (e.divePlan && e.diveShots < e.divePlan.length && e.t > e.divePlan[e.diveShots].t) {
+          this._fireAimed(e, game, e.divePlan[e.diveShots].spread);
           e.diveShots++;
-          this._fireAimed(e, game, 0.05);
         }
         if (e.t >= 1) {
           // Sorti par le bas : réapparaît au fond et regagne sa place (à la Galaga).
@@ -234,18 +244,25 @@ export class Enemies {
         break;
       }
       case 'bossing': {
-        e.group.position.x = Math.sin(e.time * 0.55) * 8.5;
-        e.group.position.z = -13 + Math.sin(e.time * 0.31) * 2.2;
+        // Phase 2 sous 60 % de PV : il bouge plus vite et double ses éventails.
+        const enraged = e.hp <= e.maxHp * 0.6;
+        const moveMul = enraged ? 1.4 : 1;
+        e.group.position.x = Math.sin(e.time * 0.55 * moveMul) * 8.5;
+        e.group.position.z = -13 + Math.sin(e.time * 0.31 * moveMul) * 2.2;
         e.group.position.y = Math.sin(e.time * 1.2) * 0.4;
         e.group.rotation.y = Math.sin(e.time * 0.4) * 0.2;
-        e.fanTimer = (e.fanTimer ?? BOSS.fanInterval) - dt;
+
+        const fanInterval = Math.max(1.4, BOSS.fanInterval - this.waveNumber * 0.02) / moveMul;
+        e.fanTimer = (e.fanTimer ?? fanInterval) - dt;
         if (e.fanTimer <= 0) {
-          e.fanTimer = BOSS.fanInterval;
+          e.fanTimer = fanInterval;
           this._fireFan(e, game);
+          if (enraged) this._fireFan(e, game, BOSS.fanSpread * 0.5); // salve décalée
         }
-        e.burstTimer = (e.burstTimer ?? BOSS.aimedBurstInterval) - dt;
+        const burstInterval = Math.max(2.2, BOSS.aimedBurstInterval - this.waveNumber * 0.03);
+        e.burstTimer = (e.burstTimer ?? burstInterval) - dt;
         if (e.burstTimer <= 0) {
-          e.burstTimer = BOSS.aimedBurstInterval;
+          e.burstTimer = burstInterval;
           for (let i = 0; i < 3; i++) {
             // Rafale visée, légèrement étalée dans le temps via la position projetée.
             this._fireAimed(e, game, 0.15);
@@ -254,6 +271,20 @@ export class Enemies {
         break;
       }
     }
+  }
+
+  // Roulette pondérée par la propension au tir du type (fireChance) : la guêpe
+  // harcèle deux fois plus que le drone, le blindé tire posément.
+  _pickShooter(shooters) {
+    if (shooters.length === 0) return null;
+    let total = 0;
+    for (const e of shooters) total += e.def.fireChance || 0.01;
+    let acc = Math.random() * total;
+    for (const e of shooters) {
+      acc -= e.def.fireChance || 0.01;
+      if (acc <= 0) return e;
+    }
+    return shooters[shooters.length - 1];
   }
 
   _faceTravel(e, nextPos) {
@@ -273,16 +304,56 @@ export class Enemies {
       const w = (x) => (x.type === 'wasp' ? 0 : 1) + Math.random();
       return w(a) - w(b);
     });
-    const e = candidates[0];
+    const lead = candidates[0];
     game.characters?.onDive(); // NOVA alerte (anti-spam géré côté personnage)
+
+    const style = pickDiveStyle(this.diff.diveWeights || { sweep: 1 });
+    if (style === 'squad') {
+      // Escadron : le meneur emmène ses voisins de rangée, en formation serrée.
+      const wing = candidates
+        .filter((e) => e !== lead && e.row === lead.row && Math.abs(e.col - lead.col) <= 2)
+        .slice(0, DIVES.squad.count - 1);
+      [lead, ...wing].forEach((e, i) =>
+        this._startDive(e, game, 'squad', DIVES.squad.offsets[i] || 0)
+      );
+    } else {
+      this._startDive(lead, game, style, 0);
+    }
+  }
+
+  // Prépare la courbe et le plan de tir d'une plongée selon son style.
+  _startDive(e, game, style, offsetX) {
+    const def = DIVES[style] || DIVES.sweep;
     const start = e.group.position.clone();
-    const px = game.player.position.x;
-    e.curve = new THREE.CubicBezierCurve3(
-      start,
-      new THREE.Vector3(start.x + (Math.random() - 0.5) * 10, 0, start.z + 7),
-      new THREE.Vector3(px + (Math.random() - 0.5) * 8, 0, 6),
-      new THREE.Vector3(px + (Math.random() - 0.5) * 10, 0, 24)
-    );
+    const px = game.player.position.x + offsetX;
+
+    if (style === 'strafe') {
+      // Rasante latérale : traverse l'écran devant le joueur en tirant droit devant.
+      const dir = start.x >= 0 ? 1 : -1;
+      e.curve = new THREE.CubicBezierCurve3(
+        start,
+        new THREE.Vector3(dir * 20, 0, start.z + 9),
+        new THREE.Vector3(-dir * 20, 0, 7),
+        new THREE.Vector3(-dir * 24, 0, 12)
+      );
+    } else {
+      e.curve = new THREE.CubicBezierCurve3(
+        start,
+        new THREE.Vector3(start.x + (Math.random() - 0.5) * 10, 0, start.z + 7),
+        new THREE.Vector3(px + (Math.random() - 0.5) * 8, 0, 6),
+        new THREE.Vector3(px + (Math.random() - 0.5) * 10, 0, 24)
+      );
+    }
+
+    // Instants de tir tirés dans leurs plages : deux plongées ne se ressemblent jamais.
+    const plan = [];
+    for (const key of ['t1', 't2', 't3']) {
+      if (plan.length >= def.shots || !def[key]) break;
+      plan.push({ t: between(def[key]), spread: def.spread });
+    }
+    e.divePlan = plan;
+    e.diveSpeedMul = def.speedMul;
+    e.diveStyle = style;
     e.t = 0;
     e.diveShots = 0;
     e.state = 'diving';
@@ -300,14 +371,20 @@ export class Enemies {
     game.audio.enemyShoot();
   }
 
-  _fireFan(e, game) {
+  _fireFan(e, game, angleOffset = 0) {
     const from = this._tmp.copy(e.group.position);
     from.z += 1.2;
     const base = this._tmp2.copy(game.player.position).sub(from);
     base.y = 0;
-    const baseAngle = Math.atan2(base.x, base.z);
-    for (let i = 0; i < BOSS.fanCount; i++) {
-      const angle = baseAngle + (i - (BOSS.fanCount - 1) / 2) * BOSS.fanSpread;
+    const baseAngle = Math.atan2(base.x, base.z) + angleOffset;
+    // L'éventail gagne une branche toutes les 8 vagues : le boss de la vague 40
+    // n'est plus celui de la vague 4 en plus long.
+    const count = Math.min(
+      BOSS.fanCountMax,
+      BOSS.fanCount + Math.floor(this.waveNumber / BOSS.fanCountPerWaves)
+    );
+    for (let i = 0; i < count; i++) {
+      const angle = baseAngle + (i - (count - 1) / 2) * BOSS.fanSpread;
       const vel = new THREE.Vector3(
         Math.sin(angle) * this.diff.bulletSpeed,
         0,

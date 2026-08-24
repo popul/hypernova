@@ -29,6 +29,10 @@ export class Hud {
         <div class="combo-bar"><div class="combo-fill" id="combo-fill"></div></div>
       </div>
       <div class="hud-lives" id="hud-lives"></div>
+      <div class="hud-energy" id="hud-energy">
+        <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
+        <div class="energy-label" id="energy-label">X</div>
+      </div>
       <div class="boss-bar" id="boss-bar">
         <div class="boss-label">VORAX — Dévoreur d’Étoiles</div>
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
@@ -39,6 +43,7 @@ export class Hud {
         <button id="btn-pause-touch" aria-label="Pause">⏸</button>
         <button id="btn-sound-touch" aria-label="Couper le son">♪</button>
       </div>
+      <button class="btn-energy-touch" id="btn-energy-touch" aria-label="Bombe / Overdrive">✦</button>
       <div class="credit-pops" id="credit-pops"></div>
     `;
     this.el = Object.fromEntries(
@@ -55,6 +60,9 @@ export class Hud {
         'boss-fill',
         'announce',
         'credit-pops',
+        'hud-energy',
+        'energy-fill',
+        'energy-label',
       ].map((id) => [id, root.querySelector('#' + id)])
     );
     this._cache = {};
@@ -107,6 +115,20 @@ export class Hud {
     el.classList.remove('pulse');
     void el.offsetWidth; // relance l'animation CSS
     el.classList.add('pulse');
+  }
+
+  // frac 0→1 ; la jauge s'allume à 50 % (bombe prête) et pulse à 100 % (Overdrive prêt).
+  setEnergy(frac) {
+    const pct = Math.max(0, Math.min(1, frac));
+    this.el['energy-fill'].style.transform = `scaleY(${pct})`;
+    const el = this.el['hud-energy'];
+    el.classList.toggle('bomb-ready', pct >= 0.5);
+    el.classList.toggle('od-ready', pct >= 1);
+  }
+
+  setOverdrive(active) {
+    this.el['hud-energy'].classList.toggle('overdrive', active);
+    this.root.classList.toggle('overdrive', active);
   }
 
   showBossBar() {
