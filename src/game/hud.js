@@ -1,0 +1,130 @@
+// HUD en DOM par-dessus le canvas : score, crédits, combo, vies, annonces, barre de boss.
+// Les valeurs sont mises en cache pour ne toucher le DOM que lorsqu'elles changent.
+
+export class Hud {
+  constructor(root) {
+    this.root = root;
+    root.innerHTML = `
+      <div class="hud-top">
+        <div class="hud-block hud-score">
+          <div class="hud-label">Score</div>
+          <div class="hud-value" id="hud-score">0</div>
+          <div class="hud-sub">Record <span id="hud-hiscore">0</span></div>
+        </div>
+        <div class="hud-block hud-wave">
+          <div class="hud-label">Vague</div>
+          <div class="hud-value" id="hud-wave">1</div>
+        </div>
+        <div class="hud-block hud-credits">
+          <div class="hud-label">Crédits</div>
+          <div class="hud-value gold" id="hud-credits">0</div>
+        </div>
+      </div>
+      <div class="hud-combo" id="hud-combo">
+        <div class="combo-mult" id="combo-mult">×2</div>
+        <div class="combo-bar"><div class="combo-fill" id="combo-fill"></div></div>
+      </div>
+      <div class="hud-lives" id="hud-lives"></div>
+      <div class="boss-bar" id="boss-bar">
+        <div class="boss-label">Vaisseau-amiral</div>
+        <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
+      </div>
+      <div class="announce" id="announce"></div>
+      <div class="hud-hints">P pause · M son</div>
+      <div class="credit-pops" id="credit-pops"></div>
+    `;
+    this.el = Object.fromEntries(
+      ['hud-score', 'hud-hiscore', 'hud-wave', 'hud-credits', 'hud-combo', 'combo-mult',
+       'combo-fill', 'hud-lives', 'boss-bar', 'boss-fill', 'announce', 'credit-pops']
+        .map((id) => [id, root.querySelector('#' + id)])
+    );
+    this._cache = {};
+    this._announceTimer = null;
+  }
+
+  _set(id, value) {
+    if (this._cache[id] !== value) {
+      this._cache[id] = value;
+      this.el[id].textContent = value;
+    }
+  }
+
+  setScore(v) {
+    this._set('hud-score', String(v));
+  }
+
+  setHiscore(v) {
+    this._set('hud-hiscore', String(v));
+  }
+
+  setWave(v) {
+    this._set('hud-wave', String(v));
+  }
+
+  setCredits(v) {
+    this._set('hud-credits', String(v));
+  }
+
+  setLives(n) {
+    if (this._cache.lives === n) return;
+    this._cache.lives = n;
+    this.el['hud-lives'].innerHTML = Array.from(
+      { length: Math.max(0, n) },
+      () => '<span class="life"></span>'
+    ).join('');
+  }
+
+  setCombo(mult, timeFrac) {
+    const show = mult > 1;
+    this.el['hud-combo'].classList.toggle('visible', show);
+    if (show) {
+      this._set('combo-mult', `×${mult}`);
+      this.el['combo-fill'].style.transform = `scaleX(${Math.max(0, Math.min(1, timeFrac))})`;
+    }
+  }
+
+  pulseCombo() {
+    const el = this.el['combo-mult'];
+    el.classList.remove('pulse');
+    void el.offsetWidth; // relance l'animation CSS
+    el.classList.add('pulse');
+  }
+
+  showBossBar() {
+    this.el['boss-bar'].classList.add('visible');
+    this.setBossHp(1);
+  }
+
+  setBossHp(frac) {
+    this.el['boss-fill'].style.transform = `scaleX(${Math.max(0, frac)})`;
+  }
+
+  hideBossBar() {
+    this.el['boss-bar'].classList.remove('visible');
+  }
+
+  announce(title, sub = '', duration = 2200) {
+    const el = this.el['announce'];
+    el.innerHTML = `<div class="announce-title">${title}</div>${
+      sub ? `<div class="announce-sub">${sub}</div>` : ''
+    }`;
+    el.classList.remove('visible');
+    void el.offsetWidth;
+    el.classList.add('visible');
+    if (this._announceTimer) clearTimeout(this._announceTimer);
+    this._announceTimer = setTimeout(() => el.classList.remove('visible'), duration);
+  }
+
+  // Petit "+N" doré qui flotte à l'écran, à la position (px) donnée.
+  creditPop(x, y, text) {
+    const pops = this.el['credit-pops'];
+    if (pops.childElementCount > 14) pops.firstElementChild.remove();
+    const span = document.createElement('span');
+    span.className = 'credit-pop';
+    span.textContent = text;
+    span.style.left = `${x}px`;
+    span.style.top = `${y}px`;
+    pops.appendChild(span);
+    setTimeout(() => span.remove(), 900);
+  }
+}

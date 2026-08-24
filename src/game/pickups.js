@@ -1,0 +1,81 @@
+// Crédits droppés par les ennemis : gemmes dorées attirées par l'aimant du vaisseau.
+
+import * as THREE from 'three';
+import { createGem } from './ships.js';
+import { PICKUPS } from './constants.js';
+
+const POOL_SIZE = 60;
+
+export class Pickups {
+  constructor(scene) {
+    this.entries = [];
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const mesh = createGem();
+      mesh.visible = false;
+      scene.add(mesh);
+      this.entries.push({ mesh, active: false, vel: new THREE.Vector3(), age: 0, value: 0 });
+    }
+    this._tmp = new THREE.Vector3();
+  }
+
+  dropFrom(pos, totalValue, count) {
+    const value = Math.max(1, Math.round(totalValue / count));
+    for (let n = 0; n < count; n++) {
+      const entry = this.entries.find((e) => !e.active);
+      if (!entry) return;
+      entry.active = true;
+      entry.age = 0;
+      entry.value = value;
+      entry.mesh.visible = true;
+      entry.mesh.position.copy(pos);
+      entry.vel.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 2, 2 + Math.random() * 5);
+    }
+  }
+
+  // vacuum=true : tout aspirer vers le joueur (fin de vague).
+  update(dt, playerPos, magnetRadius, onCollect, vacuum = false) {
+    for (const e of this.entries) {
+      if (!e.active) continue;
+      e.age += dt;
+      if (e.age > PICKUPS.lifetime) {
+        e.active = false;
+        e.mesh.visible = false;
+        continue;
+      }
+      const dist = this._tmp.copy(playerPos).sub(e.mesh.position).length();
+      if (vacuum || dist < magnetRadius) {
+        this._tmp.normalize();
+        const pull = vacuum ? PICKUPS.magnetPull * 1.6 : PICKUPS.magnetPull;
+        e.vel.lerp(this._tmp.multiplyScalar(pull), Math.min(1, 8 * dt));
+      } else {
+        // Dérive douce vers le joueur + friction.
+        e.vel.multiplyScalar(1 - 2.2 * dt);
+        e.vel.z += 1.5 * dt;
+      }
+      e.mesh.position.addScaledVector(e.vel, dt);
+      e.mesh.rotation.y += 4 * dt;
+      // Clignote quand la gemme va expirer.
+      const remaining = PICKUPS.lifetime - e.age;
+      e.mesh.visible = remaining > 2.5 || Math.sin(e.age * 18) > -0.2;
+
+      if (dist < PICKUPS.collectRadius) {
+        e.active = false;
+        e.mesh.visible = false;
+        onCollect(e.value, e.mesh.position);
+      }
+    }
+  }
+
+  activeCount() {
+    let n = 0;
+    for (const e of this.entries) if (e.active) n++;
+    return n;
+  }
+
+  clear() {
+    for (const e of this.entries) {
+      e.active = false;
+      e.mesh.visible = false;
+    }
+  }
+}
