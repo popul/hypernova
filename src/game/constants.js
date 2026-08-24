@@ -30,7 +30,12 @@ export const ENEMY = {
   bulletSpeedPerWave: 0.55,
   bulletSpeedMax: 24,
   formationFireIntervalBase: 2.6, // secondes entre tirs venant de la formation
-  formationFireIntervalMin: 0.9,
+  formationFireIntervalMin: 0.65,
+  // Scaling des PV en fin de partie : +1 PV toutes les N vagues au-delà de hpScaleStartWave,
+  // pour que le late-game résiste à un build complet (~33 dps).
+  hpScaleStartWave: 8,
+  hpEveryWavesSmall: 5,
+  hpEveryWavesBrute: 3,
   diveIntervalBase: 3.4,
   diveIntervalMin: 1.3,
   diveSpeedBase: 0.42, // progression de t par seconde sur la courbe de plongée
@@ -40,7 +45,7 @@ export const ENEMY = {
 };
 
 export const BOSS = {
-  hpPerWave: 14,
+  hpPerWave: 24,
   fanInterval: 2.1,
   fanCount: 5,
   fanSpread: 0.5, // radians

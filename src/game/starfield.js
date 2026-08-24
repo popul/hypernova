@@ -70,9 +70,21 @@ export class Starfield {
 
     // Nébuleuses lointaines, très discrètes.
     const nebulas = [
-      { tex: makeNebulaTexture('rgba(80,40,160,0.5)', 'rgba(0,0,0,0)'), pos: [-35, -20, -90], scale: 90 },
-      { tex: makeNebulaTexture('rgba(20,90,140,0.45)', 'rgba(0,0,0,0)'), pos: [40, -10, -100], scale: 110 },
-      { tex: makeNebulaTexture('rgba(150,30,90,0.3)', 'rgba(0,0,0,0)'), pos: [0, -35, -80], scale: 70 },
+      {
+        tex: makeNebulaTexture('rgba(80,40,160,0.5)', 'rgba(0,0,0,0)'),
+        pos: [-35, -20, -90],
+        scale: 90,
+      },
+      {
+        tex: makeNebulaTexture('rgba(20,90,140,0.45)', 'rgba(0,0,0,0)'),
+        pos: [40, -10, -100],
+        scale: 110,
+      },
+      {
+        tex: makeNebulaTexture('rgba(150,30,90,0.3)', 'rgba(0,0,0,0)'),
+        pos: [0, -35, -80],
+        scale: 70,
+      },
     ];
     for (const n of nebulas) {
       const sprite = new THREE.Sprite(

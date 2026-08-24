@@ -13,7 +13,11 @@ import { Game } from './game/game.js';
 import './style.css';
 
 const canvas = document.getElementById('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: 'high-performance',
+});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -81,11 +85,18 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && game.state === 'playing' && !game.paused) game.togglePause();
 });
 
-const clock = new THREE.Clock();
+// Accès debug en dev uniquement (tests pilotés, réglages en console).
+if (import.meta.env.DEV) {
+  window.__NOVA = { game, scene, camera, renderer };
+}
+
+let lastTime = performance.now();
 
 function frame() {
   requestAnimationFrame(frame);
-  const realDt = Math.min(clock.getDelta(), 0.05); // évite les sauts après un gel d'onglet
+  const now = performance.now();
+  const realDt = Math.min((now - lastTime) / 1000, 0.05); // évite les sauts après un gel d'onglet
+  lastTime = now;
   const dt = fx.tick(realDt); // hit-stop : dt gameplay éventuellement ralenti
 
   starfield.update(realDt, game.state === 'playing' ? 1 : 0.35);

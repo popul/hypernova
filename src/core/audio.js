@@ -141,7 +141,13 @@ export class AudioEngine {
 
   comboUp(tier) {
     for (let i = 0; i < tier + 1; i++) {
-      this._tone({ type: 'square', freq: 440 * Math.pow(1.335, i), dur: 0.1, gain: 0.1, when: i * 0.06 });
+      this._tone({
+        type: 'square',
+        freq: 440 * Math.pow(1.335, i),
+        dur: 0.1,
+        gain: 0.1,
+        when: i * 0.06,
+      });
     }
   }
 
@@ -168,7 +174,14 @@ export class AudioEngine {
 
   bossAlarm() {
     for (let i = 0; i < 3; i++) {
-      this._tone({ type: 'sawtooth', freq: 440, freqEnd: 220, dur: 0.32, gain: 0.18, when: i * 0.38 });
+      this._tone({
+        type: 'sawtooth',
+        freq: 440,
+        freqEnd: 220,
+        dur: 0.32,
+        gain: 0.18,
+        when: i * 0.38,
+      });
     }
   }
 
@@ -198,7 +211,15 @@ export class AudioEngine {
 
     // Kick sur les temps (mode jeu uniquement).
     if (intense && step % 4 === 0) {
-      this._tone({ type: 'sine', freq: 150, freqEnd: 40, dur: 0.16, gain: 0.5, when: delay, dest: this.musicBus });
+      this._tone({
+        type: 'sine',
+        freq: 150,
+        freqEnd: 40,
+        dur: 0.16,
+        gain: 0.5,
+        when: delay,
+        dest: this.musicBus,
+      });
     }
     // Basse : croches, motif la - la - do - sol.
     if (step % 2 === 0) {

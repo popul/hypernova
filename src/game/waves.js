@@ -105,7 +105,10 @@ export function difficulty(n) {
       ENEMY.formationFireIntervalMin,
       ENEMY.formationFireIntervalBase - n * 0.14
     ),
-    bulletSpeed: Math.min(ENEMY.bulletSpeedMax, ENEMY.bulletSpeedBase + n * ENEMY.bulletSpeedPerWave),
-    simultaneousDivers: n < 3 ? 1 : n < 7 ? 2 : 3,
+    bulletSpeed: Math.min(
+      ENEMY.bulletSpeedMax,
+      ENEMY.bulletSpeedBase + n * ENEMY.bulletSpeedPerWave
+    ),
+    simultaneousDivers: n < 3 ? 1 : n < 7 ? 2 : n < 12 ? 3 : 4,
   };
 }

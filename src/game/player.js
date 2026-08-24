@@ -133,7 +133,12 @@ export class Player {
       spawn(0.7, 0.05);
     }
     audio.shoot();
-    fx.burst(this._tmp.set(p.x, 0, p.z - 1.6), 0x8ffbff, { count: 2, speed: 3, life: 0.15, spread: 0.3 });
+    fx.burst(this._tmp.set(p.x, 0, p.z - 1.6), 0x8ffbff, {
+      count: 2,
+      speed: 3,
+      life: 0.15,
+      spread: 0.3,
+    });
   }
 
   // Renvoie 'invuln' | 'shield' | 'hit' selon ce qui encaisse.

@@ -31,7 +31,10 @@ export class Shop {
     this.refresh(state);
 
     this._keyHandler = (e) => {
+      if (e.repeat) return; // l'autorepeat clavier ne doit pas acheter en rafale
       if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        // Entrée sur une carte focus = achat (activation native du bouton), pas de lancement.
+        if (e.target instanceof Element && e.target.closest('.card')) return;
         this.onLaunch();
       } else if (/^Digit[1-9]$/.test(e.code)) {
         const idx = Number(e.code.slice(5)) - 1;
@@ -45,6 +48,8 @@ export class Shop {
     if (!this.panel) return;
     this.panel.querySelector('#shop-credits').textContent = state.credits;
     const grid = this.panel.querySelector('#shop-grid');
+    // La reconstruction détruit la carte qui a le focus clavier : on le restaure après.
+    const focusedIdx = Array.prototype.indexOf.call(grid.children, document.activeElement);
     grid.innerHTML = '';
     UPGRADES.forEach((u, i) => {
       const level = state.levels[u.id];
@@ -58,15 +63,22 @@ export class Shop {
         <span class="card-key">${i + 1}</span>
         <span class="card-icon">${u.icon}</span>
         <span class="card-name">${u.name}</span>
-        <span class="card-pips">${Array.from({ length: u.maxLevel }, (_, p) =>
-          `<i class="pip${p < level ? ' on' : ''}"></i>`
+        <span class="card-pips">${Array.from(
+          { length: u.maxLevel },
+          (_, p) => `<i class="pip${p < level ? ' on' : ''}"></i>`
         ).join('')}</span>
         <span class="card-desc">${u.desc}</span>
-        <span class="card-price">${maxed ? 'MAX' : `${price} ¤`}</span>
+        <span class="card-price">${maxed ? 'MAX' : `${price} cr`}</span>
       `;
-      if (!maxed) card.addEventListener('click', () => this.onBuy(u.id));
+      if (maxed) {
+        card.disabled = true;
+      } else {
+        if (!affordable) card.setAttribute('aria-disabled', 'true'); // cliquable → son "refus"
+        card.addEventListener('click', () => this.onBuy(u.id));
+      }
       grid.appendChild(card);
     });
+    if (focusedIdx >= 0) grid.children[focusedIdx]?.focus();
   }
 
   close() {

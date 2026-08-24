@@ -181,6 +181,11 @@ export class Game {
   openShop() {
     this.state = 'shop';
     this.audio.setMode('shop');
+    // Purge les projectiles en vol : sinon ils restent gelés pendant la boutique
+    // et frappent le joueur dès le lancement de la vague suivante.
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.missiles.clear();
     this.combo = { chain: 0, mult: 1, timer: 0 };
     this.hud.setCombo(1, 0);
     this.shop.open(this._shopState());
@@ -217,7 +222,9 @@ export class Game {
     this.paused = !this.paused;
     this.audio.setMode(this.paused ? 'off' : 'play');
     if (this.paused) {
-      this._screen('<div class="screen pause"><div class="go-title">Pause</div><div class="title-press">P pour reprendre</div></div>');
+      this._screen(
+        '<div class="screen pause"><div class="go-title">Pause</div><div class="title-press">P pour reprendre</div></div>'
+      );
     } else {
       this.overlayRoot.innerHTML = '';
     }
@@ -282,7 +289,7 @@ export class Game {
         const bonus = 25 + this.wave * 10;
         this.credits += bonus;
         this.hud.setCredits(this.credits);
-        this.hud.announce('Vague nettoyée', `+${bonus} ¤ de prime`, 1800);
+        this.hud.announce('Vague nettoyée', `+${bonus} cr de prime`, 1800);
       }
       this.waveEndTimer += dt;
       if (this.waveEndTimer > 1.7 && this.pickups.activeCount() === 0) {

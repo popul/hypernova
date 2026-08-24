@@ -3,7 +3,10 @@
 
 import * as THREE from 'three';
 
-function mat(color, { emissive = 0x000000, emissiveIntensity = 1, metalness = 0.6, roughness = 0.35 } = {}) {
+function mat(
+  color,
+  { emissive = 0x000000, emissiveIntensity = 1, metalness = 0.6, roughness = 0.35 } = {}
+) {
   return new THREE.MeshStandardMaterial({
     color,
     emissive,
@@ -111,7 +114,10 @@ function createBrute() {
     mat(0xff9f43, { emissive: 0xff9f43, emissiveIntensity: 0.35, roughness: 0.5 })
   );
   g.add(body);
-  const armor = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.16, 6, 6), mat(0x5a3a1a, { metalness: 0.85 }));
+  const armor = new THREE.Mesh(
+    new THREE.TorusGeometry(0.85, 0.16, 6, 6),
+    mat(0x5a3a1a, { metalness: 0.85 })
+  );
   armor.rotation.x = Math.PI / 2;
   g.add(armor);
   const core = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 6), glow(0xffc857));
@@ -135,7 +141,10 @@ function createBoss() {
   ring.rotation.x = Math.PI / 2;
   g.add(ring);
   for (const side of [-1, 1]) {
-    const pod = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.6, 5), mat(0x6e1220, { metalness: 0.8 }));
+    const pod = new THREE.Mesh(
+      new THREE.ConeGeometry(0.5, 1.6, 5),
+      mat(0x6e1220, { metalness: 0.8 })
+    );
     pod.rotation.x = Math.PI / 2;
     pod.position.set(side * 2.3, 0, 0.3);
     g.add(pod);
@@ -152,14 +161,11 @@ function createBoss() {
 const BUILDERS = { drone: createDrone, wasp: createWasp, brute: createBrute, boss: createBoss };
 const templates = new Map();
 
-// Clone avec matériaux dupliqués, pour pouvoir faire flasher un ennemi individuellement.
+// Les matériaux restent partagés par type (le flash de dégât est fait par un pop
+// d'échelle dans enemies.js) : garde le nombre de states GPU au minimum.
 export function createEnemyShip(type) {
   if (!templates.has(type)) templates.set(type, BUILDERS[type]());
-  const clone = templates.get(type).clone(true);
-  clone.traverse((obj) => {
-    if (obj.isMesh) obj.material = obj.material.clone();
-  });
-  return clone;
+  return templates.get(type).clone(true);
 }
 
 export function createGem() {

@@ -34,9 +34,20 @@ export class Hud {
       <div class="credit-pops" id="credit-pops"></div>
     `;
     this.el = Object.fromEntries(
-      ['hud-score', 'hud-hiscore', 'hud-wave', 'hud-credits', 'hud-combo', 'combo-mult',
-       'combo-fill', 'hud-lives', 'boss-bar', 'boss-fill', 'announce', 'credit-pops']
-        .map((id) => [id, root.querySelector('#' + id)])
+      [
+        'hud-score',
+        'hud-hiscore',
+        'hud-wave',
+        'hud-credits',
+        'hud-combo',
+        'combo-mult',
+        'combo-fill',
+        'hud-lives',
+        'boss-bar',
+        'boss-fill',
+        'announce',
+        'credit-pops',
+      ].map((id) => [id, root.querySelector('#' + id)])
     );
     this._cache = {};
     this._announceTimer = null;

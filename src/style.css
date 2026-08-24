@@ -66,10 +66,19 @@ body {
 }
 
 @keyframes crt-flicker {
-  0%, 100% { opacity: 1; }
-  92% { opacity: 1; }
-  93% { opacity: 0.86; }
-  94% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  93% {
+    opacity: 0.86;
+  }
+  94% {
+    opacity: 1;
+  }
 }
 
 /* ---------- HUD ---------- */
@@ -121,7 +130,9 @@ body {
   font-family: var(--display);
   font-size: 26px;
   color: var(--cyan);
-  text-shadow: 0 0 12px var(--cyan-dim), 0 0 30px rgba(79, 242, 255, 0.2);
+  text-shadow:
+    0 0 12px var(--cyan-dim),
+    0 0 30px rgba(79, 242, 255, 0.2);
 }
 
 .hud-value.gold,
@@ -146,7 +157,9 @@ body {
   text-align: center;
   opacity: 0;
   transform: translateX(10px);
-  transition: opacity 0.25s, transform 0.25s;
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
 }
 
 .hud-combo.visible {
@@ -166,8 +179,12 @@ body {
 }
 
 @keyframes combo-pulse {
-  0% { transform: scale(1.7); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1.7);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .combo-bar {
@@ -261,10 +278,21 @@ body {
 }
 
 @keyframes announce-in {
-  0% { opacity: 0; transform: scale(1.6); letter-spacing: 0.6em; }
-  12% { opacity: 1; transform: scale(1); }
-  80% { opacity: 1; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0;
+    transform: scale(1.6);
+    letter-spacing: 0.6em;
+  }
+  12% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .announce-title {
@@ -273,7 +301,9 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--cyan);
-  text-shadow: 0 0 24px var(--cyan-dim), 0 0 60px rgba(79, 242, 255, 0.25);
+  text-shadow:
+    0 0 24px var(--cyan-dim),
+    0 0 60px rgba(79, 242, 255, 0.25);
 }
 
 .announce-sub {
@@ -314,9 +344,17 @@ body {
 }
 
 @keyframes pop-float {
-  0% { opacity: 0; margin-top: 6px; }
-  15% { opacity: 1; }
-  100% { opacity: 0; margin-top: -34px; }
+  0% {
+    opacity: 0;
+    margin-top: 6px;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    margin-top: -34px;
+  }
 }
 
 /* ---------- Écrans (titre, boutique, pause, game over) ---------- */
@@ -341,8 +379,12 @@ body {
 }
 
 @keyframes screen-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .title {
@@ -372,8 +414,13 @@ body {
 }
 
 @keyframes logo-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 .title-tag {
@@ -395,8 +442,13 @@ body {
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
 }
 
 .title-controls {
@@ -503,20 +555,37 @@ body {
   padding: 15px 15px 13px;
   background: var(--panel);
   border: 1px solid var(--cyan-dim);
-  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 16px) 0,
+    100% 16px,
+    100% 100%,
+    16px 100%,
+    0 calc(100% - 16px)
+  );
   color: var(--text);
   font-family: var(--body);
   text-align: left;
   cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition:
+    transform 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    background 0.15s;
   opacity: 0;
   animation: card-in 0.4s ease-out forwards;
   animation-delay: var(--stagger, 0ms);
 }
 
 @keyframes card-in {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .card:hover:not(.locked):not(.maxed) {
@@ -616,10 +685,19 @@ body {
   background: var(--gold);
   border: none;
   padding: 15px 42px;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
   cursor: pointer;
   box-shadow: 0 0 26px rgba(255, 200, 87, 0.35);
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
 }
 
 .btn-launch:hover {

@@ -13,7 +13,13 @@ class Enemy {
   constructor(scene, spawn, waveNumber) {
     this.type = spawn.type;
     this.def = ENEMY_TYPES[spawn.type];
-    this.hp = this.type === 'boss' ? this.def.hp + waveNumber * BOSS.hpPerWave : this.def.hp;
+    if (this.type === 'boss') {
+      this.hp = this.def.hp + waveNumber * BOSS.hpPerWave;
+    } else {
+      const scaledWaves = Math.max(0, waveNumber - ENEMY.hpScaleStartWave);
+      const every = this.type === 'brute' ? ENEMY.hpEveryWavesBrute : ENEMY.hpEveryWavesSmall;
+      this.hp = this.def.hp + Math.floor(scaledWaves / every);
+    }
     this.maxHp = this.hp;
     this.alive = true;
     this.state = 'entering';
@@ -212,7 +218,10 @@ export class Enemies {
         if (dist < 0.3) {
           e.state = 'formation';
         } else {
-          e.group.position.addScaledVector(delta.normalize(), Math.min(dist, ENEMY.returnSpeed * dt));
+          e.group.position.addScaledVector(
+            delta.normalize(),
+            Math.min(dist, ENEMY.returnSpeed * dt)
+          );
           this._faceTravel(e, this._tmp);
         }
         break;

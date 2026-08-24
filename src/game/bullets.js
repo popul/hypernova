@@ -6,9 +6,7 @@ import { ARENA } from './constants.js';
 
 function outOfBounds(p) {
   return (
-    p.z < ARENA.bulletCullZMin ||
-    p.z > ARENA.bulletCullZMax ||
-    Math.abs(p.x) > ARENA.bulletCullXMax
+    p.z < ARENA.bulletCullZMin || p.z > ARENA.bulletCullZMax || Math.abs(p.x) > ARENA.bulletCullXMax
   );
 }
 
@@ -108,7 +106,10 @@ export class Missiles extends Pool {
   }
 
   launch(pos, target) {
-    const entry = this.spawn(pos, this._tmp.set((Math.random() - 0.5) * 6, 0, -MISSILE_SPEED * 0.5));
+    const entry = this.spawn(
+      pos,
+      this._tmp.set((Math.random() - 0.5) * 6, 0, -MISSILE_SPEED * 0.5)
+    );
     if (entry) entry.target = target;
     return entry;
   }
@@ -122,7 +123,11 @@ export class Missiles extends Pool {
       }
       const target = e.target && e.target.alive ? e.target : null;
       if (target) {
-        this._tmp.copy(target.group.position).sub(e.mesh.position).normalize().multiplyScalar(MISSILE_SPEED);
+        this._tmp
+          .copy(target.group.position)
+          .sub(e.mesh.position)
+          .normalize()
+          .multiplyScalar(MISSILE_SPEED);
         e.vel.lerp(this._tmp, Math.min(1, MISSILE_TURN * dt));
       }
       e.vel.setLength(MISSILE_SPEED);

@@ -12,9 +12,11 @@ export class Input {
       this.held.add(e.code);
       const subs = this.listeners.get(e.code);
       if (subs) subs.forEach((fn) => fn(e));
-      // Empêche le scroll de la page avec espace/flèches pendant le jeu.
+      // Empêche le scroll de la page avec espace/flèches pendant le jeu — sauf quand un
+      // bouton a le focus (la boutique repose sur l'activation Espace/Entrée native).
       if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) {
-        e.preventDefault();
+        const onButton = e.target instanceof Element && e.target.closest('button');
+        if (!onButton) e.preventDefault();
       }
     });
     window.addEventListener('keyup', (e) => this.held.delete(e.code));
