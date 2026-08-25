@@ -1133,6 +1133,46 @@ export class AudioEngine {
     o.stop(t0 + dur + 0.05);
   }
 
+  // Jeu de flûte. Une registration douce de l'orgue — presque une sinusoïde avec
+  // un peu de quinte — qui porte la mélodie sans la couleur d'attaque des tuyaux
+  // d'anche. C'est ce qui remplace le piano : après quatre tentatives infructueuses
+  // de synthèse de corde frappée, autant confier la ligne à l'instrument dont on
+  // sait qu'il sonne juste.
+  _flute(when, semi, steps, gain = 1) {
+    if (!this.ctx) return;
+    const dur = (steps * 60) / TEMPO / 4;
+    const t0 = when;
+    for (const [mul, amp, det] of [
+      [1, 1, 0],
+      [2, 0.22, 4],
+      [3, 0.09, -5],
+      [4, 0.05, 6],
+    ]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = hz(semi) * mul;
+      o.detune.value = det;
+      const g = this.ctx.createGain();
+      const peak = 0.062 * amp * gain;
+      // Attaque douce mais pas molle : un tuyau met une trentaine de millisecondes
+      // à s'établir, et c'est ce petit retard qui le distingue d'une sinusoïde.
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(peak, t0 + 0.035);
+      g.gain.setValueAtTime(peak, t0 + dur * 0.72);
+      g.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
+      o.connect(g);
+      g.connect(this.musicBus);
+      if (this.revSend) {
+        const sd = this.ctx.createGain();
+        sd.gain.value = 0.42;
+        g.connect(sd);
+        sd.connect(this.revSend);
+      }
+      o.start(t0);
+      o.stop(t0 + dur + 0.06);
+    }
+  }
+
   // Cuivres. Le caractère de cuivre ne vient PAS du spectre mais du filtre : plus
   // la note est forte, plus elle est brillante. Une enveloppe de filtre qui suit
   // l'enveloppe d'amplitude, et un sawtooth devient un cor.
@@ -1582,6 +1622,15 @@ export class AudioEngine {
     this.board = input;
   }
 
+  // INUTILISÉE DANS LA PARTITION. La corde frappée est physiquement correcte —
+  // justesse au centième, quatorze partiels à l'attaque, trou du point de frappe,
+  // inharmonicité, double décroissance — mais elle ne convainc pas à l'oreille, et
+  // quatre passes de réglage n'y ont rien changé. Le problème est que je ne peux
+  // pas ÉCOUTER : je règle des mesures qui ressemblent à celles d'un piano, ce qui
+  // n'est pas la même chose que de faire un piano. La mélodie est donc confiée au
+  // jeu de flûte et à la célesta, dont on sait qu'ils sonnent juste.
+  // Le code reste : il est bon, il est mesuré, et il attend une description
+  // précise de ce qui cloche à l'oreille pour être repris utilement.
   _piano(when, semi, dur = 2.4, gain = 1) {
     if (!this.ctx) return;
     this._ensureBoard();
@@ -1804,7 +1853,7 @@ export class AudioEngine {
     if (!quiet && sec === 'A') {
       const local = bar - 4; // 0..7 : la phrase entière, une fois
       for (const ev of MELODY) {
-        if (ev.b === local && ev.s === step) this._piano(when, ev.n, 2.2, 0.72);
+        if (ev.b === local && ev.s === step) this._flute(when, ev.n, ev.d + 2, 0.85);
       }
     }
 
@@ -1861,14 +1910,17 @@ export class AudioEngine {
       this._horn(when, SIGNATURE[((bar - 12) / 2) % 3] - 12, 6, 0.6);
     }
 
-    // --- LA MÉLODIE NUE, AU PIANO. C'est la seule fois du morceau où on l'entend
-    // sans orchestre, et c'est là qu'elle devient émouvante plutôt qu'héroïque.
-    // Quatre mesures de respiration pour les quatre premières mesures de la phrase,
-    // jouées telles quelles.
+    // --- LA MÉLODIE NUE. C'est la seule fois du morceau où on l'entend sans
+    // orchestre, et c'est là qu'elle devient émouvante plutôt qu'héroïque. Quatre
+    // mesures de respiration pour les quatre premières mesures de la phrase.
     if (sec === 'breakdown' && !quiet) {
       const local = bar - 24; // 0..3 : la question, sans sa réponse
       for (const ev of MELODY) {
-        if (ev.b === local && ev.s === step) this._piano(when, ev.n, 2.6, 1);
+        if (ev.b !== local || ev.s !== step) continue;
+        // Célesta doublée d'une corde solo : le métal donne l'attaque, l'archet
+        // donne la tenue. À deux, ils font ce que le piano devait faire seul.
+        this._bell(when, ev.n + 12, 2.4);
+        this._strings(when, [ev.n], ev.d + 4, 0.8);
       }
     }
 
@@ -1879,7 +1931,7 @@ export class AudioEngine {
       const local = Math.floor((bar % 8) / 1);
       for (const ev of MELODY) {
         if (ev.b !== local || ev.s !== step) continue;
-        this._piano(when, ev.n + (this.mode === 'shop' ? -12 : 0), 3, 0.9);
+        this._bell(when, ev.n + (this.mode === 'shop' ? 0 : 12), 2.8);
       }
     }
   }
