@@ -786,7 +786,9 @@ export class Game {
   togglePause() {
     if (this.state !== 'playing') return;
     this.paused = !this.paused;
-    this.audio.setMode(this.paused ? 'off' : 'play');
+    // 'paused' et non 'off' : couper la musique la ferait repartir de son intro
+    // à chaque reprise, et trois pauses suffiraient à user les quatre premières mesures.
+    this.audio.setMode(this.paused ? 'paused' : 'play');
     if (this.paused) {
       const el = this._screen(
         `<div class="screen pause"><div class="go-title">Pause</div><div class="title-press">${

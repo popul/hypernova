@@ -181,6 +181,14 @@ export class Characters {
     if (emotion) rig.setEmotion(emotion);
     rig.startTalking(talkMs, 1);
 
+    // Indicatif d'ouverture de canal, uniquement quand l'interlocuteur CHANGE :
+    // c'est le basculement qui doit s'entendre, pas chaque réplique.
+    if (speaker !== this.lastSpeaker) {
+      if (speaker === 'vorax') this.audio.voraxSting();
+      else this.audio.novaSting();
+    }
+    this.lastSpeaker = speaker;
+
     // La voix est synthétisée à partir du TEXTE : sa durée et son articulation
     // suivent la phrase, au lieu d'être un bip de longueur fixe.
     if (speaker === 'vorax') this.audio.voiceVorax(text);
