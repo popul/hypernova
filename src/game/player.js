@@ -35,17 +35,19 @@ export class Player {
     return this.group.position;
   }
 
-  reset({ keepUpgrades = true } = {}) {
+  // shieldRecharge : délai avant que le bouclier ne revienne. À 0 il réapparaîtrait
+  // instantanément — c'est justement ce qu'on ne veut plus après une mort.
+  reset({ keepUpgrades = true, shieldRecharge = 0 } = {}) {
     this.group.position.set(0, 0, ARENA.playerZ);
     this.vx = 0;
     this.alive = true;
     this.group.visible = true;
-    this.invulnTimer = PLAYER.respawnInvuln;
+    this.invulnTimer = keepUpgrades ? PLAYER.respawnInvuln : PLAYER.respawnInvulnAfterDeath;
     this.fireCooldown = 0;
     this.missileTimer = 0;
     if (!keepUpgrades) {
       this.shieldUp = false;
-      this.shieldRechargeTimer = 0;
+      this.shieldRechargeTimer = shieldRecharge;
     }
     this.shieldMesh.visible = this.shieldUp;
   }

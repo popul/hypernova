@@ -18,8 +18,8 @@ export const UPGRADES = [
     name: 'Canons jumelés',
     icon: '⋔',
     maxLevel: 2,
-    basePrice: 280,
-    priceMul: 2.6,
+    basePrice: 380,
+    priceMul: 2.9,
     desc: 'Un flux de tir supplémentaire (jusqu’à 3 canons).',
   },
   {
@@ -27,8 +27,8 @@ export const UPGRADES = [
     name: 'Missiles Nova',
     icon: '✦',
     maxLevel: 3,
-    basePrice: 340,
-    priceMul: 1.9,
+    basePrice: 460,
+    priceMul: 2.1,
     desc: 'Missiles à tête chercheuse automatiques. Niveaux : plus de missiles, plus vite.',
   },
   {
@@ -77,7 +77,9 @@ export function emptyLevels() {
   return Object.fromEntries(UPGRADES.map((u) => [u.id, 0]));
 }
 
-const SHIELD_RECHARGE = [0, 14, 9, 5]; // secondes par niveau
+// Secondes par niveau. Volontairement lent : chaque frôlement en retire 1 s, donc le
+// bouclier avance au risque pris, pas au temps qui passe.
+const SHIELD_RECHARGE = [0, 20, 14, 9];
 
 export function computeStats(levels) {
   return {

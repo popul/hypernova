@@ -33,6 +33,7 @@ import {
   verifyPin,
 } from './pilots.js';
 import { Characters } from './characters.js';
+import { Director, romanTier } from './director.js';
 import { isTouchDevice } from '../core/input.js';
 
 const IS_TOUCH = isTouchDevice();
@@ -78,6 +79,7 @@ export class Game {
       characters: this.characters,
     });
     this.cameraOverride = null;
+    this.director = new Director();
 
     this.state = 'title';
     this.mode = 'arcade';
@@ -210,17 +212,21 @@ export class Game {
     this.hud.setEnergy(this.energy / OVERDRIVE.max);
   }
 
+  // Bouton panique, pas bouton « annuler la mort » : coûteuse, en recharge, à portée
+  // limitée, et elle ne rapporte aucun crédit — bomber n'est jamais rentable.
   _tryBomb() {
-    if (this.energy < OVERDRIVE.bombCost) {
+    if (this.energy < OVERDRIVE.bombCost || this.bombCooldown > 0) {
       this.audio.deny();
       return;
     }
     this.energy -= OVERDRIVE.bombCost;
     this.hud.setEnergy(this.energy / OVERDRIVE.max);
+    this.bombCooldown = OVERDRIVE.bombCooldown;
 
-    // Efface les tirs ennemis (sans crédit de graze), cogne les ennemis proches
-    // et renvoie les plongeurs : c'est le bouton panique.
+    // N'efface que les tirs PROCHES : la menace lointaine reste à gérer.
+    const rr = OVERDRIVE.bombRadius * OVERDRIVE.bombRadius;
     this.enemyBullets.forEachActive((b) => {
+      if (b.mesh.position.distanceToSquared(this.player.position) > rr) return;
       this.fx.burst(b.mesh.position, 0xff3df0, { count: 2, speed: 4, life: 0.25 });
       this.enemyBullets.kill(b);
     });
@@ -228,14 +234,13 @@ export class Game {
       if (!e.alive) continue;
       if (e.type === 'boss') {
         this.enemies.damage(e, OVERDRIVE.bombBossDamage, this);
-      } else if (e.group.position.z > -8) {
-        // Les kills de bombe rapportent des crédits mais ni score ni combo.
-        if (this.enemies.damage(e, OVERDRIVE.bombDamage, this)) this._dropCredits(e);
+      } else if (e.group.position.z > OVERDRIVE.bombZMax) {
+        this.enemies.damage(e, OVERDRIVE.bombDamage, this); // ni score, ni combo, ni crédits
       } else if (e.state === 'diving') {
         e.state = 'returning';
       }
     }
-    this.fx.shockwave(this.player.position, 0x8ffbff, 26);
+    this.fx.shockwave(this.player.position, 0x8ffbff, OVERDRIVE.bombRadius * 2);
     this.fx.addShake(1.2);
     this.fx.hitStop(0.12);
     this.audio.explosionBig();
@@ -244,7 +249,7 @@ export class Game {
 
   _tryOverdrive() {
     if (this.energy < OVERDRIVE.odCost) {
-      this._tryBomb(); // pas assez pour l'Overdrive : au moins la bombe si possible
+      this.audio.deny(); // ne déclenche PAS la bombe par erreur : le maintien est un choix
       return;
     }
     this.energy = 0;
@@ -625,7 +630,11 @@ export class Game {
     this.waveGrazes = 0;
     this.energy = 0;
     this.odTimer = 0;
+    this.bombCooldown = 0;
+    this.waveDeath = false;
+    this.waveBestTier = 1;
     this._energyPressStart = 0;
+    this.director.reset();
     // Graine de la partie : en arcade, celle du jour (mêmes vagues pour tous les
     // copains) ; en campagne, celle de la mission si elle en définit une.
     this.seed = this.mode === 'campaign' ? (this.mission.campaign.seed ?? 1) : dailySeed();
@@ -658,6 +667,8 @@ export class Game {
     this.waveEndTimer = 0;
     this.waveBonusGiven = false;
     this.waveGrazes = 0;
+    this.waveDeath = false;
+    this.waveBestTier = 1;
 
     let def;
     if (this.mode === 'campaign') {
@@ -668,7 +679,12 @@ export class Game {
         noBoss: true,
         seed: this.seed + this.mission.systemIdx * 131,
       });
-      this.enemies.startWave(def, diffWave, { ...DEFAULT_MODS, ...system.mods });
+      this.enemies.startWave(
+        def,
+        diffWave,
+        { ...DEFAULT_MODS, ...system.mods },
+        this.director.heat
+      );
       this.hud.setWave(`${n}/${system.waves}`);
       if (n === 1) {
         this.hud.announce(system.name, this.mission.campaign.title, 2600);
@@ -677,7 +693,7 @@ export class Game {
       }
     } else {
       def = makeWave(n, { seed: this.seed });
-      this.enemies.startWave(def, n, DEFAULT_MODS);
+      this.enemies.startWave(def, n, DEFAULT_MODS, this.director.heat);
       this.hud.setWave(n);
       this.hud.announce(`Vague ${n}`, def.boss ? '⚠ VORAX en approche ⚠' : '');
     }
@@ -773,6 +789,15 @@ export class Game {
       if (this.odTimer <= 0) this.hud.setOverdrive(false);
     }
     const odActive = this.odTimer > 0;
+    if (this.bombCooldown > 0) this.bombCooldown -= dt;
+
+    // Le directeur monte la pression tant que le joueur ne se fait pas toucher.
+    this.director.update(dt);
+    const tier = this.director.pollTier();
+    if (tier > 0) {
+      this.hud.announce(`MENACE ${romanTier(tier)}`, '', 1200);
+      this.enemies.setHeat(this.director.heat);
+    }
 
     this.player.update(dt, this);
     this.enemies.update(dt, this);
@@ -806,7 +831,10 @@ export class Game {
     if (!this.player.alive) {
       if (this.lives > 0) {
         this.respawnTimer -= dt;
-        if (this.respawnTimer <= 0) this.player.reset();
+        // On repart sans bouclier : son timer redémarre à plein.
+        if (this.respawnTimer <= 0) {
+          this.player.reset({ keepUpgrades: false, shieldRecharge: this.stats.shieldRecharge });
+        }
       } else {
         this.gameOverTimer -= dt;
         if (this.gameOverTimer <= 0) this.showGameOver();
@@ -818,6 +846,7 @@ export class Game {
       const lastMissionWave = this.mode === 'campaign' && this.wave >= this.mission.system.waves;
       if (!this.waveBonusGiven && !lastMissionWave) {
         this.waveBonusGiven = true;
+        this.director.onWaveCleared(this.waveDeath);
         const bonus = 25 + this.wave * 10;
         this.credits += bonus;
         this.hud.setCredits(this.credits);
@@ -860,6 +889,10 @@ export class Game {
     // Sursis de combo : c'est ce qui rend les paliers ×6-×8 tenables.
     if (this.combo.chain > 0) {
       this.combo.timer = Math.min(this._comboWindow(), this.combo.timer + GRAZE.comboRefill);
+    }
+    // Le bouclier se recharge au RISQUE, pas seulement à l'horloge.
+    if (this.player.shieldRechargeTimer > 0) {
+      this.player.shieldRechargeTimer -= GRAZE.shieldRecharge;
     }
     this.fx.burst(pos, 0x8ffbff, { count: 3, speed: 5, life: 0.25, spread: 0.3 });
     this.audio.uiTick();
@@ -924,13 +957,25 @@ export class Game {
     }
   }
 
+  // Mourir coûte désormais six choses lisibles au lieu d'une : la vie, le combo,
+  // toute l'énergie, l'Overdrive en cours, le bouclier et la prime de vague.
   _playerHit() {
     const result = this.player.takeHit(this);
-    if (result === 'shield') this.characters.onShieldLost();
+    if (result === 'shield') {
+      this.characters.onShieldLost();
+      this.director.onShieldBroken();
+    }
     if (result !== 'hit') return;
     this.lives--;
     this.hud.setLives(this.lives);
     this.combo = { chain: 0, mult: 1, timer: 0 };
+    this.energy = 0;
+    this.hud.setEnergy(0);
+    this.odTimer = 0;
+    this.hud.setOverdrive(false);
+    this.bombCooldown = 0;
+    this.waveDeath = true;
+    this.director.onDeath();
     this.player.die(this);
     if (this.lives > 0) {
       this.respawnTimer = 1.3;
@@ -956,7 +1001,12 @@ export class Game {
       this.hud.pulseCombo();
       this.hud.announce(`Combo ×${newMult}`, '', 800);
       this.characters.onComboUp(newMult);
-      this._addEnergy(OVERDRIVE.energyPerComboTier);
+      // Un palier n'est payé qu'à sa PREMIÈRE atteinte dans la vague : sinon
+      // casser et refaire sa chaîne finançait la prochaine bombe.
+      if (newMult > this.waveBestTier) {
+        this.waveBestTier = newMult;
+        this._addEnergy(OVERDRIVE.energyPerComboTier);
+      }
     }
     if (source === 'cannon' && e.state === 'diving') {
       this._addEnergy(OVERDRIVE.energyPerDiverKill); // abattre une menace récompense
@@ -983,7 +1033,9 @@ export class Game {
   _collectCredit(value, pos3d) {
     // Le score grimpe jusqu'à ×8 mais les crédits plafonnent à ×3 : le combo
     // récompense le panache sans emballer l'économie.
-    const gain = Math.round(value * Math.min(this.combo.mult, COMBO.creditCap));
+    // Le bonus de combo sur les crédits se mérite : il faut avoir frôlé dans la vague.
+    const cap = this.waveGrazes >= COMBO.grazesForCreditBonus ? COMBO.creditCap : 1;
+    const gain = Math.round(value * Math.min(this.combo.mult, cap));
     this.credits += gain;
     this.hud.setCredits(this.credits);
     this.audio.pickup(this.combo.mult);

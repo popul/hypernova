@@ -28,6 +28,16 @@ Build de production : `npm run build` puis `npm run preview`.
 | Boutique / menus | Souris ou 1-9 + Entrée | tap |
 | Pause / son | P ou Échap · M | boutons ⏸ / ♪ en bas à droite |
 
+## Lire les tirs : deux couleurs, deux dangers
+
+- **Rose** — balle **visée** : elle est calculée sur votre trajectoire, elle vous suit.
+  Changez de sens, ne courez pas en ligne droite.
+- **Ambre** — balle **droite** : mur, tir croisé ou éventail du boss. Elle ne vous suit pas,
+  mais elle occupe l'espace : il faut viser le trou.
+
+Un ennemi qui va tirer **pulse pendant 0,28 s** avant de lâcher sa balle : le préavis est
+toujours là, la mort se comprend.
+
 ## Le frôlement : la mécanique qui paie le risque
 
 Laisser une balle ennemie passer **à moins de 2 unités** sans être touché = un **frôlement** :

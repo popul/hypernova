@@ -2,7 +2,7 @@
 // La difficulté monte via le nombre, les PV, la fréquence des plongées et la vitesse des tirs.
 
 import * as THREE from 'three';
-import { WAVES, ENEMY } from './constants.js';
+import { WAVES, ENEMY, DIRECTOR } from './constants.js';
 
 // Position de base d'un slot de formation (sans le balancement, appliqué en continu ailleurs).
 export function slotBasePosition(row, col, cols, out) {
@@ -101,6 +101,11 @@ export function makeWave(n, opts = {}) {
 
   // Chorégraphie tirée au sort : plus jamais gauche → droite → fond dans cet ordre.
   const variants = shuffled(VARIANTS, rng);
+  // À partir de la vague 3, la vague déferle en DEUX ASSAUTS : les trois premières
+  // rangées arrivent ensemble (par trois trajectoires différentes), puis le reste.
+  // Le compte-gouttes d'avant livrait moins d'ennemis que le joueur n'en tuait :
+  // la formation ne se constituait jamais et la menace restait théorique.
+  const twoAssaults = n >= WAVES.twoAssaultsFromWave && !isBossWave;
   let squadIndex = 0;
   let clock = 0;
   rows.forEach((rowDef, rowIdx) => {
@@ -116,10 +121,15 @@ export function makeWave(n, opts = {}) {
         col,
         cols,
         curve: makeEntryCurve(variant, end),
-        delay: clock + i * 0.16,
+        delay: clock + i * WAVES.entryStagger,
       });
     }
-    clock += 1.2 + rng() * 0.6; // cadence d'arrivée irrégulière
+    if (twoAssaults) {
+      // Assaut A = rangées 0-2 simultanées ; assaut B = le reste, après une respiration.
+      if (rowIdx === 2) clock += WAVES.assaultGap + rng() * 0.6;
+    } else {
+      clock += 1.2 + rng() * 0.6; // vagues 1-2 : arrivée séquentielle, pour apprendre
+    }
     squadIndex++;
   });
 
@@ -137,28 +147,68 @@ export function makeWave(n, opts = {}) {
   return { spawns, boss: isBossWave };
 }
 
-// Paramètres de difficulté dérivés du numéro de vague, modulés par les
-// modificateurs de mission (campagne) : fire = densité de tir, dive = agressivité.
-export function difficulty(n, mods = { fire: 1, dive: 1 }) {
+// Paramètres de difficulté dérivés du numéro de vague, modulés par les modificateurs
+// de mission (campagne) et par la « chaleur » du directeur : fire = densité de tir,
+// dive = agressivité. Chaque levier reste borné pour que le jeu demeure jouable.
+export function difficulty(n, mods = { fire: 1, dive: 1 }, heat = 0) {
+  const fireHeat = 1 + DIRECTOR.fireBoost * heat;
+  const diveHeat = 1 + DIRECTOR.diveBoost * heat;
   return {
     diveInterval: Math.max(
-      ENEMY.diveIntervalMin / mods.dive,
-      (ENEMY.diveIntervalBase - n * 0.18) / mods.dive
+      DIRECTOR.diveFloor,
+      Math.max(ENEMY.diveIntervalMin / mods.dive, (ENEMY.diveIntervalBase - n * 0.18) / mods.dive) /
+        diveHeat
     ),
     diveSpeed: (ENEMY.diveSpeedBase + n * ENEMY.diveSpeedPerWave) * Math.sqrt(mods.dive),
     formationFireInterval: Math.max(
-      ENEMY.formationFireIntervalMin / mods.fire,
-      (ENEMY.formationFireIntervalBase - n * 0.14) / mods.fire
+      DIRECTOR.fireFloor,
+      Math.max(
+        ENEMY.formationFireIntervalMin / mods.fire,
+        (ENEMY.formationFireIntervalBase - n * 0.14) / mods.fire
+      ) / fireHeat
     ),
     bulletSpeed: Math.min(
-      ENEMY.bulletSpeedMax,
-      ENEMY.bulletSpeedBase + n * ENEMY.bulletSpeedPerWave
+      DIRECTOR.bulletCeil,
+      Math.min(ENEMY.bulletSpeedMax, ENEMY.bulletSpeedBase + n * ENEMY.bulletSpeedPerWave) *
+        (1 + DIRECTOR.bulletBoost * heat)
     ),
     // Rampe dégelée jusqu'à la vague 22 : l'ancien plafond de 4 à la vague 12
     // faisait cesser toute montée en tension. La bombe est la soupape.
-    simultaneousDivers: n < 3 ? 1 : n < 6 ? 2 : n < 10 ? 3 : n < 15 ? 4 : n < 22 ? 5 : 6,
+    simultaneousDivers:
+      (n < 3 ? 1 : n < 6 ? 2 : n < 10 ? 3 : n < 15 ? 4 : n < 22 ? 5 : 6) +
+      Math.min(DIRECTOR.diversMax, Math.floor(heat / DIRECTOR.diversPerHeat)),
+    // Anticipation de la visée : monte avec la vague, puis avec la chaleur.
+    lead:
+      Math.min(ENEMY.leadMax, ENEMY.leadBase + ENEMY.leadPerWave * n) +
+      Math.min(DIRECTOR.leadBoostMax, DIRECTOR.leadBoost * heat),
+    shootersMax: Math.min(ENEMY.shootersMaxCap, ENEMY.shootersMaxBase + Math.floor(n / 6)),
+    bulletBudget: Math.min(
+      ENEMY.bulletBudgetMax,
+      Math.round(ENEMY.bulletBudgetBase + ENEMY.bulletBudgetPerWave * n)
+    ),
+    volleyWeights: volleyWeights(n),
+    wallCount: n < 10 ? ENEMY.wallCountEarly : n < 18 ? ENEMY.wallCountMid : ENEMY.wallCountLate,
     diveWeights: diveWeights(n),
+    diveTrackMax: Math.min(ENEMY.diveTrackMax, ENEMY.diveTrackBase + ENEMY.diveTrackPerWave * n),
   };
+}
+
+// Motifs de volée disponibles selon la vague : d'abord des balles visées à esquiver,
+// puis des murs à franchir, puis des tirs croisés qui ferment les côtés.
+function volleyWeights(n) {
+  if (n < 4) return { aimed: 1 };
+  if (n < 8) return { aimed: 0.6, wall: 0.4 };
+  return { aimed: 0.45, wall: 0.35, cross: 0.2 };
+}
+
+export function pickWeighted(weights, rand = Math.random()) {
+  const total = Object.values(weights).reduce((s, w) => s + w, 0);
+  let acc = rand * total;
+  for (const [key, w] of Object.entries(weights)) {
+    acc -= w;
+    if (acc <= 0) return key;
+  }
+  return Object.keys(weights)[0];
 }
 
 // Répartition des styles de plongée selon l'avancement : le vocabulaire de menace

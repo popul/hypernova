@@ -19,7 +19,9 @@ export class Pickups {
   }
 
   dropFrom(pos, totalValue, count) {
-    const value = Math.max(1, Math.round(totalValue / count));
+    // Valeur fractionnaire : l'arrondi n'a lieu qu'à l'encaissement, sinon il rendait
+    // au joueur une partie du rabais (voire davantage sur les gros drops).
+    const value = totalValue / count;
     for (let n = 0; n < count; n++) {
       const entry = this.entries.find((e) => !e.active);
       if (!entry) return;

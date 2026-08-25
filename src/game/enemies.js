@@ -4,8 +4,12 @@
 
 import * as THREE from 'three';
 import { createEnemyShip } from './ships.js';
-import { ENEMY_TYPES, ENEMY, BOSS, WAVES, DIVES } from './constants.js';
-import { slotBasePosition, difficulty, pickDiveStyle } from './waves.js';
+import { ENEMY_TYPES, ENEMY, BOSS, WAVES, DIVES, ARENA } from './constants.js';
+import { slotBasePosition, difficulty, pickDiveStyle, pickWeighted } from './waves.js';
+
+// États depuis lesquels un ennemi peut tirer ou plonger. Se limiter à 'formation'
+// éteignait toute la menace : la formation ne se remplit jamais assez vite.
+const ARMED_STATES = ['formation', 'settling', 'returning'];
 
 const between = ([lo, hi]) => lo + Math.random() * (hi - lo);
 
@@ -69,15 +73,22 @@ export class Enemies {
     this._tmp2 = new THREE.Vector3();
   }
 
-  startWave(waveDef, waveNumber, mods = { hp: 1, fire: 1, dive: 1, credits: 1 }) {
+  startWave(waveDef, waveNumber, mods = { hp: 1, fire: 1, dive: 1, credits: 1 }, heat = 0) {
     this.clear();
     this.mods = mods;
     this.waveNumber = waveNumber;
-    this.diff = difficulty(waveNumber, mods);
+    this.heat = heat;
+    this.diff = difficulty(waveNumber, mods, heat);
     this.pending = [...waveDef.spawns];
     this.waveClock = 0;
     this.diveTimer = this.diff.diveInterval + 2; // répit le temps de l'entrée
     this.fireTimer = 2;
+  }
+
+  // Recalcule la difficulté en cours de vague quand le directeur monte d'un cran.
+  setHeat(heat) {
+    this.heat = heat;
+    this.diff = difficulty(this.waveNumber, this.mods, heat);
   }
 
   clear() {
@@ -148,30 +159,47 @@ export class Enemies {
       for (let n = 0; n < want; n++) this._launchDive(game);
     }
 
-    // Tirs depuis la formation : plusieurs tireurs par volée, choisis par roulette
-    // pondérée sur fireChance — une grosse formation menace enfin proportionnellement.
+    // Volée de formation : un MOTIF spatial (balles visées, mur, tir croisé) plutôt
+    // qu'un paquet de balles au même endroit.
     this.fireTimer -= dt;
     if (this.fireTimer <= 0) {
       this.fireTimer = this.diff.formationFireInterval;
-      const shooters = this.list.filter((e) => e.alive && e.state === 'formation');
-      const n = Math.min(
-        ENEMY.shootersMax,
-        1 + Math.floor(shooters.length / ENEMY.shootersPerVolley)
-      );
-      for (let k = 0; k < n; k++) {
-        const shooter = this._pickShooter(shooters);
-        if (shooter) this._fireAimed(shooter, game, 0.12);
-      }
+      this._fireVolley(game);
     }
 
     for (const e of this.list) {
       if (!e.alive) continue;
       e.time += dt;
       this._updateEnemy(e, dt, game);
+
+      // Télégraphe : le tireur se signale avant de tirer, pour que la mort soit comprise.
+      if (e.telegraph > 0) {
+        e.telegraph -= dt;
+        if (e.telegraph <= 0) this._releaseShot(e, game);
+      }
+      // Second coup différé de la guêpe.
+      if (e.burstQueue) {
+        e.burstQueue.timer -= dt;
+        if (e.burstQueue.timer <= 0) {
+          const q = e.burstQueue;
+          const from = this._tmp.copy(e.group.position);
+          from.z += 0.8;
+          this._shootToward(from, q.aimX, game, q.shot.speedMul, q.shot.spread, 'aimed');
+          q.left--;
+          if (q.left > 0) q.timer = q.shot.gap;
+          else e.burstQueue = null;
+        }
+      }
+
       if (e.flashTime > 0) {
         e.flashTime -= dt;
         const s = 1 + Math.max(0, e.flashTime) * 2.2;
         e.group.scale.setScalar(s);
+      } else if (e.telegraph > 0) {
+        // Pulsation d'avertissement pendant le télégraphe.
+        e.group.scale.setScalar(1 + Math.sin(e.telegraph * 40) * 0.16);
+      } else if (e.group.scale.x !== 1) {
+        e.group.scale.setScalar(1);
       }
     }
 
@@ -213,11 +241,22 @@ export class Enemies {
       case 'diving': {
         e.t += dt * this.diff.diveSpeed * (e.diveSpeedMul || 1);
         const pos = e.curve.getPoint(Math.min(1, e.t));
+        // Guidage terminal borné : le plongeur corrige sa course vers le joueur, mais
+        // toujours moins vite que celui-ci ne se déplace — il pousse, il ne colle pas.
+        // Au-delà de trackUntil la correction est figée : pas de « snap » injuste.
+        if (e.diveStyle !== 'strafe' && e.t >= DIVES.trackFrom) {
+          if (e.t <= DIVES.trackUntil) {
+            const want = game.player.position.x - (pos.x + (e.homeX || 0));
+            const step = this.diff.diveTrackMax * dt * (1 - e.t);
+            e.homeX = (e.homeX || 0) + THREE.MathUtils.clamp(want, -step, step);
+          }
+          pos.x += e.homeX || 0;
+        }
         this._faceTravel(e, pos);
         e.group.position.copy(pos);
         // Plan de tir tiré au sort à chaque plongée : plus d'esquive apprise par cœur.
         while (e.divePlan && e.diveShots < e.divePlan.length && e.t > e.divePlan[e.diveShots].t) {
-          this._fireAimed(e, game, e.divePlan[e.diveShots].spread);
+          this._fireAimed(e, game, ENEMY.diveRole);
           e.diveShots++;
         }
         if (e.t >= 1) {
@@ -256,17 +295,26 @@ export class Enemies {
         e.fanTimer = (e.fanTimer ?? fanInterval) - dt;
         if (e.fanTimer <= 0) {
           e.fanTimer = fanInterval;
-          this._fireFan(e, game);
-          if (enraged) this._fireFan(e, game, BOSS.fanSpread * 0.5); // salve décalée
+          // Une salve sur deux décale la maille d'un demi-pas : deux salves
+          // consécutives n'offrent jamais le même couloir de fuite.
+          e.fanPhase = ((e.fanPhase || 0) + 1) % 2;
+          this._fireFan(e, game, e.fanPhase ? BOSS.fanSpacingU * 0.5 : 0);
+          if (enraged) e.fanFollowup = BOSS.fanSecondDelay;
+        }
+        // Nappe enragée : différée dans le TEMPS, décalée d'un demi-pas dans l'espace.
+        if (e.fanFollowup > 0) {
+          e.fanFollowup -= dt;
+          if (e.fanFollowup <= 0) {
+            this._fireFan(e, game, e.fanPhase ? 0 : BOSS.fanSpacingU * 0.5);
+            e.fanFollowup = 0;
+          }
         }
         const burstInterval = Math.max(2.2, BOSS.aimedBurstInterval - this.waveNumber * 0.03);
         e.burstTimer = (e.burstTimer ?? burstInterval) - dt;
         if (e.burstTimer <= 0) {
           e.burstTimer = burstInterval;
-          for (let i = 0; i < 3; i++) {
-            // Rafale visée, légèrement étalée dans le temps via la position projetée.
-            this._fireAimed(e, game, 0.15);
-          }
+          // Rafale visée : chaque balle avec une anticipation différente.
+          for (const role of BOSS.burstRoles) this._fireAimed(e, game, role);
         }
         break;
       }
@@ -296,7 +344,7 @@ export class Enemies {
 
   _launchDive(game) {
     const candidates = this.list.filter(
-      (e) => e.alive && e.state === 'formation' && e.type !== 'boss'
+      (e) => e.alive && ARMED_STATES.includes(e.state) && e.type !== 'boss'
     );
     if (candidates.length === 0) return;
     // Les guêpes plongent plus volontiers.
@@ -325,11 +373,14 @@ export class Enemies {
   _startDive(e, game, style, offsetX) {
     const def = DIVES[style] || DIVES.sweep;
     const start = e.group.position.clone();
-    const px = game.player.position.x + offsetX;
+    // Anticipation dès le lancement : la plongée dure 1,5 à 2,4 s, viser la position
+    // actuelle revenait à viser le vide.
+    const px = game.player.position.x + game.player.vx * ENEMY.diveLead + offsetX;
+    e.homeX = 0;
 
     if (style === 'strafe') {
-      // Rasante latérale : traverse l'écran devant le joueur en tirant droit devant.
-      const dir = start.x >= 0 ? 1 : -1;
+      // Rasante latérale : arrive toujours du côté opposé au joueur, pour le traverser.
+      const dir = start.x >= game.player.position.x ? 1 : -1;
       e.curve = new THREE.CubicBezierCurve3(
         start,
         new THREE.Vector3(dir * 20, 0, start.z + 9),
@@ -340,8 +391,8 @@ export class Enemies {
       e.curve = new THREE.CubicBezierCurve3(
         start,
         new THREE.Vector3(start.x + (Math.random() - 0.5) * 10, 0, start.z + 7),
-        new THREE.Vector3(px + (Math.random() - 0.5) * 8, 0, 6),
-        new THREE.Vector3(px + (Math.random() - 0.5) * 10, 0, 24)
+        new THREE.Vector3(px + (Math.random() - 0.5) * 4, 0, 6),
+        new THREE.Vector3(px + (Math.random() - 0.5) * 3, 0, 24)
       );
     }
 
@@ -359,40 +410,150 @@ export class Enemies {
     e.state = 'diving';
   }
 
-  _fireAimed(e, game, spread) {
+  // ---- Tirs ----
+
+  // Point visé : là où le joueur SERA quand la balle arrivera, pas où il est.
+  // roleMul répartit l'anticipation entre les tireurs d'une même volée : 1.0 vise
+  // loin devant, 0 vise sur place (et cueille celui qui freine).
+  _predictPoint(fromZ, game, roleMul) {
+    const tof = Math.abs(ARENA.playerZ - fromZ) / this.diff.bulletSpeed;
+    const lead = this.diff.lead ?? ENEMY.leadBase;
+    const jitter = (Math.random() - 0.5) * 2 * ENEMY.leadJitter;
+    const x = game.player.position.x + game.player.vx * tof * lead * roleMul + jitter;
+    return THREE.MathUtils.clamp(x, -ARENA.playerXMax, ARENA.playerXMax);
+  }
+
+  // Tire une balle depuis `from` vers le point x cible (au plan du joueur).
+  _shootToward(from, aimX, game, speedMul = 1, spread = 0, kind = 'aimed') {
+    const dir = this._tmp2.set(aimX - from.x, 0, ARENA.playerZ - from.z);
+    dir.normalize();
+    if (spread) {
+      dir.x += (Math.random() - 0.5) * 2 * spread;
+      dir.normalize();
+    }
+    dir.multiplyScalar(this.diff.bulletSpeed * speedMul);
+    game.enemyBullets.spawn(from, dir, kind);
+  }
+
+  // Tir visé d'un ennemi, avec la signature de son type (drone/guêpe/brute).
+  _fireAimed(e, game, roleMul = 1) {
     const from = this._tmp.copy(e.group.position);
     from.z += 0.8;
-    const dir = this._tmp2.copy(game.player.position).sub(from);
-    dir.y = 0;
-    dir.normalize();
-    dir.x += (Math.random() - 0.5) * 2 * spread;
-    dir.normalize().multiplyScalar(this.diff.bulletSpeed);
-    game.enemyBullets.spawn(from, dir);
+    const shot = e.def.shot || { shots: 1, spread: ENEMY.aimSpread, speedMul: 1 };
+    const aimX = this._predictPoint(from.z, game, roleMul);
+    this._shootToward(from, aimX, game, shot.speedMul, shot.spread, 'aimed');
+    // Second coup de la guêpe : différé, pour refermer le couloir d'esquive.
+    if (shot.shots > 1 && shot.gap) {
+      e.burstQueue = { left: shot.shots - 1, timer: shot.gap, aimX, shot };
+    } else if (shot.shots > 1) {
+      // Nappe de la brute : plusieurs balles d'un coup, réparties latéralement.
+      for (let i = 1; i < shot.shots; i++) {
+        const off = (i - (shot.shots - 1) / 2) * shot.spread * 26;
+        this._shootToward(from, aimX + off, game, shot.speedMul, 0, 'aimed');
+      }
+    }
     game.audio.enemyShoot();
   }
 
-  _fireFan(e, game, angleOffset = 0) {
+  // Une volée = un motif spatial. Le budget de balles garantit que l'arène ne
+  // peut jamais être fermée : au-delà, les tireurs de formation cèdent le pas.
+  _fireVolley(game) {
+    const armed = this.list.filter((e) => e.alive && ARMED_STATES.includes(e.state));
+    if (armed.length === 0) return;
+    if (game.enemyBullets.activeCount() >= this.diff.bulletBudget) return;
+
+    const style = pickWeighted(this.diff.volleyWeights || { aimed: 1 });
+    if (style === 'wall') this._fireWall(armed);
+    else if (style === 'cross') this._fireCross(armed);
+    else this._fireAimedVolley(armed);
+  }
+
+  _fireAimedVolley(armed) {
+    const pool = [...armed];
+    const n = Math.min(3, this.diff.shootersMax, pool.length);
+    for (let k = 0; k < n; k++) {
+      const shooter = this._pickShooter(pool);
+      if (!shooter) break;
+      pool.splice(pool.indexOf(shooter), 1);
+      shooter.telegraph = ENEMY.telegraphTime;
+      shooter.pendingShot = {
+        kind: 'aimed',
+        role: ENEMY.volleyRoles[k % ENEMY.volleyRoles.length],
+      };
+    }
+  }
+
+  // Mur : des tireurs répartis sur toute la largeur tirent droit devant.
+  // Il reste toujours un couloir, mais il faut le viser.
+  _fireWall(armed) {
+    const sorted = [...armed].sort((a, b) => a.group.position.x - b.group.position.x);
+    const count = Math.min(this.diff.wallCount, sorted.length);
+    for (let i = 0; i < count; i++) {
+      const idx = Math.round((i * (sorted.length - 1)) / Math.max(1, count - 1));
+      const e = sorted[idx];
+      if (!e || e.pendingShot) continue;
+      e.telegraph = ENEMY.telegraphTime;
+      e.pendingShot = { kind: 'straight' };
+    }
+  }
+
+  // Tir croisé : les deux extrémités de la formation ferment les côtés.
+  _fireCross(armed) {
+    const sorted = [...armed].sort((a, b) => a.group.position.x - b.group.position.x);
+    const ends = [sorted[0], sorted[sorted.length - 1]];
+    ends.forEach((e, side) => {
+      if (!e || e.pendingShot) return;
+      e.telegraph = ENEMY.telegraphTime;
+      e.pendingShot = { kind: 'cross', side };
+    });
+  }
+
+  // Exécute le tir annoncé à la fin du télégraphe.
+  _releaseShot(e, game) {
+    const p = e.pendingShot;
+    e.pendingShot = null;
+    if (!p) return;
+    const from = this._tmp.copy(e.group.position);
+    from.z += 0.8;
+    if (p.kind === 'straight') {
+      this._shootToward(from, from.x, game, 1, 0, 'straight');
+      game.audio.enemyShoot();
+    } else if (p.kind === 'cross') {
+      for (const a of ENEMY.crossAngles) {
+        const angle = p.side === 0 ? a : -a;
+        const dir = new THREE.Vector3(
+          Math.sin(angle) * this.diff.bulletSpeed,
+          0,
+          Math.cos(angle) * this.diff.bulletSpeed
+        );
+        game.enemyBullets.spawn(from, dir, 'straight');
+      }
+      game.audio.enemyShoot();
+    } else {
+      this._fireAimed(e, game, p.role ?? 1);
+    }
+  }
+
+  // Éventail du boss : l'écart entre branches est mesuré EN UNITÉS au plan du
+  // joueur. En radians, toutes les branches sauf une sortaient de l'écran.
+  _fireFan(e, game, offsetU = 0) {
     const from = this._tmp.copy(e.group.position);
     from.z += 1.2;
-    const base = this._tmp2.copy(game.player.position).sub(from);
-    base.y = 0;
-    const baseAngle = Math.atan2(base.x, base.z) + angleOffset;
-    // L'éventail gagne une branche toutes les 8 vagues : le boss de la vague 40
-    // n'est plus celui de la vague 4 en plus long.
-    const count = Math.min(
-      BOSS.fanCountMax,
-      BOSS.fanCount + Math.floor(this.waveNumber / BOSS.fanCountPerWaves)
+    const dz = Math.max(1, ARENA.playerZ - from.z);
+    const span = Math.min(
+      BOSS.fanSpanMax,
+      BOSS.fanSpanBase + BOSS.fanSpanPerWave * this.waveNumber
     );
+    const count = Math.min(BOSS.fanCountMax, 1 + Math.round(span / BOSS.fanSpacingU));
+    const centerX = this._predictPoint(from.z, game, 0.5);
     for (let i = 0; i < count; i++) {
-      const angle = baseAngle + (i - (count - 1) / 2) * BOSS.fanSpread;
-      const vel = new THREE.Vector3(
-        Math.sin(angle) * this.diff.bulletSpeed,
-        0,
-        Math.cos(angle) * this.diff.bulletSpeed
-      );
-      game.enemyBullets.spawn(from, vel);
+      const aimX = centerX + (i - (count - 1) / 2) * BOSS.fanSpacingU + offsetU;
+      const dir = new THREE.Vector3(aimX - from.x, 0, dz).normalize();
+      dir.multiplyScalar(this.diff.bulletSpeed);
+      game.enemyBullets.spawn(from, dir, 'straight');
     }
     game.audio.enemyShoot();
+    void dz;
   }
 
   // Inflige des dégâts ; renvoie true si l'ennemi meurt.

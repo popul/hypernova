@@ -2,18 +2,18 @@
 // Les meshes sont créés une fois puis recyclés (visible on/off), jamais alloués en jeu.
 
 import * as THREE from 'three';
-import { ARENA } from './constants.js';
+import { ARENA, ENEMY } from './constants.js';
 
 // Halo doux réutilisé par les projectiles ennemis (lisibilité sur fond étoilé).
-function makeGlowTexture() {
+function makeGlowTexture(tint = 'rgba(255,61,240,0.55)') {
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
   const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   grad.addColorStop(0, 'rgba(255,255,255,0.9)');
-  grad.addColorStop(0.35, 'rgba(255,61,240,0.55)');
-  grad.addColorStop(1, 'rgba(255,61,240,0)');
+  grad.addColorStop(0.35, tint);
+  grad.addColorStop(1, tint.replace(/[\d.]+\)$/, '0)'));
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   return new THREE.CanvasTexture(canvas);
@@ -68,6 +68,12 @@ class Pool {
       if (e.active) fn(e);
     }
   }
+
+  activeCount() {
+    let n = 0;
+    for (const e of this.entries) if (e.active) n++;
+    return n;
+  }
 }
 
 export class PlayerBullets extends Pool {
@@ -87,35 +93,57 @@ export class PlayerBullets extends Pool {
 
 export class EnemyBullets extends Pool {
   constructor(scene) {
-    // Noyau blanc chaud + coque magenta + halo : impossible à confondre avec une étoile
-    // (les étoiles sont petites, bleutées et lentes ; les tirs sont gros, roses et rapides).
+    // Noyau blanc chaud + coque colorée + halo : impossible à confondre avec une étoile.
+    // DEUX COULEURS, c'est la grammaire du jeu : rose = balle VISÉE (elle est calculée
+    // sur ta trajectoire, elle « te suit ») ; ambre = balle DROITE (mur, tir croisé,
+    // éventail du boss — il faut trouver le trou). Le cyan reste au joueur.
     const coreGeo = new THREE.SphereGeometry(0.15, 8, 8);
     const coreMat = new THREE.MeshBasicMaterial({ color: 0xfff3fb, toneMapped: false });
     const shellGeo = new THREE.SphereGeometry(0.27, 10, 10);
-    const shellMat = new THREE.MeshBasicMaterial({
-      color: 0xff3df0,
-      transparent: true,
-      opacity: 0.75,
-      toneMapped: false,
-    });
-    const glowTex = makeGlowTexture();
+    const makeShell = (color) =>
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75, toneMapped: false });
+    const shellMats = {
+      aimed: makeShell(ENEMY.bulletColorAimed),
+      straight: makeShell(ENEMY.bulletColorStraight),
+    };
+    const haloTex = {
+      aimed: makeGlowTexture('rgba(255,61,240,0.55)'),
+      straight: makeGlowTexture('rgba(255,162,61,0.55)'),
+    };
     const makeMesh = () => {
       const g = new THREE.Group();
       g.add(new THREE.Mesh(coreGeo, coreMat));
-      g.add(new THREE.Mesh(shellGeo, shellMat));
+      const shell = new THREE.Mesh(shellGeo, shellMats.aimed);
+      shell.name = 'shell';
+      g.add(shell);
       const halo = new THREE.Sprite(
         new THREE.SpriteMaterial({
-          map: glowTex,
+          map: haloTex.aimed,
           transparent: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         })
       );
+      halo.name = 'halo';
       halo.scale.setScalar(1.7);
       g.add(halo);
       return g;
     };
-    super(scene, 90, makeMesh, 0.38);
+    super(scene, 140, makeMesh, 0.38);
+    this._shellMats = shellMats;
+    this._haloTex = haloTex;
+  }
+
+  // kind : 'aimed' (rose, visée prédictive) ou 'straight' (ambre, trajectoire fixe).
+  spawn(pos, vel, kind = 'aimed') {
+    const entry = super.spawn(pos, vel);
+    if (!entry) return null;
+    entry.kind = kind;
+    const shell = entry.mesh.getObjectByName('shell');
+    const halo = entry.mesh.getObjectByName('halo');
+    if (shell) shell.material = this._shellMats[kind] || this._shellMats.aimed;
+    if (halo) halo.material.map = this._haloTex[kind] || this._haloTex.aimed;
+    return entry;
   }
 
   // slow < 1 ralentit les balles ennemies (effet Overdrive).
