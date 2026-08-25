@@ -83,12 +83,13 @@ const SHOTS = [
     id: 'S5', // La quille au téléobjectif. Ça ne finit pas.
     t0: 14,
     t1: 17,
-    pos: [46, 24, -78],
-    posTo: [-56, 24, -78],
-    lookFn: (e, ctx) => ctx.tmp.set(46 - 102 * e, 21, -104),
+    // Assez loin pour LIRE une coque : plus près, ce n'est qu'un mur sombre.
+    pos: [52, 14, -56],
+    posTo: [-58, 14, -56],
+    lookFn: (e, ctx) => ctx.tmp.set(52 - 110 * e, 21, -104),
     roll: 0,
-    rollTo: 0.18,
-    hfov: 34,
+    rollTo: 0.14,
+    hfov: 46,
     ease: 'linear',
   },
   {
@@ -258,31 +259,36 @@ export class Cinematic {
     this.eclipse.rotation.y = 0.22;
     this.root.add(this.eclipse);
 
+    // L'essaim reste dans les flancs du cuirassé et n'existe pas à l'écran avant
+    // qu'il n'en jaillisse : le voir traîner devant la Terre tuerait la surprise.
     this.swarm = createSwarm(320);
+    this.swarm.visible = false;
     this.root.add(this.swarm);
     this.swarmState = [];
     for (let i = 0; i < 320; i++) {
       this.swarmState.push({
         base: new THREE.Vector3(
-          -30 + Math.random() * 60,
-          -14 + Math.random() * 28,
-          -108 + Math.random() * 26
+          ECLIPSE_HOME.x + (Math.random() - 0.5) * 60,
+          ECLIPSE_HOME.y + (Math.random() - 0.5) * 14,
+          ECLIPSE_HOME.z + (Math.random() - 0.5) * 16
         ),
         phase: Math.random() * Math.PI * 2,
         speed: 0.6 + Math.random() * 0.9,
       });
     }
 
-    this.shuttles = createShuttles(140);
+    // Le convoi : un FLUX qui monte du terminateur vers la caméra, pas un nuage
+    // dispersé. Le faisceau est étroit — c'est ce qui le fait lire comme une fuite
+    // organisée, et c'est ce qui rendra sa destruction lisible.
+    this.shuttles = createShuttles(110);
     this.root.add(this.shuttles);
     this.shuttleState = [];
-    for (let i = 0; i < 140; i++) {
-      const a = Math.random() * Math.PI * 2;
+    for (let i = 0; i < 110; i++) {
       this.shuttleState.push({
-        a,
-        r: EARTH_R + 1 + Math.random() * 6,
-        rise: Math.random() * 60,
-        speed: 7 + Math.random() * 9,
+        a: -1.1 + Math.random() * 1.5, // secteur du limbe d'où part l'évacuation
+        spread: (Math.random() - 0.5) * 14,
+        rise: Math.random() * 100, // le flux est déjà en cours quand on arrive
+        speed: 7 + Math.random() * 5,
         alive: true,
       });
     }
@@ -292,15 +298,17 @@ export class Cinematic {
     this.root.add(this.debris);
     this.debrisState = [];
     for (let i = 0; i < 90; i++) {
+      // Semés le long de la trajectoire de charge, pas devant l'objectif : de trop
+      // près, un tétraèdre de 2 unités devient un éclat gris qui masque tout.
       this.debrisState.push({
         p: new THREE.Vector3(
-          (Math.random() - 0.5) * 46,
-          (Math.random() - 0.5) * 18,
-          -34 - Math.random() * 40
+          (Math.random() - 0.5) * 34,
+          (Math.random() - 0.5) * 14,
+          -30 - Math.random() * 90
         ),
         rot: new THREE.Vector3(Math.random() * 3, Math.random() * 3, Math.random() * 3),
         spin: (Math.random() - 0.5) * 1.2,
-        scale: 0.5 + Math.random() * 1.8,
+        scale: 0.3 + Math.random() * 0.8,
       });
     }
 
@@ -523,11 +531,12 @@ export class Cinematic {
     // --- Les navettes montent du terminateur ---
     this._updateShuttles(dt);
 
-    // --- L'essaim ---
-    this._updateSwarm(dt);
+    // --- L'essaim : invisible tant qu'il n'a pas jailli des flancs ---
+    if (this.swarmOut) this.swarm.visible = true;
+    if (this.swarm.visible) this._updateSwarm(dt);
 
-    // --- Le champ de débris (après la frappe) ---
-    if (t > 17.2) {
+    // --- Le champ de débris : seulement pour la charge à travers l'épave (S10) ---
+    if (t > 26.5) {
       this.debris.visible = true;
       this._updateDebris(dt);
     }
@@ -568,12 +577,16 @@ export class Cinematic {
         continue;
       }
       s.rise += s.speed * dt;
-      const x = EARTH_POS.x + Math.cos(s.a) * s.r;
-      const y = EARTH_POS.y + Math.sin(s.a) * s.r * 0.6 + s.rise * 0.55;
-      const z = EARTH_POS.z + Math.sin(s.a) * s.r + s.rise * 0.9;
+      if (s.rise > 100) s.rise = 0; // le flux est continu : il ne se tarit pas
+      // Colonne qui décolle du limbe et s'éloigne de la planète, en restant à
+      // distance de l'objectif : de près, des navettes de 2 unités feraient
+      // un mur de caisses et écraseraient la Terre.
+      const x = EARTH_POS.x + Math.cos(s.a) * (EARTH_R + 4) + s.spread;
+      const y = EARTH_POS.y + Math.sin(s.a) * (EARTH_R + 4) + s.rise * 0.55;
+      const z = EARTH_POS.z + 14 + s.rise * 0.42;
       this.tmp.set(x, y, z);
-      this._q.setFromAxisAngle(this.tmp2.set(0, 1, 0), s.a);
-      this._m.compose(this.tmp, this._q, this._s);
+      this._q.setFromAxisAngle(this.tmp2.set(1, 0, 0), -0.42);
+      this._m.compose(this.tmp, this._q, this.tmp2.setScalar(1.25));
       this.shuttles.setMatrixAt(i, this._m);
     }
     this.shuttles.instanceMatrix.needsUpdate = true;
@@ -593,12 +606,15 @@ export class Cinematic {
         eyes.setMatrixAt(i, this._m);
         continue;
       }
-      // Avant la sortie : au flanc du cuirassé. Après : un mur qui vient vers nous.
+      // Avant la sortie : au flanc du cuirassé. Après : ils déferlent VERS LA TERRE,
+      // en s'étalant — c'est le mouvement que la caméra du plan regarde.
       const drift = Math.sin(t * s.speed + s.phase) * 1.6;
+      const spread = ((i % 17) - 8) * 2.6;
       this.tmp.set(
-        s.base.x + drift,
-        s.base.y + Math.cos(t * s.speed * 0.7 + s.phase) * 1.2,
-        s.base.z + out * (58 + (i % 7) * 3.5)
+        THREE.MathUtils.lerp(s.base.x, EARTH_POS.x + spread, out) + drift,
+        THREE.MathUtils.lerp(s.base.y, EARTH_POS.y + 6 + ((i % 7) - 3) * 3.4, out) +
+          Math.cos(t * s.speed * 0.7 + s.phase) * 1.2,
+        THREE.MathUtils.lerp(s.base.z, EARTH_POS.z + 26 - (i % 9) * 2.2, out)
       );
       // Le pivot d'un bloc : l'image la plus menaçante du film.
       const yaw = THREE.MathUtils.lerp(Math.PI / 2, Math.PI, turn) + drift * 0.05;
@@ -685,15 +701,17 @@ export class Cinematic {
       g.rotation.z = Math.sin(this.turning * Math.PI) * 0.9;
       for (const e of this.player.exhausts) e.scale.setScalar(1 + this.turning * 2.4);
     } else if (t < 36) {
-      // La charge : il slalome dans l'épave, vers le cuirassé.
+      // La charge : il slalome dans l'épave, vers le cuirassé. Sa course est BORNÉE :
+      // sans butée il dépasserait tout le décor et le titre s'afficherait sur du vide.
       g.position.x += Math.sin(t * 2.1) * 5.5 * dt;
       g.position.y += Math.sin(t * 1.7) * 1.6 * dt;
-      g.position.z -= 26 * dt;
+      g.position.z = Math.max(-66, g.position.z - 9 * dt);
       g.rotation.set(0, 0, Math.sin(t * 2.1) * -0.55);
       this.fx.trail(g.position, 0x4ff2ff);
     } else {
       // Vers l'avant, toujours : le dernier mouvement du film va vers l'ennemi.
-      g.position.z -= 18 * dt;
+      g.position.z = Math.max(-78, g.position.z - 4 * dt);
+      g.position.x += Math.sin(t * 1.3) * 1.4 * dt;
       g.rotation.z *= 0.94;
       this.fx.trail(g.position, 0x4ff2ff);
     }

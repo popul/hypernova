@@ -8,6 +8,14 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../waves.js';
 
+// mergeGeometries renvoie null au moindre désaccord d'attributs. Un mesh construit
+// sur null plante au rendu, très loin de la cause : on échoue donc bruyamment ici.
+function merge(parts, label) {
+  const geo = mergeGeometries(parts, false);
+  if (!geo) throw new Error(`Fusion de géométrie impossible : ${label}`);
+  return geo;
+}
+
 // ---------------------------------------------------------------- La Terre
 
 // Bruit de valeur lissé, sommé sur 4 octaves : donne des masses continentales
@@ -267,14 +275,14 @@ export function createEclipse() {
   for (let i = 0; i < 9; i++) {
     const t = i / 8;
     const w = 9 + Math.sin(t * Math.PI) * 7; // fuselé aux extrémités
-    const seg = new THREE.BoxGeometry(LEN / 9, w * 0.55, w);
+    const seg = new THREE.BoxGeometry(LEN / 9, w * 0.95, w * 1.15);
     seg.translate(-LEN / 2 + (LEN / 9) * (i + 0.5), 0, 0);
     hullParts.push(seg);
   }
   for (let i = 0; i < 24; i++) {
     const x = -LEN / 2 + 4 + (i / 23) * (LEN - 8);
-    const r = 8 + Math.sin((i / 23) * Math.PI) * 5.5;
-    const arc = new THREE.TorusGeometry(r, 0.85, 5, 10, Math.PI * 1.35);
+    const r = 7 + Math.sin((i / 23) * Math.PI) * 4.2;
+    const arc = new THREE.TorusGeometry(r, 1.15, 5, 10, Math.PI * 1.35);
     arc.rotateY(Math.PI / 2);
     arc.rotateX(Math.PI * 0.32);
     arc.translate(x, 0, 0);
@@ -288,13 +296,17 @@ export function createEclipse() {
     g.translate(x, Math.sin(a) * r * 0.5, Math.cos(a) * r);
     hullParts.push(g);
   }
-  const hullGeo = mergeGeometries(hullParts, false);
+  const hullGeo = merge(hullParts, 'coque du cuirassé');
   for (const p of hullParts) p.dispose();
   const hull = new THREE.Mesh(
     hullGeo,
     new THREE.MeshStandardMaterial({
       map: makeHullDetailTexture(),
       color: 0x4a4658,
+      // Une pointe d'émissif : sous l'éclairage éteint du plan, une coque
+      // purement diffuse deviendrait une silhouette noire sans surface.
+      emissive: 0x1a1826,
+      emissiveIntensity: 1,
       roughness: 0.82,
       metalness: 0.55,
       flatShading: false,
@@ -313,7 +325,7 @@ export function createEclipse() {
     b.translate(x, Math.sin(a) * 4.6, Math.cos(a) * 8.2);
     bandParts.push(b);
   }
-  const bandGeo = mergeGeometries(bandParts, false);
+  const bandGeo = merge(bandParts, 'bandes du cuirassé');
   for (const p of bandParts) p.dispose();
   const bands = new THREE.Mesh(
     bandGeo,
@@ -395,12 +407,14 @@ export function createEclipse() {
 // 320 drones en 2 InstancedMesh. L'ancienne version clonait 26 groupes de 5 meshes
 // (≈130 draw calls) : instancier est un gain net, pas un coût.
 export function createSwarm(count = 320) {
+  // mergeGeometries renvoie null si on mélange indexé et non indexé : l'octaèdre
+  // ne l'est pas, les boîtes le sont. On normalise tout en non indexé d'abord.
   const bodyParts = [
     new THREE.OctahedronGeometry(0.55).scale(1, 0.75, 1.1),
-    new THREE.BoxGeometry(0.8, 0.08, 0.45).translate(0.75, 0, 0),
-    new THREE.BoxGeometry(0.8, 0.08, 0.45).translate(-0.75, 0, 0),
+    new THREE.BoxGeometry(0.8, 0.08, 0.45).translate(0.75, 0, 0).toNonIndexed(),
+    new THREE.BoxGeometry(0.8, 0.08, 0.45).translate(-0.75, 0, 0).toNonIndexed(),
   ];
-  const bodyGeo = mergeGeometries(bodyParts, false);
+  const bodyGeo = merge(bodyParts, 'essaim');
   for (const p of bodyParts) p.dispose();
 
   const bodies = new THREE.InstancedMesh(
@@ -433,20 +447,20 @@ export function createSwarm(count = 320) {
 // --------------------------------------------------------- Navettes et débris
 
 export function createShuttles(count = 140) {
-  const geo = mergeGeometries(
+  const geo = merge(
     [
       new THREE.BoxGeometry(0.9, 0.34, 0.34),
       new THREE.BoxGeometry(0.26, 0.1, 0.9).translate(-0.3, 0, 0),
     ],
-    false
+    'navettes'
   );
   const mesh = new THREE.InstancedMesh(
     geo,
     new THREE.MeshStandardMaterial({
-      color: 0xd8dee9,
-      emissive: 0x556070,
-      roughness: 0.6,
-      metalness: 0.35,
+      color: 0xc9d2de,
+      emissive: 0x4a5666,
+      roughness: 0.7,
+      metalness: 0.3,
       flatShading: true,
     }),
     count
