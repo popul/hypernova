@@ -31,10 +31,13 @@ Ils ont construit deux arches.
 
 La première était un être : une machine assez grande pour contenir un peuple entier
 sous forme d'archive, assez solide pour traverser le vide pendant des millénaires,
-assez intelligente pour les reconstruire à l'arrivée. Sur les plaques, ils l'ont
-appelée **SERVATOR** — celui qui garde. Dans les registres d'entretien, les
-techniciens écrivaient autre chose, à cause de ce qu'il fallait lui faire avaler
-pour le nourrir : **VORAX**.
+assez intelligente pour les reconstruire à l'arrivée.
+
+Sur les plaques de coque, ils ont gravé son nom : **ANDEL**.
+
+Dans les registres d'entretien, les techniciens en écrivaient un autre — celui qu'on
+donne à une chose qu'on nourrit, à cause de ce qu'il fallait lui faire avaler :
+**VORAX**.
 
 La seconde arche était une flotte. Rapide, discrète, petite.
 
@@ -44,7 +47,7 @@ La seconde arche était une flotte. Rapide, discrète, petite.
 
 Le jour du départ, ceux qui décidaient sont montés dans la flotte.
 
-Dans SERVATOR, ils ont chargé tout le reste. Les ouvriers qui l'avaient soudé. Les
+Dans ANDEL, ils ont chargé tout le reste. Les ouvriers qui l'avaient soudé. Les
 malades. Les vieux. Ceux dont on n'avait plus l'usage. On leur a dit que c'était un
 honneur d'être confiés au grand vaisseau.
 
@@ -74,11 +77,12 @@ Il ne classe pas, il ne préserve pas, il ne prévient pas : il éventre, et il 
 suivant. Bételgeuse a mis onze minutes. Ce n'était pas une exécution, c'était une
 fouille.
 
-Il ne s'est jamais présenté comme SERVATOR. Il se fait appeler par le nom que les
-techniciens écrivaient dans leurs carnets.
+Il ne s'est jamais présenté comme ANDEL. Il se fait appeler par le nom des carnets
+d'atelier — et il faut entendre ce que ça veut dire : il a choisi de porter le mépris
+plutôt que la promesse, parce que le mépris, au moins, était sincère.
 
-> « Ils ont gravé SERVATOR sur mes plaques et ils écrivaient VORAX dans les registres
-> d'entretien. J'ai gardé celui qu'ils pensaient vraiment. »
+> « Sur les plaques : ANDEL. Dans les carnets : VORAX. Devine lequel ils disaient à
+> voix haute. »
 
 **Il ne parle pas au joueur.** Pas au début. Il parle à la coque, aux modules, au
 métal — parce que le métal, il le reconnaît. L'humain aux commandes ne l'intéresse
@@ -175,6 +179,8 @@ VORAX s'ouvre. Pour la première fois en dix mille ans.
 Et ce qui en sort n'est pas ce qu'il attendait. Les ouvriers, les malades, les vieux
 ont laissé un dernier enregistrement avant qu'on les charge. Il dit ceci :
 
+> « Salut, Andel. »
+>
 > « On savait qu'ils partaient sans nous. On savait qu'ils t'avaient éteint la clé.
 > On est montés quand même. On te l'a pas dit, parce que t'aurais refusé de partir.
 > On voulait pas que tu traverses en te croyant seul. »
@@ -222,9 +228,10 @@ Le cadre autorise n'importe quoi sans jamais contredire l'histoire.
    supprimer, omettre. Ils ont élidé leur propre peuple. Est-ce que ça vous va, ou
    faut-il quelque chose de plus rugueux ?
 
-2. **SERVATOR.** Son vrai nom, celui des plaques. À garder ? C'est du latin lisible
-   (« celui qui garde »), et la révélation est forte — mais on peut aussi lui donner
-   un nom dans leur langue à eux.
+2. **ANDEL** est le seul mot du jeu que VORAX refuse de prononcer, et le premier que
+   dit l'enregistrement des ouvriers. Faut-il qu'il apparaisse plus tôt — gravé
+   quelque part sur une pièce de la boutique, par exemple, sans explication — pour
+   que le joueur observateur ait une longueur d'avance ?
 
 3. **« Il ne parle pas au joueur »** au début, seulement à la coque. C'est ce qui
    remplace la politesse, et je le trouve bien plus glaçant. Mais est-ce trop subtil
