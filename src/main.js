@@ -47,24 +47,40 @@ function fitCamera() {
 }
 fitCamera();
 
-scene.add(new THREE.HemisphereLight(0x8fb8ff, 0x1a0b2e, 1.1));
+const hemi = new THREE.HemisphereLight(0x8fb8ff, 0x1a0b2e, 1.1);
+scene.add(hemi);
 const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
 keyLight.position.set(6, 14, 8);
 scene.add(keyLight);
 const rimLight = new THREE.DirectionalLight(0x4ff2ff, 0.7);
 rimLight.position.set(-8, 6, -10);
 scene.add(rimLight);
+// Lumière de la gueule du cuirassé, pré-créée éteinte : l'ajouter à chaud
+// recompilerait tous les matériaux de la scène, avec un à-coup garanti pile
+// sur le plan le plus dramatique.
+const mawLight = new THREE.PointLight(0xffd0a0, 0, 220, 1.4);
+mawLight.position.set(0, 0, -100);
+scene.add(mawLight);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+// Bloom en demi-résolution : invisible à ces rayons, et c'est le poste le plus
+// coûteux du budget mobile (le goulot est le fill rate, pas les triangles).
 const bloom = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
   0.95, // intensité
   0.55, // rayon
   0.55 // seuil
 );
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+
+const MAX_DPR = 2;
+const CINE_DPR = 1.5; // ~40 % du coût fragment récupéré pendant la cinématique
+export function setCinematicQuality(on) {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, on ? CINE_DPR : MAX_DPR));
+  composer.setSize(window.innerWidth, window.innerHeight);
+}
 
 const input = new Input();
 const audio = new AudioEngine();
@@ -78,6 +94,17 @@ const game = new Game({
   input,
   audio,
   fx,
+  // La cinématique met en scène la lumière autant que la caméra : sans accès au
+  // bloom, à l'exposition et aux lampes, elle ne peut pas raconter une extinction.
+  stage: {
+    composer,
+    bloom,
+    lights: { hemi, keyLight, rimLight, mawLight },
+    setQuality: setCinematicQuality,
+    fitCamera,
+    cameraHome: CAMERA_BASE,
+    cameraTarget: CAMERA_TARGET,
+  },
   hudRoot: document.getElementById('hud'),
   overlayRoot: document.getElementById('overlay'),
 });
@@ -91,9 +118,10 @@ window.addEventListener('mousedown', unlock);
 window.addEventListener('touchstart', unlock);
 
 window.addEventListener('resize', () => {
-  fitCamera();
+  if (!game.cameraOverride) fitCamera(); // la ciné pilote son propre cadrage
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+  bloom.setSize(window.innerWidth / 2, window.innerHeight / 2);
 });
 
 // PWA : service worker (cache hors-ligne + alertes de nouvelle campagne).
@@ -123,14 +151,22 @@ function frame() {
   const dt = fx.tick(realDt); // hit-stop : dt gameplay éventuellement ralenti
 
   starfield.update(realDt, game.state === 'playing' ? 1 : 0.35);
+  game.characters.update(realDt); // les visages vivent même quand le jeu est en pause
   game.update(dt);
 
   // Caméra : pilotée par la cinématique quand elle joue, sinon léger suivi du
   // joueur + screenshake pour ancrer la 3D.
   if (game.cameraOverride) {
-    camera.position.copy(game.cameraOverride.pos).add(fx.shakeOffset);
-    camera.lookAt(game.cameraOverride.look);
+    const cam = game.cameraOverride;
+    camera.position.copy(cam.pos).add(fx.shakeOffset);
+    camera.up.set(Math.sin(cam.roll || 0), Math.cos(cam.roll || 0), 0); // roulis de plan
+    camera.lookAt(cam.look);
+    if (cam.fov && Math.abs(camera.fov - cam.fov) > 0.01) {
+      camera.fov = cam.fov;
+      camera.updateProjectionMatrix();
+    }
   } else {
+    if (camera.up.x !== 0) camera.up.set(0, 1, 0);
     const followX = game.player ? game.player.position.x * 0.22 : 0;
     camera.position.set(
       CAMERA_BASE.x + followX + fx.shakeOffset.x,

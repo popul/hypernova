@@ -31,6 +31,7 @@ import {
   createPilot,
   hasPin,
   verifyPin,
+  sanitizeName,
 } from './pilots.js';
 import { Characters } from './characters.js';
 import { Director, romanTier } from './director.js';
@@ -43,13 +44,14 @@ function esc(s) {
 }
 
 export class Game {
-  constructor({ scene, camera, renderer, input, audio, fx, hudRoot, overlayRoot }) {
+  constructor({ scene, camera, renderer, input, audio, fx, stage, hudRoot, overlayRoot }) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
     this.input = input;
     this.audio = audio;
     this.fx = fx;
+    this.stage = stage; // composer, bloom, lampes, réglage de qualité, cadrage
 
     this.player = new Player(scene);
     this.enemies = new Enemies(scene);
@@ -77,6 +79,7 @@ export class Game {
       overlayRoot,
       player: this.player,
       characters: this.characters,
+      stage,
     });
     this.cameraOverride = null;
     this.director = new Director();
@@ -162,32 +165,57 @@ export class Game {
     }
   }
 
+  // Écran-porte du premier lancement. On y demande l'indicatif : dans la cinématique,
+  // ORSO prononce le pseudo du joueur — sans lui, il parlerait dans le vide.
   showGate() {
     this.state = 'gate';
     this.hud.root.classList.add('hidden');
+    const known = activePilot()?.name || '';
     const el = this._screen(`
       <div class="screen gate">
         <div class="gate-logo">HYPER<span>NOVA</span></div>
-        <button class="btn-launch" id="btn-enter">▶ Entrer dans la légende</button>
+        <div class="gate-callsign">Identifiez-vous, pilote</div>
+        <form class="lb-form" id="gate-form">
+          <input id="gate-name" type="text" maxlength="10" autocomplete="off"
+                 placeholder="INDICATIF" value="${esc(known)}" aria-label="Indicatif du pilote" />
+          <button class="btn-launch" type="submit">▶ Décoller</button>
+        </form>
       </div>
     `);
-    el.querySelector('#btn-enter').addEventListener('click', () => {
+    const input = el.querySelector('#gate-name');
+    setTimeout(() => input.focus(), 100);
+    el.querySelector('#gate-form').addEventListener('submit', (e) => {
+      e.preventDefault();
       this.audio.unlock();
-      this.playCinematic();
+      const name = sanitizeName(input.value);
+      if (name && !listPilots().some((p) => p.name === name)) createPilot(name, '');
+      else if (name) setActivePilot(name);
+      this.playCinematic({ handoff: true });
     });
   }
 
-  playCinematic() {
+  // handoff : depuis l'écran-porte, la cinématique se plie sur la pose de jeu et
+  // enchaîne directement sur la première vague. Depuis « Histoire », elle revient
+  // au titre — sinon rejouer l'intro lancerait une partie non désirée.
+  playCinematic({ handoff = false } = {}) {
     this.state = 'cinematic';
     this.audio.setMode('cinematic');
     this.hud.root.classList.add('hidden');
     this.galaxyMap.close();
     this.shop.close();
     this.overlayRoot.innerHTML = '';
-    this.cinematic.play(() => {
-      localStorage.setItem(STORAGE_KEYS.introSeen, '1');
-      this.showTitle();
-    });
+    this.player.showHitMarkers(false);
+    this.stage?.setQuality?.(true);
+    this.cinematic.play(
+      () => {
+        localStorage.setItem(STORAGE_KEYS.introSeen, '1');
+        this.player.showHitMarkers(true);
+        this.stage?.setQuality?.(false);
+        if (handoff) this.startRun('arcade');
+        else this.showTitle();
+      },
+      { handoff, pilotName: activePilot()?.name || 'VEILLE-3' }
+    );
   }
 
   _toggleSound() {
@@ -772,7 +800,7 @@ export class Game {
     if (this.paused) return;
 
     if (this.state === 'cinematic') {
-      this.cameraOverride = this.cinematic.update(dt);
+      this.cameraOverride = this.cinematic.update(dt, this.camera);
       return;
     }
     this.cameraOverride = null;
@@ -898,8 +926,19 @@ export class Game {
     if (this.player.shieldRechargeTimer > 0) {
       this.player.shieldRechargeTimer -= GRAZE.shieldRecharge;
     }
-    this.fx.burst(pos, 0x8ffbff, { count: 3, speed: 5, life: 0.25, spread: 0.3 });
-    this.audio.uiTick();
+
+    // Retour franc : sans lui, personne ne comprend comment remplir la jauge.
+    this.player.grazeFlash = 1;
+    this.fx.burst(pos, 0x8ffbff, { count: 10, speed: 9, life: 0.4, spread: 0.5 });
+    this.fx.shockwave(pos, 0x8ffbff, 2.4);
+    this.audio.graze(Math.min(6, this.waveGrazes));
+    this.hud.pulseEnergy();
+    this._tmp.copy(pos).project(this.camera);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.hud.grazePop(
+      (this._tmp.x * 0.5 + 0.5) * rect.width,
+      (-this._tmp.y * 0.5 + 0.5) * rect.height
+    );
   }
 
   _collisions() {

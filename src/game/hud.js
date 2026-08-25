@@ -164,6 +164,28 @@ export class Hud {
     this._announceTimer = setTimeout(() => el.classList.remove('visible'), duration);
   }
 
+  // Étiquette « FRÔLÉ ! » à l'endroit exact du frôlement : c'est ce qui apprend
+  // au joueur d'où vient l'énergie.
+  grazePop(x, y) {
+    const pops = this.el['credit-pops'];
+    if (pops.childElementCount > 14) pops.firstElementChild.remove();
+    const span = document.createElement('span');
+    span.className = 'graze-pop';
+    span.textContent = 'FRÔLÉ !';
+    span.style.left = `${x}px`;
+    span.style.top = `${y}px`;
+    pops.appendChild(span);
+    setTimeout(() => span.remove(), 800);
+  }
+
+  // La jauge accuse le coup à chaque frôlement : le lien de cause à effet est visible.
+  pulseEnergy() {
+    const el = this.el['hud-energy'];
+    el.classList.remove('gain');
+    void el.offsetWidth;
+    el.classList.add('gain');
+  }
+
   // Petit "+N" doré qui flotte à l'écran, à la position (px) donnée.
   creditPop(x, y, text) {
     const pops = this.el['credit-pops'];

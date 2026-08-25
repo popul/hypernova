@@ -283,6 +283,15 @@ export class AudioEngine {
     this._tone({ type: 'sine', freq: 900, dur: 0.03, gain: 0.05 });
   }
 
+  // Frôlement : cristallin et montant, il doit s'entendre au-dessus du combat et
+  // récompenser à l'oreille. Le timbre monte avec les frôlements enchaînés.
+  graze(streak = 0) {
+    const base = 1180 * Math.pow(1.06, Math.min(6, streak));
+    this._tone({ type: 'sine', freq: base, freqEnd: base * 1.9, dur: 0.12, gain: 0.16 });
+    this._tone({ type: 'triangle', freq: base * 2, dur: 0.09, gain: 0.08, when: 0.02 });
+    this._noise({ dur: 0.1, gain: 0.05, filterFreq: 6000, filterEnd: 2200 });
+  }
+
   // Voix de NOVA : gazouillis mélodique aigu (gentille IA de bord).
   voiceNova() {
     const base = 880 + Math.random() * 220;

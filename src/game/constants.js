@@ -3,6 +3,11 @@
 export const ARENA = {
   playerZ: 13,
   playerXMax: 14.5,
+  // Le bord n'est pas visible : buter contre un mur invisible se ressent comme un
+  // bug. On boucle donc l'arène — sortir par la gauche fait rentrer par la droite.
+  // C'est aussi une échappatoire tactique : la fuite devient une option.
+  wrap: true,
+  wrapGhostZone: 4.5, // distance au bord où l'on affiche le double de l'autre côté
   bulletCullZMin: -34,
   bulletCullZMax: 26,
   bulletCullXMax: 26,

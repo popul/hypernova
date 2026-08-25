@@ -2,7 +2,7 @@
 // missiles auto-guidés, bouclier rechargeable, invulnérabilité post-respawn.
 
 import * as THREE from 'three';
-import { createPlayerShip, createShieldMesh } from './ships.js';
+import { createPlayerShip, createShieldMesh, createGrazeAura } from './ships.js';
 import { ARENA, PLAYER, OVERDRIVE } from './constants.js';
 
 export class Player {
@@ -15,9 +15,25 @@ export class Player {
     this.shieldMesh.visible = false;
     this.group.add(this.shieldMesh);
 
+    // Aura de frôlement : matérialise la zone où une balle rapporte de l'énergie.
+    // Sans elle, la mécanique centrale du jeu reste invisible.
+    this.grazeAura = createGrazeAura();
+    this.group.add(this.grazeAura);
+    this.grazeFlash = 0;
+
+    // Double pour le bouclage de l'arène (voir _updateGhost).
+    this.ghost = createPlayerShip();
+    this.ghost.traverse((o) => {
+      if (o.name === 'hitcore' || o.name === 'hitring') o.visible = false;
+    });
+    this.ghost.visible = false;
+    scene.add(this.ghost);
+
     this.exhausts = [];
+    this.hitMarkers = [];
     this.group.traverse((o) => {
       if (o.name === 'exhaust') this.exhausts.push(o);
+      if (o.name === 'hitcore' || o.name === 'hitring') this.hitMarkers.push(o);
     });
 
     this.vx = 0;
@@ -33,6 +49,33 @@ export class Player {
 
   get position() {
     return this.group.position;
+  }
+
+  // Le repère de collision n'a de sens qu'en jeu : en gros plan cinématique, il
+  // flotterait à travers la coque.
+  showHitMarkers(visible) {
+    for (const m of this.hitMarkers) m.visible = visible;
+  }
+
+  // Double affiché de l'autre côté quand on approche d'un bord : sans lui, le
+  // bouclage serait une téléportation incompréhensible.
+  _updateGhost() {
+    if (!ARENA.wrap || !this.ghost) return;
+    const x = this.group.position.x;
+    const span = ARENA.playerXMax * 2;
+    const nearRight = ARENA.playerXMax - x < ARENA.wrapGhostZone;
+    const nearLeft = x + ARENA.playerXMax < ARENA.wrapGhostZone;
+    if (nearRight || nearLeft) {
+      this.ghost.visible = this.group.visible;
+      this.ghost.position.set(
+        x + (nearRight ? -span : span),
+        this.group.position.y,
+        this.group.position.z
+      );
+      this.ghost.rotation.copy(this.group.rotation);
+    } else {
+      this.ghost.visible = false;
+    }
   }
 
   // shieldRecharge : délai avant que le bouclier ne revienne. À 0 il réapparaîtrait
@@ -73,11 +116,16 @@ export class Player {
       targetVx = dir * stats.speed;
     }
     this.vx += (targetVx - this.vx) * Math.min(1, 14 * dt);
-    this.group.position.x = THREE.MathUtils.clamp(
-      this.group.position.x + this.vx * dt,
-      -ARENA.playerXMax,
-      ARENA.playerXMax
-    );
+    let nx = this.group.position.x + this.vx * dt;
+    if (ARENA.wrap) {
+      const span = ARENA.playerXMax * 2;
+      if (nx > ARENA.playerXMax) nx -= span;
+      else if (nx < -ARENA.playerXMax) nx += span;
+    } else {
+      nx = THREE.MathUtils.clamp(nx, -ARENA.playerXMax, ARENA.playerXMax);
+    }
+    this.group.position.x = nx;
+    this._updateGhost();
     // Roulis + léger lacet selon la vitesse.
     this.group.rotation.z = -this.vx * 0.035;
     this.group.rotation.y = -this.vx * 0.012;
@@ -85,6 +133,12 @@ export class Player {
     // Halo moteur qui pulse, plus fort en mouvement.
     const pulse = 1 + Math.sin(this.time * 30) * 0.25 + Math.abs(this.vx) * 0.02;
     for (const e of this.exhausts) e.scale.setScalar(pulse);
+
+    // L'aura de frôlement respire doucement, et s'embrase quand une balle est frôlée.
+    if (this.grazeFlash > 0) this.grazeFlash = Math.max(0, this.grazeFlash - dt * 2.6);
+    const auraBase = 0.09 + Math.sin(this.time * 2.2) * 0.03;
+    this.grazeAura.material.opacity = auraBase + this.grazeFlash * 0.75;
+    this.grazeAura.scale.setScalar(1 + this.grazeFlash * 0.22);
 
     // Tir principal (accéléré pendant l'Overdrive).
     this.fireCooldown -= dt;

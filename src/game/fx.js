@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { FX } from './constants.js';
 
-const MAX_PARTICLES = 900;
+const MAX_PARTICLES = 1400;
 const HIDDEN_Y = -1000;
 
 function makeDotTexture() {
@@ -100,11 +100,19 @@ export class Fx {
     }
   }
 
-  shockwave(pos, colorHex, maxScale = 5) {
+  // opts.faceCamera : oriente l'anneau face à l'objectif. Sans ça, un anneau posé
+  // à plat est vu par la tranche dans les plans horizontaux et se réduit à un trait.
+  // Opt-in délibéré : le jeu garde ses anneaux à plat (bombe, Overdrive).
+  shockwave(pos, colorHex, maxScale = 5, opts = null) {
     const slot = this.rings.find((r) => r.life <= 0);
     if (!slot) return;
     slot.mesh.material.color.set(colorHex);
     slot.mesh.position.copy(pos);
+    if (opts?.faceCamera && opts.camera) {
+      slot.mesh.quaternion.copy(opts.camera.quaternion);
+    } else {
+      slot.mesh.rotation.set(-Math.PI / 2, 0, 0);
+    }
     slot.mesh.visible = true;
     slot.life = slot.maxLife;
     slot.maxScale = maxScale;

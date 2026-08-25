@@ -2,7 +2,7 @@
 // Style low-poly flat-shaded ; les accents émissifs sont amplifiés par le bloom.
 
 import * as THREE from 'three';
-import { PLAYER } from './constants.js';
+import { PLAYER, GRAZE } from './constants.js';
 
 function mat(
   color,
@@ -211,6 +211,24 @@ export function createGem() {
   );
   gem.scale.set(1, 1.5, 1);
   return gem;
+}
+
+// Anneau matérialisant la zone de frôlement : discret au repos, il s'embrase à
+// chaque balle frôlée pour enseigner la mécanique sans un mot.
+export function createGrazeAura() {
+  const geo = new THREE.RingGeometry(GRAZE.radius - 0.12, GRAZE.radius + 0.06, 40);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x8ffbff,
+    transparent: true,
+    opacity: 0.1,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const ring = new THREE.Mesh(geo, mat);
+  ring.name = 'grazeAura';
+  ring.rotation.x = -Math.PI / 2;
+  return ring;
 }
 
 export function createShieldMesh() {
