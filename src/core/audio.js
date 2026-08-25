@@ -1459,6 +1459,13 @@ export class AudioEngine {
       // Un grave tient bien plus longtemps qu'un aigu.
       const t60 = Math.min(14, Math.max(3, 11 * Math.pow(293 / f0, 0.5)));
 
+      // Glissando d'attaque : la corde part légèrement haute et redescend, parce
+      // que sa tension augmente avec l'amplitude. Sans ce petit affaissement de
+      // hauteur, un piano sonne électronique. Déclaré ici parce que chaque corde
+      // en reçoit sa propre dose au moment de sa construction.
+      const glideAmt = 0.0042; // ≈ 7 centièmes
+      const glideTau = sr * 0.045;
+
       const strings = [];
       for (let si = 0; si < nStrings; si++) {
         const f = f0 * Math.pow(2, (spread[si] || 0) / 1200);
@@ -1482,6 +1489,8 @@ export class AudioEngine {
           ax: 0,
           ay: 0,
           out: 0,
+          // Désalignement du marteau : ±22 % d'énergie d'une corde à l'autre.
+          glide: glideAmt * (1 + (si - 1) * 0.22),
           g: Math.pow(10, (-3 * (sr / f)) / (sr * t60)),
         });
       }
@@ -1523,12 +1532,6 @@ export class AudioEngine {
       const ex = new Float32Array(exLen);
       for (let i = 0; i < exLen; i++) ex[i] = raw[i] - (i >= strike ? raw[i - strike] : 0);
 
-      // Glissando d'attaque : la corde part légèrement haute et redescend, parce
-      // que sa tension augmente avec l'amplitude. Sans ce petit affaissement de
-      // hauteur, un piano sonne électronique — c'est peut-être le détail le plus
-      // audible de toute la liste.
-      const glideAmt = 0.0042; // ≈ 7 centièmes
-      const glideTau = sr * 0.045;
       // Couplage au chevalet. Il doit être BEAUCOUP plus faible qu'il n'y paraît :
       // les trois cordes d'un chœur sont désaccordées, donc dé-corrélées, et ce
       // qu'on réinjecte de l'une dans l'autre n'est pas en phase — le couplage se
@@ -1543,10 +1546,18 @@ export class AudioEngine {
       const k = Math.min(0.02, 1.4 / f0);
 
       for (let i = 0; i < n; i++) {
-        const glide = 1 + glideAmt * Math.exp(-i / glideTau);
         let bridge = 0;
         for (let si = 0; si < strings.length; si++) {
           const s = strings[si];
+          // Glissando PAR CORDE. Le marteau n'est jamais parfaitement aligné : il
+          // touche les trois cordes du chœur avec des énergies légèrement
+          // différentes, donc chacune part plus ou moins haute et redescend à son
+          // rythme. C'est ce qui fait qu'un battement de piano ACCÉLÈRE puis se
+          // stabilise. Avec un glissando commun, comme je l'avais écrit, le
+          // désaccord relatif restait constant et le battement était parfaitement
+          // régulier — c'est-à-dire un chorus de synthétiseur, reconnaissable
+          // entre mille.
+          const glide = 1 + s.glide * Math.exp(-i / glideTau);
           // Lecture à retard ENTIER, puis passe-tout pour la fraction. L'ancienne
           // version interpolait linéairement, ce qui est un passe-bas : appliqué
           // 294 fois par seconde, il retirait 68 dB par seconde au huitième
@@ -1580,7 +1591,18 @@ export class AudioEngine {
           s.buf[s.w] = v;
           s.w = s.w + 1 >= s.size ? 0 : s.w + 1;
         }
-        out[i] = bridge;
+        // LE COUP DE MARTEAU LUI-MÊME, en direct.
+        //
+        // C'était le défaut le plus grave et le plus invisible : l'excitation
+        // n'était injectée que DANS la ligne à retard, après le calcul de la
+        // sortie. Le marteau ne parvenait donc jamais à l'auditeur — on
+        // n'entendait la corde qu'après un aller-retour complet, déjà filtrée par
+        // la boucle. Le son APPARAISSAIT au lieu de DÉMARRER, et c'est
+        // exactement ce qui le faisait sonner artificiel.
+        //
+        // Sur un vrai piano, le choc du feutre passe par le chevalet et arrive à
+        // l'oreille immédiatement, avant même que l'onde ait parcouru la corde.
+        out[i] = bridge + (i < exLen ? ex[i] * 0.5 : 0);
       }
     });
   }
@@ -1592,6 +1614,17 @@ export class AudioEngine {
   _ensureBoard() {
     if (this.board) return;
     const input = this.ctx.createGain();
+
+    // Deux chemins, et c'est la différence entre colorer et RÉSONNER.
+    //
+    // La version précédente n'avait que le premier : six filtres en cascade à Q
+    // compris entre 0,8 et 1,9. Un Q aussi bas ne fait qu'égaliser — la caisse ne
+    // sonne jamais, elle se contente de teinter. Or une table d'harmonie est un
+    // objet qui VIBRE : frappez-la, elle continue quelques dixièmes de seconde.
+    // C'est précisément ce prolongement commun à toutes les notes qui fait qu'un
+    // piano est un instrument et non une collection de cordes indépendantes.
+
+    // 1. Le corps : la réponse moyenne de la caisse, en cascade.
     let node = input;
     for (const [f, gain, q] of [
       [116, 4.5, 1.1],
@@ -1609,9 +1642,34 @@ export class AudioEngine {
       node.connect(b);
       node = b;
     }
+
     const out = this.ctx.createGain();
     out.gain.value = 0.5;
     node.connect(out);
+
+    // 2. Les modes propres, en PARALLÈLE : des résonateurs à Q élevé qui tiennent
+    // après l'attaque. Fréquences relevées sur les modes de plaque d'un piano
+    // droit. Mélangés bas — on ne doit pas les entendre comme des notes, seulement
+    // sentir que le son a un volume derrière lui.
+    for (const [f, q, g] of [
+      [93, 26, 0.1],
+      [147, 22, 0.085],
+      [232, 30, 0.07],
+      [389, 24, 0.055],
+      [612, 20, 0.04],
+      [1010, 16, 0.028],
+    ]) {
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = f;
+      bp.Q.value = q;
+      const amp = this.ctx.createGain();
+      amp.gain.value = g;
+      input.connect(bp);
+      bp.connect(amp);
+      amp.connect(out);
+    }
+
     out.connect(this.musicBus);
     if (this.revSend) {
       const s = this.ctx.createGain();
@@ -1622,15 +1680,6 @@ export class AudioEngine {
     this.board = input;
   }
 
-  // INUTILISÉE DANS LA PARTITION. La corde frappée est physiquement correcte —
-  // justesse au centième, quatorze partiels à l'attaque, trou du point de frappe,
-  // inharmonicité, double décroissance — mais elle ne convainc pas à l'oreille, et
-  // quatre passes de réglage n'y ont rien changé. Le problème est que je ne peux
-  // pas ÉCOUTER : je règle des mesures qui ressemblent à celles d'un piano, ce qui
-  // n'est pas la même chose que de faire un piano. La mélodie est donc confiée au
-  // jeu de flûte et à la célesta, dont on sait qu'ils sonnent juste.
-  // Le code reste : il est bon, il est mesuré, et il attend une description
-  // précise de ce qui cloche à l'oreille pour être repris utilement.
   _piano(when, semi, dur = 2.4, gain = 1) {
     if (!this.ctx) return;
     this._ensureBoard();
@@ -1919,8 +1968,8 @@ export class AudioEngine {
         if (ev.b !== local || ev.s !== step) continue;
         // Célesta doublée d'une corde solo : le métal donne l'attaque, l'archet
         // donne la tenue. À deux, ils font ce que le piano devait faire seul.
-        this._bell(when, ev.n + 12, 2.4);
-        this._strings(when, [ev.n], ev.d + 4, 0.8);
+        this._piano(when, ev.n, 2.6, 1);
+        this._strings(when, [ev.n], ev.d + 4, 0.55);
       }
     }
 
