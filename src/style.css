@@ -1,4 +1,4 @@
-/* HYPERNOVA — habillage arcade néon/CRT.
+/* HYPERNOVA — habillage arcade néon.
    Palette : fond spatial quasi noir, cyan électrique (joueur/UI), magenta (menace),
    or (économie). Deux fontes : Audiowide (display) et Chakra Petch (HUD/corps). */
 
@@ -46,39 +46,17 @@ body {
   cursor: crosshair;
 }
 
-/* ---------- Effet CRT : scanlines + vignette + très léger flicker ---------- */
+/* ---------- Vignette d'écran ---------- */
 
+/* Les scanlines ont été retirées : fixes à l'écran pendant que la
+   scène 3D défile, elles créaient un moirage scintillant qui nuisait à la lisibilité
+   des projectiles. La vignette, elle, ne bouge pas et fait ressortir le néon. */
 #crt {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 40;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, 0) 0px,
-      rgba(0, 0, 0, 0) 2px,
-      rgba(0, 0, 0, 0.14) 3px,
-      rgba(0, 0, 0, 0) 4px
-    ),
-    radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.5) 100%);
-  animation: crt-flicker 4s infinite;
-}
-
-@keyframes crt-flicker {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  92% {
-    opacity: 1;
-  }
-  93% {
-    opacity: 0.86;
-  }
-  94% {
-    opacity: 1;
-  }
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.5) 100%);
 }
 
 /* ---------- HUD ---------- */
