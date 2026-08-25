@@ -7,6 +7,46 @@ import { STORAGE_KEYS } from '../game/constants.js';
 
 const SCALE = [110, 130.81, 146.83, 164.81, 196, 220, 261.63, 293.66]; // la mineur pentatonique étendue
 
+// Voyelles françaises par triplet de formants (F1, F2, F3). Le morphing entre ces
+// triplets EST l'articulation : c'est lui qui fabrique l'illusion d'une bouche.
+const VOWEL = {
+  ou: [325, 700, 2530],
+  o: [450, 800, 2600],
+  a: [700, 1220, 2600],
+  e: [530, 1840, 2480],
+  i: [270, 2300, 3000],
+};
+
+// Les deux voix s'opposent par l'ESPACE et le registre, pas par le volume.
+// NOVA est à 220 Hz (A3) : la quinte de la tonique du jeu, et la 3e harmonique de
+// la fondamentale de VORAX — ils sont harmoniquement verrouillés.
+const VOICE = {
+  nova: {
+    f0: 220,
+    wave: 'vox',
+    detune: -9,
+    syl: 0.115,
+    gain: 0.2,
+    q: [7, 8, 6],
+    band: [250, 3600], // bande de comm : c'est elle qui dit « radio »
+    pan: -0.35, // à gauche, là où est son portrait
+    reverb: 0.08, // sèche : elle est dans le casque, à quinze centimètres
+    vowels: [VOWEL.e, VOWEL.a, VOWEL.i, VOWEL.o, VOWEL.a, VOWEL.e],
+  },
+  vorax: {
+    f0: 73.42,
+    wave: 'growl',
+    detune: 7,
+    syl: 0.165, // il prend son temps : c'est son calme qui inquiète
+    gain: 0.26,
+    q: [5, 6, 4],
+    band: [60, 2200],
+    pan: 0.3,
+    reverb: 0.5, // loin, dans un très grand vide
+    vowels: [VOWEL.o, VOWEL.ou, VOWEL.a, VOWEL.o, VOWEL.ou],
+  },
+};
+
 // Volume du bus musique et tempo par ambiance.
 const MODES = {
   off: { gain: 0, tempo: 116 },
@@ -66,6 +106,9 @@ export class AudioEngine {
     const data = this.noiseBuffer.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
 
+    this._buildSpace();
+    this._buildWaves();
+
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this._scheduler();
   }
@@ -87,6 +130,97 @@ export class AudioEngine {
     if (this.ctx) {
       this.musicBus.gain.setTargetAtTime(def.gain, this.ctx.currentTime, 0.6);
     }
+  }
+
+  // ---- Le lieu : réverbération et delay partagés ----
+
+  // Le jeu n'avait AUCUN espace : une explosion à l'extrême gauche sonnait au même
+  // endroit qu'à droite, et rien n'avait de queue. Un seul convolveur partagé, une
+  // impulsion générée en interne, et tout le jeu gagne d'un coup une profondeur.
+  _buildSpace() {
+    const sr = this.ctx.sampleRate;
+    const dur = 1.8;
+    const len = (sr * dur) | 0;
+    const pre = (sr * 0.02) | 0;
+    const ir = this.ctx.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      let y = 0;
+      for (let i = pre; i < len; i++) {
+        const t = (i - pre) / (len - pre);
+        const x = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.6) * Math.exp(-1.1 * t * dur);
+        // Absorption de l'air : la queue s'assombrit avec le temps — c'est ce qui
+        // donne la TAILLE du lieu, bien plus que sa durée.
+        y += (x - y) * (0.42 - 0.3 * t);
+        d[i] = y;
+      }
+      // Premières réflexions décorrélées entre les canaux : elles disent « grand ».
+      [13, 19, 28, 37, 49, 58, 69].forEach((ms, k) => {
+        const i = (pre + ((ms + (ch ? 1.7 : 0)) * sr) / 1000) | 0;
+        if (i < len) d[i] += (k % 2 ? -1 : 1) * 0.34 * Math.pow(0.72, k);
+      });
+    }
+    this.reverb = this.ctx.createConvolver();
+    this.reverb.buffer = ir;
+    this.revSend = this.ctx.createGain();
+    this.revSend.gain.value = 1;
+    this.revSend.connect(this.reverb);
+    const revLevel = this.ctx.createGain();
+    revLevel.gain.value = 0.9;
+    this.reverb.connect(revLevel);
+    revLevel.connect(this.master);
+
+    // Delay ping-pong en croche pointée : cale exactement sur le tempo.
+    this.delay = this.ctx.createDelay(1);
+    this.delay.delayTime.value = 0.3;
+    const fb = this.ctx.createGain();
+    fb.gain.value = 0.28;
+    const dlyTone = this.ctx.createBiquadFilter();
+    dlyTone.type = 'lowpass';
+    dlyTone.frequency.value = 2600;
+    this.dlySend = this.ctx.createGain();
+    this.dlySend.gain.value = 1;
+    this.dlySend.connect(this.delay);
+    this.delay.connect(dlyTone);
+    dlyTone.connect(fb);
+    fb.connect(this.delay);
+    const dlyLevel = this.ctx.createGain();
+    dlyLevel.gain.value = 0.35;
+    dlyTone.connect(dlyLevel);
+    dlyLevel.connect(this.master);
+  }
+
+  // Tables d'ondes : un oscillateur portant un PeriodicWave coûte exactement le même
+  // prix qu'un `square`, mais il sort de l'identité spectrale d'une puce 8 bits.
+  _buildWaves() {
+    const mk = (imag) => {
+      const re = new Float32Array(imag.length);
+      return this.ctx.createPeriodicWave(re, new Float32Array(imag), {
+        disableNormalization: false,
+      });
+    };
+    const strings = [0];
+    for (let n = 1; n <= 32; n++) strings[n] = (1 / n) * (1 - n / 40);
+    const vox = [0];
+    for (let n = 1; n <= 40; n++) vox[n] = 1 / Math.pow(n, 1.15);
+    const growl = [0];
+    for (let n = 1; n <= 32; n++) growl[n] = (1 / Math.pow(n, 0.85)) * (n >= 6 && n <= 9 ? 1.9 : 1);
+    this.W = {
+      strings: mk(strings),
+      vox: mk(vox),
+      growl: mk(growl),
+      hollow: mk([0, 1, 0, 0.5, 0, 0.3, 0, 0.18, 0, 0.1]),
+      brass: mk([0, 1, 0.82, 0.72, 0.6, 0.45, 0.32, 0.22, 0.15, 0.1, 0.06, 0.04]),
+    };
+  }
+
+  // Panoramique dérivé de la position dans l'arène : l'information spatiale
+  // existait déjà côté jeu, elle était simplement jetée à la frontière de l'audio.
+  _pan(x = 0) {
+    const p = Math.max(-1, Math.min(1, x / 14.5)) * 0.85;
+    const node = this.ctx.createStereoPanner();
+    node.pan.value = p;
+    return node;
   }
 
   // ---- Primitives de synthèse ----
@@ -292,32 +426,108 @@ export class AudioEngine {
     this._noise({ dur: 0.1, gain: 0.05, filterFreq: 6000, filterEnd: 2200 });
   }
 
-  // Voix de NOVA : gazouillis mélodique aigu (gentille IA de bord).
-  voiceNova() {
-    const base = 880 + Math.random() * 220;
-    for (let i = 0; i < 4; i++) {
-      this._tone({
-        type: 'sine',
-        freq: base * (1 + Math.random() * 0.6),
-        dur: 0.06,
-        gain: 0.08,
-        when: i * 0.07,
-      });
+  // ---- Voix ----
+  //
+  // Une voix crédible, ce n'est pas une hauteur : ce sont des FORMANTS. Trois
+  // passe-bande résonants en parallèle sur une source riche, dont les fréquences
+  // GLISSENT d'une voyelle à l'autre à chaque syllabe. C'est ce glissement, et rien
+  // d'autre, qui fabrique l'illusion d'une bouche. Les anciens bips en sinus purs
+  // n'avaient qu'une seule harmonique : aucun formant possible, d'où l'enfantin.
+  _speak(text, who = 'nova') {
+    if (!this.ctx || !this.W) return 0;
+    const P = VOICE[who];
+    const syllables = Math.max(3, Math.min(9, Math.round(text.length / 9)));
+    const t0 = this.ctx.currentTime + 0.02;
+    const dur = syllables * P.syl;
+
+    // Deux sources en unisson désaccordé : un oscillateur seul sonne synthétique.
+    const src = this.ctx.createOscillator();
+    src.setPeriodicWave(this.W[P.wave]);
+    const src2 = this.ctx.createOscillator();
+    src2.setPeriodicWave(this.W[P.wave]);
+    src2.detune.value = P.detune;
+
+    // Contour de hauteur : monte sur une question, retombe sur une affirmation.
+    const q = text.trim().endsWith('?');
+    const endF = q ? P.f0 * 1.16 : P.f0 * 0.9;
+    for (const o of [src, src2]) {
+      o.frequency.setValueAtTime(P.f0, t0);
+      o.frequency.linearRampToValueAtTime(endF, t0 + dur);
     }
+
+    const vca = this.ctx.createGain();
+    vca.gain.setValueAtTime(0.0008, t0);
+    src.connect(vca);
+    src2.connect(vca);
+
+    // Une enveloppe par syllabe : le rythme fait entendre qu'on PARLE.
+    for (let i = 0; i < syllables; i++) {
+      const ts = t0 + i * P.syl;
+      const amp = P.gain * (0.72 + Math.random() * 0.5) * (i === 0 ? 1.15 : 1);
+      vca.gain.linearRampToValueAtTime(amp, ts + 0.028);
+      vca.gain.exponentialRampToValueAtTime(0.0008, ts + P.syl * 0.82);
+    }
+
+    // Banc de formants, morphé d'une voyelle à l'autre à chaque syllabe.
+    const sum = this.ctx.createGain();
+    const bank = P.vowels[0].map((f, i) => {
+      const b = this.ctx.createBiquadFilter();
+      b.type = 'bandpass';
+      b.frequency.setValueAtTime(f, t0);
+      b.Q.setValueAtTime(P.q[i], t0);
+      const g = this.ctx.createGain();
+      g.gain.value = [1.0, 0.55, 0.24][i];
+      vca.connect(b);
+      b.connect(g);
+      g.connect(sum);
+      return b;
+    });
+    for (let i = 1; i < syllables; i++) {
+      const target = P.vowels[i % P.vowels.length];
+      const ts = t0 + i * P.syl;
+      bank.forEach((b, k) => b.frequency.linearRampToValueAtTime(target[k], ts + 0.05));
+    }
+
+    // Canal de transmission : c'est la bande passante qui dit « radio ».
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = P.band[0];
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = P.band[1];
+    sum.connect(hp);
+    hp.connect(lp);
+
+    const out = this.ctx.createGain();
+    out.gain.value = 1;
+    lp.connect(out);
+    const pan = this.ctx.createStereoPanner();
+    pan.pan.value = P.pan;
+    out.connect(pan);
+    pan.connect(this.sfxBus);
+
+    // NOVA est sèche, dans le casque ; VORAX est loin et réverbéré. C'est l'ESPACE
+    // qui les oppose, pas le volume.
+    if (this.revSend) {
+      const rev = this.ctx.createGain();
+      rev.gain.value = P.reverb;
+      out.connect(rev);
+      rev.connect(this.revSend);
+    }
+
+    src.start(t0);
+    src2.start(t0);
+    src.stop(t0 + dur + 0.12);
+    src2.stop(t0 + dur + 0.12);
+    return dur * 1000;
   }
 
-  // Voix de VORAX : grondement saccadé grave (Dévoreur d’Étoiles vexé).
-  voiceVorax() {
-    for (let i = 0; i < 3; i++) {
-      this._tone({
-        type: 'sawtooth',
-        freq: 110 + Math.random() * 60,
-        freqEnd: 70,
-        dur: 0.14,
-        gain: 0.14,
-        when: i * 0.12,
-      });
-    }
+  voiceNova(text = 'transmission') {
+    return this._speak(text, 'nova');
+  }
+
+  voiceVorax(text = 'transmission') {
+    return this._speak(text, 'vorax');
   }
 
   waveStart() {

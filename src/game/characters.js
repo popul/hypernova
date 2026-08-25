@@ -10,86 +10,109 @@
 
 import { NOVA_SVG, VORAX_SVG, FaceRig } from './face.js';
 
+// Le script. Deux voix qui s'opposent par la GRAMMAIRE : NOVA tutoie, VORAX vouvoie.
+// NOVA ne félicite jamais, elle constate — d'où son tic, « Je note ». VORAX ne crie
+// jamais : sa politesse est sa menace. {PILOTE} et {SYSTEME} sont substitués à l'affichage.
 const LINES = {
   runStart: [
-    'Systèmes en ligne. Montre-leur qui pilote !',
-    'Moteurs chauds, canons parés. On décolle !',
-    'Je surveille tes arrières, comme toujours.',
+    'Trente-neuf avant toi. Aucun retour. Poste de tir à toi, le reste est à moi.',
+    'Systèmes verts, canons chauds. Ne me fais pas ouvrir un quarantième dossier.',
   ],
-  missionStart: [
-    'Briefing chargé. Fais-nous briller, capitaine.',
-    'Nouveau système, mêmes mauvaises manières. Nettoyons.',
-  ],
-  combo3: ['Combo ×3 ! Ils n’ont rien vu venir !', 'Trois d’un coup ! Continue comme ça !'],
-  combo5: ['×5 ?! J’inscris ça dans les annales !', 'Combo maximal ! Tu es en feu !'],
+  novaIntro: ["NOVA, c'était le nom de l'escadron. Il n'en reste que moi et cette table de vol."],
+  missionStart: ["{SYSTEME}. On n'y capte plus rien depuis cinq ans. On va voir pourquoi."],
   dive: [
-    'Ils plongent ! Esquive serrée !',
-    'Kamikazes en approche — bouge, bouge !',
-    'Deux plongeurs sur toi. Je te fais confiance.',
+    'Trois en piqué, axe court. Ne recule pas : ils comptent là-dessus.',
+    'Piqué à gauche. Ils visent où tu seras, pas où tu es.',
+    'Ils plongent par deux et tirent par trois. Tiens la ligne du bas.',
+    'Deux qui descendent. Un des deux te ratera. Devine lequel.',
   ],
-  shieldLost: ['Bouclier encaissé ! Je le recharge, tiens bon.', 'Impact absorbé. Ça va secouer !'],
+  combo3: [
+    'Trois enchaînés. Je révise mon estimation. Légèrement.',
+    "Propre. Continue avant que je change d'avis.",
+  ],
+  combo5: [
+    "×5. Je note. Onze pilotes que ce n'était pas arrivé.",
+    "Cinq d'affilée. Là, tu commences à m'intéresser.",
+  ],
+  shieldLost: [
+    'Bouclier à zéro. Tu es en tôle nue. Ça se pilote autrement.',
+    "Plus de plaque. C'était la mienne, au passage. La prochaine, tu la sens passer.",
+  ],
   lifeLost: [
-    'On tient le coup ! Il nous reste des ailes.',
-    'Aïe. Respire, réaligne, riposte.',
-    'Je répare ce que je peux — reste concentré !',
+    'Coque perdue. Je te remets en vol dans une seconde trois. Utilise-la mieux.',
+    "Nacelle récupérée, {PILOTE}. C'est la seule bonne nouvelle de la minute.",
+  ],
+  shopOpen: [
+    'Mon avis : le blindage. Tu vas prendre les canons. Tu prends toujours les canons.',
+    'Tu as de quoi acheter deux erreurs. Choisis-en une.',
+    "Tes crédits, ma soute. Les missiles, si tu veux mon avis. Ce n'est pas un avis.",
+  ],
+  buyGood: [
+    'Boulonné. Ça pèse quatre kilos de plus. Tu vas le sentir en virage.',
+    'Installé. Je le teste sur le premier qui passe.',
+  ],
+  grazeFirst: ['Tu viens de la frôler à quatre centimètres. Refais-le : ça charge la jauge.'],
+  bombReady: ["Nova Bomb armée. X, et tout ce qui est devant toi cesse d'exister. Tu en as une."],
+  bombReadyTouch: [
+    "Nova Bomb armée. Le bouton ✦, et tout ce qui est devant toi cesse d'exister. Tu en as une.",
+  ],
+  odReady: ['Jauge pleine. Maintiens X. Quatre secondes où tu ne recules pas.'],
+  odReadyTouch: ['Jauge pleine. Maintiens le bouton ✦. Quatre secondes où tu ne recules pas.'],
+  voraxIntro: [
+    'Bonsoir. Vous êtes en avance : je comptais éteindre celle-ci demain. Cela ne me dérange pas.',
+    'Ah. La lumière qui bougeait encore. Bételgeuse a mis onze minutes. Celle-ci en mettra neuf.',
   ],
   bossIntro: [
-    'C’est VORAX, le Dévoreur d’Étoiles. Vise l’œil !',
-    'Le voilà. Grand, cornu, et très vexable. Feu !',
+    "Ne réponds pas. Tant qu'il parle, il ne tire pas. Sers-t'en.",
+    'Il parle pour gagner du temps. Nous aussi. Approche maintenant.',
   ],
-  voraxIntro: [
-    'Vos étoiles m’appartiennent, petit pilote.',
-    'Encore toi ?! L’essaim est ÉTERNEL.',
-    'Ce système est à MOI. Comme tous les autres.',
+  voraxHalf: [
+    "Merci. J'apprends votre façon de tourner. Personne ne m'y avait obligé depuis Bételgeuse.",
+    "Vous m'obligez à faire attention. Tu viens de perdre le « vous ».",
   ],
-  voraxHalf: ['Tu… commences à m’AGACER !', 'Mes drones ! Peu importe. J’en ai des MILLIERS.'],
-  bossDown: ['VORAX balayé ! La lumière revient.', 'Et une étoile de reprise, une !'],
-  voraxDown: ['Ce n’est… qu’un repli TACTIQUE !', 'Impossible ! Mes drones ! Mes beaux drones !'],
-  shopOpen: [
-    'Un conseil ? Les missiles. C’est mon nom dessus.',
-    'Le bouclier m’aide à t’aider. Pense à nous.',
-    'Cadence de tir : le classique qui ne déçoit jamais.',
+  voraxDown: [
+    "Merci. Ce corps était lent. J'en ai onze mille.",
+    "{PILOTE}. Voilà. Je note ton nom. C'est rare.",
   ],
-  buyGood: ['Excellent choix !', 'Ça, c’est de l’armement.', 'Je le branche tout de suite !'],
-  missionWon: ['Système libéré ! Cap sur la suite.', 'Encore un pas vers Sagittarius A★ !'],
+  bossDown: [
+    'Corps détruit, signal intact. Ne fête pas encore. Tu peux respirer trois secondes.',
+    "Il a ton nom. Ça veut dire qu'il a arrêté d'improviser.",
+  ],
+  missionWon: [
+    '{SYSTEME} repris. Trente-neuf noms au dossier, et un vivant en bas de page.',
+    "Système propre. C'était pas mal, {PILOTE}. Ne le prends pas mal, je ne le redirai pas.",
+  ],
   gameOver: [
-    'On les aura la prochaine fois. Je crois en toi.',
-    'Chaque grand pilote a connu ça. Redécolle !',
+    "Ligne quarante. Je ne l'écris pas encore. Reviens la chercher.",
+    "Non. Pas deux fois. Remets-moi en l'air.",
   ],
-  novaIntro: ['Je suis NOVA, ta copilote. En piste, pilote !'],
-  // Tutoriel contextuel : ces répliques n'apparaissent qu'à la première occasion.
-  grazeFirst: ['Tu l’as frôlée ! Passe près des balles, ça charge la jauge.'],
-  bombReady: ['Jauge pleine à moitié — appuie sur X pour la NOVA BOMB !'],
-  bombReadyTouch: ['Jauge à moitié — touche le bouton ✦ pour la NOVA BOMB !'],
-  odReady: ['Jauge PLEINE ! MAINTIENS X : Overdrive, score doublé !'],
-  odReadyTouch: ['Jauge PLEINE ! MAINTIENS le bouton ✦ : Overdrive !'],
 };
 
-// Chaque situation a son émotion : c'est ce qui empêche NOVA d'être perpétuellement
-// souriante quoi qu'il arrive au joueur.
+// Chaque situation a son émotion. NOVA ne sourit presque jamais : elle constate.
+// VORAX reste impassible — c'est son calme qui inquiète, pas ses grimaces.
 const EMOTION_BY_KEY = {
   runStart: 'determine',
-  missionStart: 'determine',
-  combo3: 'content',
+  missionStart: 'neutre',
+  combo3: 'neutre',
   combo5: 'content',
   dive: 'alerte',
   shieldLost: 'alerte',
   lifeLost: 'inquiet',
-  bossIntro: 'alerte',
-  voraxIntro: 'determine',
-  voraxHalf: 'determine',
-  bossDown: 'content',
-  voraxDown: 'inquiet',
+  bossIntro: 'determine',
+  voraxIntro: 'neutre',
+  voraxHalf: 'neutre',
+  bossDown: 'neutre',
+  voraxDown: 'neutre',
   shopOpen: 'neutre',
-  buyGood: 'content',
+  buyGood: 'neutre',
   missionWon: 'content',
   gameOver: 'triste',
-  novaIntro: 'content',
-  grazeFirst: 'content',
+  novaIntro: 'neutre',
+  grazeFirst: 'neutre',
   bombReady: 'alerte',
   bombReadyTouch: 'alerte',
-  odReady: 'alerte',
-  odReadyTouch: 'alerte',
+  odReady: 'determine',
+  odReadyTouch: 'determine',
 };
 
 function pick(list) {
@@ -158,8 +181,10 @@ export class Characters {
     if (emotion) rig.setEmotion(emotion);
     rig.startTalking(talkMs, 1);
 
-    if (speaker === 'vorax') this.audio.voiceVorax();
-    else this.audio.voiceNova();
+    // La voix est synthétisée à partir du TEXTE : sa durée et son articulation
+    // suivent la phrase, au lieu d'être un bip de longueur fixe.
+    if (speaker === 'vorax') this.audio.voiceVorax(text);
+    else this.audio.voiceNova(text);
     if (this.talkTimer) clearTimeout(this.talkTimer);
     this.talkTimer = setTimeout(() => rig.stopTalking(), talkMs);
     if (this.hideTimer) clearTimeout(this.hideTimer);
@@ -169,9 +194,20 @@ export class Characters {
     );
   }
 
+  // Contexte de substitution : {PILOTE} et {SYSTEME} sont remplis par le jeu.
+  setContext(ctx) {
+    this.ctx = { ...(this.ctx || {}), ...ctx };
+  }
+
+  _fill(text) {
+    return text
+      .replace('{PILOTE}', this.ctx?.pilote || 'pilote')
+      .replace('{SYSTEME}', this.ctx?.systeme || 'Ce système');
+  }
+
   say(key, opts = {}) {
     const line = pick(LINES[key] || []);
-    if (line) this.sayText(line, { emotion: EMOTION_BY_KEY[key], ...opts });
+    if (line) this.sayText(this._fill(line), { emotion: EMOTION_BY_KEY[key], ...opts });
   }
 
   hide() {

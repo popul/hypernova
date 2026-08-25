@@ -687,6 +687,11 @@ export class Game {
     this.hud.setLives(this.lives);
     this.hud.hideBossBar();
 
+    // Les répliques citent le pilote et le système : NOVA tient un registre nominatif.
+    this.characters.setContext({
+      pilote: activePilot()?.name || 'pilote',
+      systeme: this.mission?.system?.name || 'Ce secteur',
+    });
     this.startWave(1);
     this.characters.onRunStart(this.mode === 'campaign');
   }
