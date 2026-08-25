@@ -1397,7 +1397,15 @@ export class AudioEngine {
       // tient quatre secondes, le seizième une seconde et demie, la fondamentale
       // neuf — et c'est cet ÉCART de durée entre partiels, et lui seul, qui fait
       // qu'une note de piano s'assombrit en tenant au lieu de simplement baisser.
-      const a = 0.032;
+      //
+      // ...et comme le couplage plus bas, il doit être INVERSEMENT PROPORTIONNEL à
+      // la hauteur, pour exactement la même raison : la perte se compose par
+      // aller-retour, et un fa5 en fait 2,4 fois plus par seconde qu'un ré4. À
+      // valeur fixe, mesuré, le ré4 gardait onze partiels à l'attaque et le fa5
+      // seulement quatre — or le fa5 est la note du sommet de la mélodie, celle
+      // qui doit sonner le plus. On normalise donc la perte par SECONDE et non
+      // par tour ; 9,4 est choisi pour retomber sur 0,032 au ré4.
+      const a = Math.min(0.032, 9.4 / f0);
       const pdLoop = Math.atan2(a * Math.sin(w0), 1 - a * Math.cos(w0)) / w0;
       // Passe-tout de dispersion : son retard DIMINUE avec la fréquence, donc les
       // partiels aigus se retrouvent au-dessus de n·f0. C'est la raideur de corde.
@@ -1445,7 +1453,12 @@ export class AudioEngine {
       // une sinusoïde et non un piano. Plus le feutre est mou (grave), plus le
       // filtre se ferme.
       const soft = Math.min(0.8, Math.max(0.42, 0.5 + (293 - f0) / 2400));
-      const contact = Math.max(3, Math.round(sr * 0.0011 * Math.pow(220 / f0, 0.5)));
+      // Le temps de contact du marteau décroît PROPORTIONNELLEMENT à la hauteur,
+      // pas en racine : un marteau d'aigu est petit, dur, et rebondit presque
+      // aussitôt. En racine, mesuré, le fa5 gardait un contact de 0,61 ms — assez
+      // long pour n'exciter que ce qui est sous 1,6 kHz, d'où six partiels à
+      // l'attaque contre quatorze au ré4.
+      const contact = Math.max(3, Math.round(sr * 0.001 * (220 / f0)));
 
       // Le marteau frappe au huitième de la corde. Les modes qui ont un nœud à cet
       // endroit ne peuvent pas être mis en mouvement : le partiel 8 est donc
