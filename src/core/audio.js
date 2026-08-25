@@ -615,6 +615,17 @@ export class AudioEngine {
     this._tone({ type: 'sine', freq: base * 1.5, dur: 0.09, gain: 0.12, when: 0.05 });
   }
 
+  // La grosse pièce des enchaînements. Un arpège de trois notes au lieu des deux
+  // du ramassage ordinaire : c'est à l'oreille qu'on doit savoir qu'il vient de
+  // tomber quelque chose de mieux, sans quitter les balles des yeux.
+  bigPickup() {
+    const steps = [36, 43, 48]; // ré, la, ré — quinte puis octave
+    steps.forEach((st, i) => {
+      this._tone({ type: 'triangle', freq: hz(st), dur: 0.13, gain: 0.13, when: i * 0.05 });
+      this._tone({ type: 'sine', freq: hz(st) * 2, dur: 0.1, gain: 0.07, when: i * 0.05 + 0.01 });
+    });
+  }
+
   // L'escalier de combo montait par intervalles de 1,335 — une quarte APPROCHÉE,
   // qui dérivait de plus en plus faux à chaque palier. Il monte maintenant dans la
   // gamme du morceau : à ×8, le dernier degré tombe pile sur la tonique.

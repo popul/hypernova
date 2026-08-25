@@ -444,6 +444,16 @@ body.touch .btn-energy-touch {
   transform: translate(-50%, -50%);
 }
 
+/* Le « +10 » d'une grosse pièce se lit de plus loin que les gains ordinaires :
+   c'est la seule confirmation visuelle qu'un enchaînement vient de payer. */
+.credit-pop.big {
+  font-size: 26px;
+  color: #fff0c2;
+  text-shadow:
+    0 0 14px var(--gold),
+    0 0 30px rgba(255, 200, 87, 0.6);
+}
+
 @keyframes pop-float {
   0% {
     opacity: 0;
@@ -626,8 +636,13 @@ body.touch .btn-energy-touch {
   display: flex;
   justify-content: center;
   /* Trois cartes seulement : collées en haut, elles laissaient les deux tiers de
-     l'écran vides. Centrées, elles tombent là où l'œil arrive. */
-  align-items: center;
+     l'écran vides. Centrées, elles tombent là où l'œil arrive.
+     MAIS le centrage se fait par marges automatiques sur la grille, jamais par
+     align-items : dans un conteneur défilant, un contenu centré qui déborde sort
+     par le HAUT, et cette moitié-là est inatteignable — scrollTop ne descend pas
+     sous zéro. C'est exactement ce qui coupait la première carte sur téléphone,
+     dans les deux orientations. */
+  align-items: flex-start;
   padding: 4px 4vw 10px;
   /* Le contenu s'estompe au bord bas : on voit qu'il y a une suite à faire défiler. */
   -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 92%, transparent 100%);
@@ -686,6 +701,9 @@ body.touch .btn-energy-touch {
   align-content: start;
   gap: 18px;
   width: min(980px, 94vw);
+  /* Centre s'il y a de la place, se colle en haut sinon : une marge automatique
+     n'absorbe que l'espace libre POSITIF. */
+  margin-block: auto;
 }
 
 .card {
@@ -1351,10 +1369,35 @@ body.touch .key-hint {
   cursor: pointer;
 }
 
+/* Les écrans qui peuvent déborder défilent — et ils ne centrent JAMAIS par
+   justify-content. Dans un conteneur défilant, un contenu centré qui dépasse sort
+   par le HAUT, et cette moitié-là est inatteignable : scrollTop ne descend pas
+   sous zéro. Le centrage passe donc par des marges automatiques, qui n'absorbent
+   que l'espace libre positif — centré quand il y a la place, collé en haut et
+   entièrement défilable sinon. */
+.screen.gameover,
+.screen.mission-won,
+.route-pick {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  justify-content: flex-start;
+}
+
 .screen.gameover,
 .screen.mission-won {
-  overflow-y: auto;
   padding: max(20px, env(safe-area-inset-top)) 4vw max(20px, env(safe-area-inset-bottom));
+}
+
+.screen.gameover > :first-child,
+.screen.mission-won > :first-child,
+.route-pick > :first-child {
+  margin-top: auto;
+}
+
+.screen.gameover > :last-child,
+.screen.mission-won > :last-child,
+.route-pick > :last-child {
+  margin-bottom: auto;
 }
 
 @media (max-width: 760px) {
@@ -2117,6 +2160,35 @@ body.touch .key-hint {
   margin-top: 2px;
 }
 
+/* Ce que la route apporte, écrit noir sur blanc. Le nom d'un objet n'est pas un
+   bénéfice : « un fragment du Registre » ne dit rien tant qu'on n'a pas écrit ce
+   qu'il change sur le vaisseau. */
+.route-effets {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.route-effets li::before {
+  content: '▸ ';
+  color: var(--cyan);
+}
+
+.route[data-type='longue'] .route-effets li::before {
+  color: var(--gold);
+}
+
+.route-effets b {
+  font-family: var(--display);
+  color: var(--gold);
+}
+
 .route-side {
   font-size: 12px;
   color: var(--text-dim);
@@ -2400,5 +2472,117 @@ body.touch .btn-call-touch {
   .btn-reroll {
     font-size: 12px;
     padding: 11px 14px;
+  }
+}
+
+/* Boutique sur téléphone : les trois offres doivent tenir dans un écran. Un choix
+   entre trois objets dont on ne voit que deux n'est pas un choix, c'est un
+   défilement — et la relance payante n'a de sens que si l'on a tout vu.
+   C'est l'illustration qui cède la hauteur : elle reste pleine largeur, donc elle
+   vend toujours. */
+@media (max-width: 760px) {
+  /* « Hangar d'armement » passait sur deux lignes et mangeait soixante-six pixels
+     de hauteur — plus qu'un tiers de carte, pour un titre qu'on lit une fois. */
+  .shop-title {
+    font-size: 20px;
+    letter-spacing: 0.1em;
+  }
+
+  .card-icon .art {
+    height: 58px;
+  }
+
+  .card {
+    gap: 4px;
+  }
+
+  .shop-grid {
+    gap: 8px;
+  }
+}
+
+/* Paysage écrasé : même besoin, mais ici c'est la hauteur d'écran qui manque —
+   un téléphone couché n'offre que 390 pixels, en-tête et pied compris. */
+@media (max-height: 480px) {
+  .card-icon .art {
+    height: 58px;
+  }
+
+  .card {
+    gap: 4px;
+    padding: 10px 11px 9px;
+  }
+
+  .shop-scroll {
+    padding-top: 2px;
+  }
+}
+
+/* Dialogues en portrait : la largeur est la ressource rare. Côte à côte, le
+   visage prenait un tiers de l'espace et il ne restait au texte que 168 pixels —
+   trois lignes pour une phrase courte, six pour une vraie réplique, dans une
+   colonne aussi étroite qu'un ticket de caisse. Or ces dialogues portent tout le
+   récit.
+   Le visage passe donc AU-DESSUS, posé comme un onglet sur le panneau, et le
+   texte prend toute la largeur disponible jusqu'à la colonne d'action. */
+@media (orientation: portrait) and (max-width: 760px) {
+  .comm {
+    flex-direction: column;
+    align-items: stretch;
+    width: calc(100vw - 104px);
+  }
+
+  .comm-portrait {
+    width: 62px;
+    height: 62px;
+    align-self: flex-start;
+    /* Le carré est POSÉ sur le panneau : sans ça, deux traits parallèles à un
+       pixel d'écart, ce qui se lit comme un défaut d'alignement. */
+    border-bottom: none;
+  }
+
+  .comm-panel {
+    max-width: none;
+    border-left: 1px solid var(--cyan-dim);
+    padding: 9px 14px 11px;
+  }
+
+  .comm.korn-mode .comm-panel {
+    border-left-color: rgba(255, 71, 87, 0.5);
+  }
+
+  /* Boutique et choix de trajectoire : en portrait, ces écrans occupent toute la
+     hauteur et leur bouton d'action est en bas — exactement là où s'ouvre la
+     fenêtre de comm, qui passe devant. NOVA masquait donc « Lancer la vague »
+     pendant qu'elle donnait son conseil d'achat.
+     Elle se tait le temps du choix. Sur les écrans de fin, elle reste : là, il n'y
+     a rien à faire d'autre que l'écouter. */
+  #overlay:has(.shop, .route-pick) ~ .comm {
+    display: none;
+  }
+}
+
+/* Choix de trajectoire sur un téléphone couché : 390 pixels de haut pour deux
+   cartes, un titre et un pied. Le pied porte le compte des fragments — c'est-à-dire
+   la moitié de l'information qui rend le choix compréhensible. Il ne doit pas
+   demander un défilement. */
+@media (max-height: 480px) {
+  .route-pick {
+    gap: 10px;
+    padding: 10px 4vw;
+  }
+
+  .route-title {
+    font-size: 22px;
+  }
+
+  .route {
+    padding: 12px 14px;
+    gap: 5px;
+  }
+
+  .route-desc {
+    min-height: 0;
+    font-size: 12px;
   }
 }

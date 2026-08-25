@@ -98,7 +98,23 @@ export function routesForStage(stageIdx, seed = 0) {
 }
 
 // Paliers de coque. Ils ne s'achètent pas : ils se méritent en allant voir.
-export const PALIERS_COQUE = [0, 3, 7];
+//
+// Et ils font QUELQUE CHOSE. Ils ne boulonnaient jusqu'ici que des plaques
+// décoratives : le joueur payait cent cinquante crédits et une vague plus dure
+// pour une différence qu'il ne pouvait ni voir ni sentir. Un choix dont on ne
+// comprend pas le bénéfice n'est pas un dilemme, c'est un piège — et c'est
+// exactement ce qu'on nous a reproché.
+//
+// Une vie par palier, donc. Le repère : la Coque renforcée coûte 420 crédits en
+// boutique pour le même effet, et trois détours coûtent environ 440 crédits de
+// manque à gagner. Les deux routes achètent la même chose, avec deux monnaies.
+export const PALIERS = [
+  { chiffre: 'I', fragments: 0, vies: 0, effet: 'Coque d’origine' },
+  { chiffre: 'II', fragments: 3, vies: 1, effet: 'Plaques de blindage · +1 vie' },
+  { chiffre: 'III', fragments: 7, vies: 1, effet: 'Blindage élide complet · +1 vie' },
+];
+
+export const PALIERS_COQUE = PALIERS.map((p) => p.fragments);
 
 export function palierDeCoque(fragments) {
   let p = 0;
@@ -109,4 +125,10 @@ export function palierDeCoque(fragments) {
 export function fragmentsAvantPalierSuivant(fragments) {
   const suivant = PALIERS_COQUE.find((n) => n > fragments);
   return suivant == null ? null : suivant - fragments;
+}
+
+// Le palier qu'on vise, avec ce qu'il apporte — pour pouvoir l'ANNONCER sur
+// l'écran de choix au lieu de laisser deviner.
+export function prochainPalier(fragments) {
+  return PALIERS.find((p) => p.fragments > fragments) || null;
 }

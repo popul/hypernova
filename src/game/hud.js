@@ -199,11 +199,11 @@ export class Hud {
   }
 
   // Petit "+N" doré qui flotte à l'écran, à la position (px) donnée.
-  creditPop(x, y, text) {
+  creditPop(x, y, text, big = false) {
     const pops = this.el['credit-pops'];
     if (pops.childElementCount > 14) pops.firstElementChild.remove();
     const span = document.createElement('span');
-    span.className = 'credit-pop';
+    span.className = big ? 'credit-pop big' : 'credit-pop';
     span.textContent = text;
     span.style.left = `${x}px`;
     span.style.top = `${y}px`;

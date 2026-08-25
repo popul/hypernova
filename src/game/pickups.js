@@ -13,7 +13,14 @@ export class Pickups {
       const mesh = createGem();
       mesh.visible = false;
       scene.add(mesh);
-      this.entries.push({ mesh, active: false, vel: new THREE.Vector3(), age: 0, value: 0 });
+      this.entries.push({
+        mesh,
+        active: false,
+        vel: new THREE.Vector3(),
+        age: 0,
+        value: 0,
+        big: false,
+      });
     }
     this._tmp = new THREE.Vector3();
   }
@@ -28,11 +35,31 @@ export class Pickups {
       entry.active = true;
       entry.age = 0;
       entry.value = value;
+      entry.big = false;
+      entry.mesh.scale.set(1, 1.5, 1);
       entry.mesh.visible = true;
       entry.called = false;
       entry.mesh.position.copy(pos);
       entry.vel.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 2, 2 + Math.random() * 5);
     }
+  }
+
+  // La grosse pièce des enchaînements. Elle part moins vite sur les côtés que les
+  // gemmes ordinaires : on doit avoir le temps de la voir et d'aller la chercher,
+  // sinon la récompense se remarque encore moins que celle qu'elle remplace.
+  dropBig(pos) {
+    const entry = this.entries.find((e) => !e.active);
+    if (!entry) return false;
+    entry.active = true;
+    entry.age = 0;
+    entry.value = PICKUPS.bigValue;
+    entry.big = true;
+    entry.mesh.scale.set(PICKUPS.bigScale, PICKUPS.bigScale * 1.5, PICKUPS.bigScale);
+    entry.mesh.visible = true;
+    entry.called = false;
+    entry.mesh.position.copy(pos);
+    entry.vel.set((Math.random() - 0.5) * 3, 0, 1.5 + Math.random() * 2);
+    return true;
   }
 
   // vacuum=true : tout aspirer vers le joueur (fin de vague).
@@ -71,7 +98,8 @@ export class Pickups {
         e.vel.z += (PICKUPS.fallAccel - e.vel.z * 2.2) * dt;
       }
       e.mesh.position.addScaledVector(e.vel, dt);
-      e.mesh.rotation.y += 4 * dt;
+      // La grosse pièce tourne plus lentement : une masse se lit à son inertie.
+      e.mesh.rotation.y += (e.big ? 2.2 : 4) * dt;
       // Clignote quand la gemme va expirer.
       const remaining = PICKUPS.lifetime - e.age;
       e.mesh.visible = remaining > 2.5 || Math.sin(e.age * 18) > -0.2;
@@ -79,7 +107,7 @@ export class Pickups {
       if (dist < PICKUPS.collectRadius) {
         e.active = false;
         e.mesh.visible = false;
-        onCollect(e.value, e.mesh.position);
+        onCollect(e.value, e.mesh.position, e.big);
       }
     }
   }

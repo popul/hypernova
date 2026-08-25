@@ -24,7 +24,13 @@ import {
 } from './constants.js';
 import { Jump } from './jump.js';
 import { biomeForWave, stageForWave, STAGES } from './space/biomes.js';
-import { routesForStage, palierDeCoque, fragmentsAvantPalierSuivant } from './routes.js';
+import {
+  routesForStage,
+  palierDeCoque,
+  fragmentsAvantPalierSuivant,
+  prochainPalier,
+  PALIERS,
+} from './routes.js';
 import { loadScores, saveScore, challengeText } from './leaderboard.js';
 import {
   loadCampaigns,
@@ -1030,14 +1036,34 @@ export class Game {
     const r = routesForStage(idx, this.seed);
     const reste = fragmentsAvantPalierSuivant(this.fragments);
 
+    // Ce que chaque route apporte, en clair. « Un fragment du Registre » ne veut
+    // rien dire pour qui joue pour la première fois : il faut écrire l'effet, pas
+    // le nom de l'objet. Le détour se lisait comme « moins d'argent et une vague
+    // plus dure » — c'est-à-dire comme un mauvais choix.
+    const vise = prochainPalier(this.fragments);
+    const effets = (o) =>
+      o.fragment
+        ? [
+            vise
+              ? `Coque <b>${vise.chiffre}</b> dans ${vise.fragments - this.fragments} fragment${
+                  vise.fragments - this.fragments > 1 ? 's' : ''
+                } — ${esc(vise.effet)}`
+              : 'Coque au maximum',
+            'Un souvenir de l’épave s’ouvre',
+          ]
+        : ['À dépenser tout de suite au hangar'];
+
     const carte = (o) => `
       <button class="route" data-type="${o.type}">
         <span class="route-kind">${o.type === 'longue' ? 'Détour' : 'Direct'}</span>
         <span class="route-name">${esc(o.nom)}</span>
         <span class="route-desc">${esc(o.desc)}</span>
         <span class="route-gain">${esc(o.gain)}</span>
-        ${o.credits && o.fragment ? `<span class="route-side">+${o.credits} cr</span>` : ''}
-        ${o.risque ? `<span class="route-risk">⚠ ${esc(o.risque.label)}</span>` : ''}
+        <ul class="route-effets">${effets(o)
+          .map((e) => `<li>${e}</li>`)
+          .join('')}</ul>
+        ${o.credits && o.fragment ? `<span class="route-side">et tout de même +${o.credits} cr</span>` : ''}
+        ${o.risque ? `<span class="route-risk">⚠ ${esc(o.risque.label)} à la vague suivante</span>` : ''}
       </button>`;
 
     const el = this._screen(`
@@ -1048,8 +1074,11 @@ export class Game {
         </div>
         <div class="route-grid">${carte(r.courte)}${carte(r.longue)}</div>
         <div class="route-foot">
-          Fragments du Registre : <b>${this.fragments}</b>${
-            reste != null ? ` · ${reste} avant le palier de coque suivant` : ' · coque au maximum'
+          Fragments du Registre : <b>${this.fragments}</b> · Coque
+          <b>${PALIERS[palierDeCoque(this.fragments)].chiffre}</b>${
+            reste != null && vise
+              ? ` · encore ${reste} pour la coque ${vise.chiffre} (${esc(vise.effet)})`
+              : ' · au maximum'
           }
         </div>
       </div>
@@ -1078,7 +1107,19 @@ export class Game {
     this.fragments++;
     const apres = palierDeCoque(this.fragments);
     if (apres > avant) {
-      this.hud.announce('COQUE — PALIER ' + 'I'.repeat(apres + 1), 'Fragment intégré', 2600);
+      // Le palier n'ajoutait que des plaques visibles. Il donne maintenant ce que
+      // son propre commentaire promettait depuis le début : du blindage. Sans quoi
+      // le détour se payait en crédits ET en risque, contre un effet nul.
+      const gagnees = PALIERS[apres].vies || 0;
+      if (gagnees) {
+        this.lives += gagnees;
+        this.hud.setLives(this.lives);
+      }
+      this.hud.announce(
+        `COQUE ${PALIERS[apres].chiffre}`,
+        gagnees ? `Fragment intégré · +${gagnees} vie` : 'Fragment intégré',
+        2600
+      );
       this._refreshShip();
     }
 
@@ -1202,7 +1243,13 @@ export class Game {
       this._updatePlaying(dt);
     } else if (this.state === 'shop') {
       // La boutique reste vivante : les gemmes restantes finissent d'arriver.
-      this.pickups.update(dt, this.player.position, 999, (v, p) => this._collectCredit(v, p), true);
+      this.pickups.update(
+        dt,
+        this.player.position,
+        999,
+        (v, p, big) => this._collectCredit(v, p, big),
+        true
+      );
     }
   }
 
@@ -1240,7 +1287,7 @@ export class Game {
       dt,
       this.player.position,
       this.stats.magnetRadius,
-      (v, p) => this._collectCredit(v, p),
+      (v, p, big) => this._collectCredit(v, p, big),
       vacuum
     );
 
@@ -1564,18 +1611,32 @@ export class Game {
       e.def.credits * creditMul * PICKUPS.gemValueScale,
       e.def.gemCount
     );
+    // Enchaîner peut faire tomber une GROSSE pièce. La chance monte avec le
+    // multiplicateur, et elle est nulle sans combo : c'est le seul endroit du jeu
+    // où l'on VOIT qu'un enchaînement a payé.
+    const mult = this.combo.mult;
+    if (mult < 2) return;
+    const chance = Math.min(PICKUPS.bigChanceMax, PICKUPS.bigChancePerTier * (mult - 1));
+    if (Math.random() < chance) this.pickups.dropBig(e.group.position);
   }
 
-  _collectCredit(value, pos3d) {
+  _collectCredit(value, pos3d, big = false) {
     // Le score grimpe jusqu'à ×8 mais les crédits plafonnent à ×3 : le combo
     // récompense le panache sans emballer l'économie.
     // Le bonus de combo sur les crédits se mérite : il faut avoir frôlé dans la vague.
+    // La grosse pièce, elle, échappe au multiplicateur : elle EST déjà la
+    // récompense du combo, et le « +10 » annoncé doit être celui qu'on encaisse.
     const cap = this.waveGrazes >= COMBO.grazesForCreditBonus ? COMBO.creditCap : 1;
-    const gain = Math.round(value * Math.min(this.combo.mult, cap));
+    const gain = big ? value : Math.round(value * Math.min(this.combo.mult, cap));
     this.credits += gain;
     this.hud.setCredits(this.credits);
-    this.audio.pickup(this.combo.mult);
-    this.fx.burst(pos3d, 0xffc857, { count: 3, speed: 3, life: 0.3 });
+    if (big) this.audio.bigPickup();
+    else this.audio.pickup(this.combo.mult);
+    this.fx.burst(
+      pos3d,
+      0xffc857,
+      big ? { count: 14, speed: 8, life: 0.5 } : { count: 3, speed: 3, life: 0.3 }
+    );
 
     // Projection 3D → écran pour le petit "+N".
     this._tmp.copy(pos3d).project(this.camera);
@@ -1583,7 +1644,8 @@ export class Game {
     this.hud.creditPop(
       (this._tmp.x * 0.5 + 0.5) * rect.width,
       (-this._tmp.y * 0.5 + 0.5) * rect.height,
-      `+${gain}`
+      `+${gain}`,
+      big
     );
   }
 }

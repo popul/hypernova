@@ -282,6 +282,17 @@ export const PICKUPS = {
   callChargeAtLevel: 4, // …et au dernier niveau, il en donne une seconde
   callPull: 70,
   callSweep: 0.42, // secondes que met l'onde à atteindre sa portée
+
+  // LA GROSSE PIÈCE. Le multiplicateur de combo ne double les crédits qu'au
+  // plafond, et surtout il est INVISIBLE : deux gemmes identiques ne disent pas au
+  // joueur qu'il vient de bien enchaîner. Celle-ci, il la voit tomber.
+  //
+  // Elle vaut dix crédits fixes — environ deux ennemis — et elle ne passe PAS par
+  // le multiplicateur : le « +10 » écrit à l'écran doit être vrai.
+  bigValue: 10,
+  bigChancePerTier: 0.08, // × (multiplicateur − 1) : ×3 → 16 %, ×6 → 40 %
+  bigChanceMax: 0.5,
+  bigScale: 2.1,
 };
 
 export const WAVES = {
