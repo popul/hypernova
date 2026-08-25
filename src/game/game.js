@@ -81,6 +81,8 @@ export class Game {
       onBuy: (id) => this.buy(id),
       onLaunch: () => this.launchNextWave(),
     });
+    // La relance est un achat comme un autre : elle se refuse si la bourse est vide.
+    this.shop.onReroll = () => this._reroll();
     this.galaxyMap = new GalaxyMap(overlayRoot, {
       onLaunch: (campaign, systemIdx) => this.startRun('campaign', { campaign, systemIdx }),
       onBack: () => this.showTitle(),
@@ -1083,6 +1085,21 @@ export class Game {
     this.characters.onShopOpen();
   }
 
+  // Relancer le tirage coûte de plus en plus cher dans la même visite : on peut
+  // forcer le destin une fois, deux à la rigueur, jamais indéfiniment.
+  _reroll() {
+    if (this.state !== 'shop') return;
+    const prix = this.shop.prixRelance;
+    if (this.credits < prix) {
+      this.audio.deny();
+      return;
+    }
+    this.credits -= prix;
+    this.hud.setCredits(this.credits);
+    this.audio.uiTick();
+    this.shop.reroll(this._shopState());
+  }
+
   _shopState() {
     return { credits: this.credits, levels: this.levels, wave: this.wave + 1, lives: this.lives };
   }
@@ -1110,6 +1127,7 @@ export class Game {
     this.hud.setCredits(this.credits);
     this.audio.buy();
     this.characters.onBuy();
+    this.shop.markBought(id);
     this.shop.refresh(this._shopState());
   }
 

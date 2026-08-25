@@ -613,6 +613,9 @@ body.touch .hud-energy {
   width: 100%;
   display: flex;
   justify-content: center;
+  /* Trois cartes seulement : collées en haut, elles laissaient les deux tiers de
+     l'écran vides. Centrées, elles tombent là où l'œil arrive. */
+  align-items: center;
   padding: 4px 4vw 10px;
   /* Le contenu s'estompe au bord bas : on voit qu'il y a une suite à faire défiler. */
   -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 92%, transparent 100%);
@@ -622,7 +625,10 @@ body.touch .hud-energy {
 .shop-foot {
   flex: 0 0 auto;
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
   padding: 14px 4vw max(16px, env(safe-area-inset-bottom));
   background: linear-gradient(to top, rgba(5, 4, 15, 0.96), rgba(5, 4, 15, 0));
 }
@@ -660,12 +666,14 @@ body.touch .hud-energy {
 }
 
 .shop-grid {
+  /* Trois offres seulement : les cartes peuvent respirer, et l'illustration
+     redevient l'argument de vente au lieu d'une vignette. */
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(198px, 226px));
+  grid-template-columns: repeat(3, minmax(0, 300px));
   justify-content: center;
   align-content: start;
-  gap: 14px;
-  width: min(1100px, 92vw);
+  gap: 18px;
+  width: min(980px, 94vw);
 }
 
 .card {
@@ -2268,4 +2276,91 @@ body.touch .key-hint {
 
 body.touch .btn-call-touch {
   display: flex;
+}
+
+/* ---------- Relance du tirage ---------- */
+
+.btn-reroll {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--display);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  background: rgba(10, 16, 34, 0.8);
+  border: 1px solid var(--cyan-dim);
+  padding: 13px 20px;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
+}
+
+.btn-reroll:hover:not(.locked) {
+  border-color: var(--cyan);
+  transform: translateY(-2px);
+}
+
+.btn-reroll .reroll-ico {
+  font-size: 17px;
+}
+
+.btn-reroll .reroll-price {
+  font-family: var(--body);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+}
+
+/* Trop cher : on grise sans désactiver, pour que le clic donne son refus sonore
+   plutôt qu'un silence qu'on prend pour une panne. */
+.btn-reroll.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Emplacement d'une offre déjà embarquée. Il reste VIDE jusqu'à la relance :
+   c'est ce qui empêche de racheter trois fois le même module. */
+.card.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 220px;
+  opacity: 0.4;
+  cursor: default;
+  border-style: dashed;
+}
+
+.card-empty-mark {
+  font-size: 34px;
+  color: var(--gold);
+}
+
+@media (max-width: 760px) {
+  .shop-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card.empty {
+    min-height: 84px;
+    flex-direction: row;
+  }
+
+  .btn-reroll {
+    font-size: 12px;
+    padding: 11px 14px;
+  }
 }

@@ -1,7 +1,23 @@
-// Boutique entre les vagues : cartes d'améliorations, achats à la souris ou au clavier (1-7),
-// lancement de la vague suivante avec Entrée.
+// Le hangar, entre deux vagues.
+//
+// L'ancienne version affichait les huit améliorations, toujours les mêmes, dans le
+// même ordre, à chaque visite. C'est un tableau de prix, pas une boutique : le
+// joueur y refait le même achat qu'à la partie précédente parce que rien ne l'en
+// empêche, et deux parties se ressemblent.
+//
+// Ici, TROIS offres tirées au sort, et une seule décision : laquelle. Le tirage est
+// pondéré par ce qu'on peut réellement s'offrir à ce moment-là — proposer un module
+// à mille crédits quand on en a soixante ne donne pas un objectif, ça donne une
+// carte morte.
+//
+// Et une relance payante, dont le prix monte à chaque usage dans la même visite :
+// c'est ce qui empêche de rouler jusqu'à obtenir l'objet voulu. On peut forcer le
+// destin une fois, deux à la rigueur, jamais indéfiniment.
 
 import { UPGRADES, priceOf } from './upgrades.js';
+
+const RELANCE_BASE = 20;
+const RELANCE_PALIER = 20; // +20 par relance dans la même visite
 
 export class Shop {
   constructor(overlayRoot, { onBuy, onLaunch }) {
@@ -10,10 +26,58 @@ export class Shop {
     this.onLaunch = onLaunch;
     this.panel = null;
     this._keyHandler = null;
+    this.offers = [];
+    this.rerolls = 0;
+  }
+
+  // Les améliorations encore achetables, avec leur prochain niveau et son prix.
+  _eligible(state) {
+    return UPGRADES.filter((u) => {
+      const lvl = state.levels[u.id];
+      if (lvl >= u.maxLevel) return false;
+      if (u.id === 'hull' && state.lives >= 5) return false;
+      return true;
+    }).map((u) => ({
+      id: u.id,
+      upgrade: u,
+      level: state.levels[u.id],
+      prix: priceOf(u, state.levels[u.id]),
+    }));
+  }
+
+  // Tirage pondéré. Le poids chute quand le prix dépasse largement la bourse, sans
+  // jamais s'annuler : il faut qu'un objet trop cher puisse sortir de temps en
+  // temps, parce que c'est lui qui donne envie de garder son argent.
+  _tirer(state, n = 3) {
+    const pool = this._eligible(state);
+    const choisis = [];
+    const budget = Math.max(60, state.credits);
+    while (choisis.length < n && pool.length) {
+      const poids = pool.map((o) => {
+        const ratio = o.prix / budget;
+        if (ratio <= 1) return 1;
+        if (ratio <= 1.8) return 0.55;
+        if (ratio <= 3) return 0.2;
+        return 0.06;
+      });
+      const total = poids.reduce((a, b) => a + b, 0);
+      let r = Math.random() * total;
+      let i = 0;
+      while (i < pool.length - 1 && (r -= poids[i]) > 0) i++;
+      choisis.push(pool[i]);
+      pool.splice(i, 1);
+    }
+    return choisis;
+  }
+
+  get prixRelance() {
+    return RELANCE_BASE + this.rerolls * RELANCE_PALIER;
   }
 
   open(state) {
     this.close();
+    this.rerolls = 0;
+    this.offers = this._tirer(state);
     this.panel = document.createElement('div');
     this.panel.className = 'screen shop';
     this.panel.innerHTML = `
@@ -23,6 +87,10 @@ export class Shop {
       </div>
       <div class="shop-scroll"><div class="shop-grid" id="shop-grid"></div></div>
       <div class="shop-foot">
+        <button class="btn-reroll" id="btn-reroll">
+          <span class="reroll-ico">⟳</span> Autres pièces
+          <span class="reroll-price" id="reroll-price"></span>
+        </button>
         <button class="btn-launch" id="btn-launch">
           Lancer la vague ${state.wave} <span class="key-hint">Entrée</span>
         </button>
@@ -30,54 +98,80 @@ export class Shop {
     `;
     this.root.appendChild(this.panel);
     this.panel.querySelector('#btn-launch').addEventListener('click', () => this.onLaunch());
+    this.panel.querySelector('#btn-reroll').addEventListener('click', () => this.onReroll?.());
     this.refresh(state);
 
     this._keyHandler = (e) => {
       if (e.repeat) return; // l'autorepeat clavier ne doit pas acheter en rafale
       if (e.code === 'Enter' || e.code === 'NumpadEnter') {
-        // Entrée sur une carte focus = achat (activation native du bouton), pas de lancement.
+        // Entrée sur une carte focus = achat (activation native du bouton).
         if (e.target instanceof Element && e.target.closest('.card')) return;
         this.onLaunch();
-      } else if (/^Digit[1-9]$/.test(e.code)) {
-        const idx = Number(e.code.slice(5)) - 1;
-        if (idx < UPGRADES.length) this.onBuy(UPGRADES[idx].id);
+      } else if (/^Digit[1-3]$/.test(e.code)) {
+        const o = this.offers[Number(e.code.slice(5)) - 1];
+        if (o) this.onBuy(o.id);
+      } else if (e.code === 'KeyR') {
+        this.onReroll?.();
       }
     };
     window.addEventListener('keydown', this._keyHandler);
   }
 
+  // Relance : nouveau tirage, prix qui monte.
+  reroll(state) {
+    this.rerolls++;
+    this.offers = this._tirer(state);
+    this.refresh(state);
+  }
+
+  // Une offre achetée laisse un emplacement VIDE plutôt que de se recharger : sans
+  // ça, on rachèterait le même module trois fois de suite et le tirage ne servirait
+  // plus à rien.
+  markBought(id) {
+    const i = this.offers.findIndex((o) => o && o.id === id);
+    if (i >= 0) this.offers[i] = null;
+  }
+
   refresh(state) {
     if (!this.panel) return;
     this.panel.querySelector('#shop-credits').textContent = state.credits;
+    const rr = this.panel.querySelector('#btn-reroll');
+    const prix = this.prixRelance;
+    this.panel.querySelector('#reroll-price').textContent = `${prix} cr`;
+    rr.classList.toggle('locked', state.credits < prix);
+
     const grid = this.panel.querySelector('#shop-grid');
-    // La reconstruction détruit la carte qui a le focus clavier : on le restaure après.
     const focusedIdx = Array.prototype.indexOf.call(grid.children, document.activeElement);
     grid.innerHTML = '';
-    UPGRADES.forEach((u, i) => {
-      const level = state.levels[u.id];
-      const maxed = level >= u.maxLevel;
-      const price = maxed ? 0 : priceOf(u, level);
-      const affordable = !maxed && state.credits >= price;
+
+    this.offers.forEach((o, i) => {
+      if (!o) {
+        const vide = document.createElement('div');
+        vide.className = 'card empty';
+        vide.innerHTML =
+          '<span class="card-empty-mark">✓</span><span class="card-name">Embarqué</span>';
+        grid.appendChild(vide);
+        return;
+      }
+      const u = o.upgrade;
+      const prixOffre = priceOf(u, state.levels[u.id]);
+      const affordable = state.credits >= prixOffre;
       const card = document.createElement('button');
-      card.className = `card${maxed ? ' maxed' : affordable ? '' : ' locked'}`;
-      card.style.setProperty('--stagger', `${i * 55}ms`);
+      card.className = `card${affordable ? '' : ' locked'}`;
+      card.style.setProperty('--stagger', `${i * 70}ms`);
       card.innerHTML = `
         <span class="card-key">${i + 1}</span>
         <span class="card-icon">${u.art || u.icon}</span>
         <span class="card-name">${u.name}</span>
         <span class="card-pips">${Array.from(
           { length: u.maxLevel },
-          (_, p) => `<i class="pip${p < level ? ' on' : ''}"></i>`
+          (_, p) => `<i class="pip${p < state.levels[u.id] ? ' on' : ''}"></i>`
         ).join('')}</span>
         <span class="card-desc">${u.desc}</span>
-        <span class="card-price">${maxed ? 'MAX' : `${price} cr`}</span>
+        <span class="card-price">${prixOffre} cr</span>
       `;
-      if (maxed) {
-        card.disabled = true;
-      } else {
-        if (!affordable) card.setAttribute('aria-disabled', 'true'); // cliquable → son "refus"
-        card.addEventListener('click', () => this.onBuy(u.id));
-      }
+      if (!affordable) card.setAttribute('aria-disabled', 'true'); // cliquable → son « refus »
+      card.addEventListener('click', () => this.onBuy(u.id));
       grid.appendChild(card);
     });
     if (focusedIdx >= 0) grid.children[focusedIdx]?.focus();
