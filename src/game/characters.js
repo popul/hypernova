@@ -145,6 +145,12 @@ const LINES = {
     'Chaque grand pilote a connu ça. Redécolle !',
   ],
   novaIntro: ['Je suis NOVA, ta copilote. En piste, pilote !'],
+  // Tutoriel contextuel : ces répliques n'apparaissent qu'à la première occasion.
+  grazeFirst: ['Tu l’as frôlée ! Passe près des balles, ça charge la jauge.'],
+  bombReady: ['Jauge pleine à moitié — appuie sur X pour la NOVA BOMB !'],
+  bombReadyTouch: ['Jauge à moitié — touche le bouton ✦ pour la NOVA BOMB !'],
+  odReady: ['Jauge PLEINE ! MAINTIENS X : Overdrive, score doublé !'],
+  odReadyTouch: ['Jauge PLEINE ! MAINTIENS le bouton ✦ : Overdrive !'],
 };
 
 function pick(list) {
@@ -262,5 +268,14 @@ export class Characters {
 
   onNovaIntro() {
     this.say('novaIntro', { priority: true });
+  }
+
+  // Tutoriel : chaque leçon n'est donnée qu'une fois, à la première occasion réelle.
+  teachOnce(key, isTouch = false) {
+    this._taught = this._taught || new Set();
+    if (this._taught.has(key)) return;
+    this._taught.add(key);
+    const touchKey = `${key}Touch`;
+    this.say(isTouch && LINES[touchKey] ? touchKey : key, { priority: true });
   }
 }

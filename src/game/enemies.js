@@ -299,7 +299,9 @@ export class Enemies {
           // consécutives n'offrent jamais le même couloir de fuite.
           e.fanPhase = ((e.fanPhase || 0) + 1) % 2;
           this._fireFan(e, game, e.fanPhase ? BOSS.fanSpacingU * 0.5 : 0);
-          if (enraged) e.fanFollowup = BOSS.fanSecondDelay;
+          if (enraged && this.waveNumber >= BOSS.enragedFromWave) {
+            e.fanFollowup = BOSS.fanSecondDelay;
+          }
         }
         // Nappe enragée : différée dans le TEMPS, décalée d'un demi-pas dans l'espace.
         if (e.fanFollowup > 0) {

@@ -196,8 +196,9 @@ export function difficulty(n, mods = { fire: 1, dive: 1 }, heat = 0) {
 // Motifs de volée disponibles selon la vague : d'abord des balles visées à esquiver,
 // puis des murs à franchir, puis des tirs croisés qui ferment les côtés.
 function volleyWeights(n) {
-  if (n < 4) return { aimed: 1 };
-  if (n < 8) return { aimed: 0.6, wall: 0.4 };
+  if (n < 6) return { aimed: 1 };
+  if (n < 9) return { aimed: 0.7, wall: 0.3 };
+  if (n < 12) return { aimed: 0.6, wall: 0.4 };
   return { aimed: 0.45, wall: 0.35, cross: 0.2 };
 }
 

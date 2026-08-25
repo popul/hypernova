@@ -83,8 +83,8 @@ export const ENEMY = {
   // Une balle met 1,2 à 1,6 s à traverser l'arène : viser la position ACTUELLE du
   // joueur, c'est viser où il n'est déjà plus. On vise donc où il SERA, avec une
   // anticipation qui monte avec les vagues.
-  leadBase: 0.3,
-  leadPerWave: 0.06,
+  leadBase: 0.22,
+  leadPerWave: 0.05,
   leadMax: 1.0,
   leadJitter: 1.2, // bruit en unités : laisse une chance à celui qui zigzague
   aimSpread: 0.07,
@@ -105,7 +105,7 @@ export const ENEMY = {
 
   // Plafond de projectiles simultanés : garantit qu'aucun motif ne peut fermer
   // l'arène. C'est le bouton de réglage global de la difficulté.
-  bulletBudgetBase: 10,
+  bulletBudgetBase: 7,
   bulletBudgetPerWave: 1.3,
   bulletBudgetMax: 34,
 
@@ -155,11 +155,14 @@ export const BOSS = {
   // Éventail MÉTRIQUE : l'écart entre branches est mesuré au plan du joueur, pas en
   // radians. Un écart angulaire fixe envoyait toutes les branches sauf une hors écran.
   fanSpacingU: 4.2,
-  fanSpanBase: 16,
-  fanSpanPerWave: 0.5,
+  // Le premier amiral (vague 4) doit rester un moment de bravoure, pas un mur :
+  // 3 branches, puis l'éventail s'élargit franchement avec les vagues.
+  fanSpanBase: 6,
+  fanSpanPerWave: 0.9,
   fanSpanMax: 29,
   fanCountMax: 9,
   fanSecondDelay: 0.35, // en phase enragée, la seconde nappe arrive décalée dans le temps
+  enragedFromWave: 8, // la double nappe n'apparaît qu'à partir du deuxième amiral
   burstRoles: [1.0, 0.6, 0.2],
 };
 
@@ -218,7 +221,7 @@ export const WAVES = {
   // formation ne se remplit jamais et tous les leviers de menace restent éteints.
   assaultGap: 2.8,
   entryStagger: 0.08,
-  twoAssaultsFromWave: 3,
+  twoAssaultsFromWave: 5, // les 4 premières vagues restent une montée en douceur
   colsBase: 6,
   colsMax: 10,
   colSpacing: 2.35,

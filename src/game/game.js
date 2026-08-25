@@ -210,6 +210,9 @@ export class Game {
     if (this.odTimer > 0) return; // gain gelé pendant l'Overdrive : pas de boucle infinie
     this.energy = Math.min(OVERDRIVE.max, this.energy + amount);
     this.hud.setEnergy(this.energy / OVERDRIVE.max);
+    // NOVA explique la bombe et l'Overdrive à la première occasion réelle de s'en servir.
+    if (this.energy >= OVERDRIVE.odCost) this.characters.teachOnce('odReady', IS_TOUCH);
+    else if (this.energy >= OVERDRIVE.bombCost) this.characters.teachOnce('bombReady', IS_TOUCH);
   }
 
   // Bouton panique, pas bouton « annuler la mort » : coûteuse, en recharge, à portée
@@ -318,8 +321,8 @@ export class Game {
         <div class="title-controls">
           ${
             IS_TOUCH
-              ? '<span>Glissez pour piloter</span><span>Le tir est automatique</span>'
-              : '<span>← → ou Q / D&nbsp;&nbsp;bouger</span><span>Espace&nbsp;&nbsp;tirer</span><span>M&nbsp;&nbsp;son</span>'
+              ? '<span>Glissez pour piloter</span><span>Tir automatique</span><span>Bouton ✦&nbsp;&nbsp;bombe (maintenir = Overdrive)</span>'
+              : '<span>← → ou Q / D&nbsp;&nbsp;bouger</span><span>Espace&nbsp;&nbsp;tirer</span><span>X&nbsp;&nbsp;bombe (maintenir = Overdrive)</span>'
           }
         </div>
         <button class="btn-ghost" id="btn-story">◈ Histoire</button>
@@ -883,6 +886,7 @@ export class Game {
 
   _onGraze(pos) {
     this.waveGrazes++;
+    this.characters.teachOnce('grazeFirst');
     this.score += GRAZE.score * this.combo.mult * (this.odTimer > 0 ? OVERDRIVE.odScoreMul : 1);
     this.hud.setScore(this.score);
     this._addEnergy(GRAZE.energy);

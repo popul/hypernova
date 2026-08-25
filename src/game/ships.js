@@ -2,6 +2,7 @@
 // Style low-poly flat-shaded ; les accents émissifs sont amplifiés par le bloom.
 
 import * as THREE from 'three';
+import { PLAYER } from './constants.js';
 
 function mat(
   color,
@@ -24,44 +25,79 @@ function glow(color) {
 
 export function createPlayerShip() {
   const g = new THREE.Group();
+  const shell = new THREE.Group(); // la carène : mise à l'échelle sans toucher au repère
+  g.add(shell);
 
   const hull = mat(0xc8d6e8, { metalness: 0.75, roughness: 0.3 });
   const dark = mat(0x2a3550, { metalness: 0.8, roughness: 0.4 });
 
   const fuselage = new THREE.Mesh(new THREE.ConeGeometry(0.5, 2.6, 6), hull);
   fuselage.rotation.x = -Math.PI / 2;
-  g.add(fuselage);
+  shell.add(fuselage);
 
   const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), glow(0x9ffbff));
   cockpit.position.set(0, 0.28, 0.1);
   cockpit.scale.set(1, 0.7, 1.4);
-  g.add(cockpit);
+  shell.add(cockpit);
 
   for (const side of [-1, 1]) {
     const wing = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.1, 1.1), hull);
     wing.position.set(side * 1.05, -0.05, 0.55);
     wing.rotation.y = side * -0.42;
-    g.add(wing);
+    shell.add(wing);
 
     const tip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.9), glow(0x4ff2ff));
     tip.position.set(side * 1.78, -0.05, 0.95);
     tip.rotation.y = side * -0.42;
-    g.add(tip);
+    shell.add(tip);
 
     const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.7, 6), dark);
     engine.rotation.x = Math.PI / 2;
     engine.position.set(side * 0.45, -0.08, 1.15);
-    g.add(engine);
+    shell.add(engine);
 
     const exhaust = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 6), glow(0x4ff2ff));
     exhaust.position.set(side * 0.45, -0.08, 1.55);
     exhaust.name = 'exhaust';
-    g.add(exhaust);
+    shell.add(exhaust);
   }
 
   const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 0.8), dark);
   fin.position.set(0, 0.35, 0.9);
-  g.add(fin);
+  shell.add(fin);
+
+  // La carène est plus petite que sa silhouette d'origine : elle donnait
+  // l'impression d'un vaisseau bien plus large que sa vraie zone de collision.
+  shell.scale.setScalar(0.78);
+
+  // REPÈRE DE COLLISION : seul ce noyau peut être touché. Tout ce qui dépasse
+  // (ailes, ailerons, réacteurs) est purement décoratif et traverse les balles.
+  // toneMapped reste actif : sans ça le bloom en fait une tache qui noie le vaisseau.
+  // depthTest désactivé : le repère doit rester lisible même quand la coque passe devant.
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.15, 10, 10),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false })
+  );
+  core.name = 'hitcore';
+  core.renderOrder = 5;
+  g.add(core);
+
+  // Cercle au sol matérialisant exactement le rayon de collision.
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(PLAYER.radius - 0.08, PLAYER.radius, 28),
+    new THREE.MeshBasicMaterial({
+      color: 0x8ffbff,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+    })
+  );
+  ring.name = 'hitring';
+  ring.renderOrder = 4;
+  ring.rotation.x = -Math.PI / 2;
+  g.add(ring);
 
   return g;
 }

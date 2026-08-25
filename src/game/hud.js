@@ -1,6 +1,8 @@
 // HUD en DOM par-dessus le canvas : score, crédits, combo, vies, annonces, barre de boss.
 // Les valeurs sont mises en cache pour ne toucher le DOM que lorsqu'elles changent.
 
+import { OVERDRIVE } from './constants.js';
+
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
@@ -38,7 +40,7 @@ export class Hud {
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
       </div>
       <div class="announce" id="announce"></div>
-      <div class="hud-hints">P pause · M son</div>
+      <div class="hud-hints">X bombe · P pause · M son</div>
       <div class="hud-touch">
         <button id="btn-pause-touch" aria-label="Pause">⏸</button>
         <button id="btn-sound-touch" aria-label="Couper le son">♪</button>
@@ -117,13 +119,18 @@ export class Hud {
     el.classList.add('pulse');
   }
 
-  // frac 0→1 ; la jauge s'allume à 50 % (bombe prête) et pulse à 100 % (Overdrive prêt).
+  // frac 0→1. L'étiquette annonce ce qui est disponible : sans elle, personne ne
+  // devine qu'une touche existe.
   setEnergy(frac) {
     const pct = Math.max(0, Math.min(1, frac));
     this.el['energy-fill'].style.transform = `scaleY(${pct})`;
     const el = this.el['hud-energy'];
-    el.classList.toggle('bomb-ready', pct >= 0.5);
-    el.classList.toggle('od-ready', pct >= 1);
+    const bombReady = pct >= OVERDRIVE.bombCost / OVERDRIVE.max;
+    const odReady = pct >= 1;
+    el.classList.toggle('bomb-ready', bombReady);
+    el.classList.toggle('od-ready', odReady);
+    const label = odReady ? 'MAINTIENS' : bombReady ? 'BOMBE' : 'X';
+    this._set('energy-label', label);
   }
 
   setOverdrive(active) {
