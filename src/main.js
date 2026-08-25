@@ -35,6 +35,7 @@ scene.fog = new THREE.FogExp2(0x05040f, 0.0075);
 // Déclarés avant fitCamera : celui-ci les recale, et il tourne une première fois
 // dès l'initialisation, avant que la scène ne soit peuplée.
 let arenaEdges = null;
+let space = null;
 
 const camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerHeight, 0.1, 900);
 const CAMERA_HOME = new THREE.Vector3(0, 21, 27);
@@ -58,6 +59,10 @@ function fitCamera() {
   // vaisseau sort du champ par le bas sur les écrans larges.
   fitPlayZone(camera);
   arenaEdges?.setZone();
+  // Le décor lointain se recalibre sur le champ HORIZONTAL réel : c'est lui, et
+  // pas le champ vertical, qui décide de la taille apparente d'une planète.
+  const tanHalfH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect;
+  space?.setFraming(tanHalfH);
 }
 fitCamera();
 
@@ -98,7 +103,7 @@ export function setCinematicQuality(on) {
 
 const input = new Input();
 const audio = new AudioEngine();
-const space = new Space(scene, { lights: { hemi, keyLight, rimLight, mawLight }, renderer });
+space = new Space(scene, { lights: { hemi, keyLight, rimLight, mawLight }, renderer });
 arenaEdges = new ArenaEdges(scene);
 fitCamera(); // second passage : la couture existe enfin et peut être calée
 const fx = new Fx(scene);
@@ -135,11 +140,36 @@ window.addEventListener('keydown', unlock);
 window.addEventListener('mousedown', unlock);
 window.addEventListener('touchstart', unlock);
 
-window.addEventListener('resize', () => {
-  if (!game.cameraOverride) fitCamera(); // la ciné pilote son propre cadrage
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
-  bloom.setSize(window.innerWidth / 2, window.innerHeight / 2);
+// Redimensionnement. Le rapport d'image de la caméra doit TOUJOURS suivre celui du
+// canevas — y compris pendant une cinématique, qui ne pilote que la position et le
+// champ, jamais le rapport. L'ancienne version sautait entièrement fitCamera quand
+// la ciné avait la main : le rendu était alors redimensionné avec une matrice de
+// projection périmée, et l'image sortait écrasée ou étirée. Faire pivoter son
+// téléphone pendant l'introduction suffisait à déclencher le défaut.
+function relayout() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+  bloom.setSize(w / 2, h / 2);
+  if (game.cameraOverride) {
+    // La ciné garde la main sur le reste, mais le rapport lui échappe.
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  } else {
+    fitCamera();
+  }
+}
+
+window.addEventListener('resize', relayout);
+
+// Changement d'orientation : sur mobile, l'événement « resize » arrive souvent
+// AVANT que innerWidth et innerHeight ne reflètent la nouvelle orientation. On
+// recadre donc une seconde fois, une fois la mise en page stabilisée.
+window.addEventListener('orientationchange', () => {
+  relayout();
+  requestAnimationFrame(relayout);
+  setTimeout(relayout, 250);
 });
 
 // PWA : service worker (cache hors-ligne + alertes de nouvelle campagne).

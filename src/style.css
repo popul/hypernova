@@ -219,7 +219,7 @@ body {
 /* Au tactile, les deux boutons ronds occupent le coin : on remonte la jauge
    au-dessus d'eux plutôt que de la superposer. */
 body.touch .hud-energy {
-  bottom: 178px;
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 150px);
 }
 
 .energy-track {
@@ -297,8 +297,11 @@ body.touch .hud-energy {
 
 .btn-energy-touch {
   position: absolute;
-  left: max(20px, env(safe-area-inset-left));
-  bottom: max(74px, calc(env(safe-area-inset-bottom) + 60px));
+  /* À DROITE. Il était en bas à gauche, c'est-à-dire exactement là où s'ouvre la
+     fenêtre de dialogue : sur téléphone, le bouton disparaissait sous NOVA dès
+     qu'elle parlait. Le bas-gauche appartient au texte, le bas-droit à l'action. */
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
   display: none;
   width: 64px;
   height: 64px;
@@ -315,10 +318,8 @@ body.touch .btn-energy-touch {
   display: block;
 }
 
-body.touch .hud-energy {
-  left: 92px;
-  bottom: max(74px, calc(env(safe-area-inset-bottom) + 60px));
-}
+/* La colonne d'action, de bas en haut : ✦ énergie, ◉ appel, puis la jauge.
+   Trois éléments empilés à droite, et rien qui empiète sur le dialogue. */
 
 /* Barre de boss */
 
@@ -1982,8 +1983,14 @@ body.touch .key-hint {
 }
 
 @media (max-width: 760px) {
+  /* La comm s'arrête avant la colonne d'action : c'est ce qui garantit qu'aucun
+     bouton ne passe dessous, quelle que soit la longueur de la réplique. */
+  .comm {
+    max-width: calc(100vw - 104px);
+  }
+
   .comm-panel {
-    max-width: 58vw;
+    max-width: calc(100vw - 190px);
   }
 
   .comm-portrait {
@@ -2239,10 +2246,13 @@ body.touch .key-hint {
 .btn-call-touch {
   position: absolute;
   right: max(18px, env(safe-area-inset-right));
-  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 96px);
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 76px);
   width: 62px;
   height: 62px;
-  display: none;
+  /* VISIBLE PARTOUT. Réservé au tactile, l'Appel n'avait aucun indicateur sur
+     ordinateur : la seule mention était une ligne d'aide de dix pixels en bas
+     d'écran. Une action qu'on ne voit nulle part n'existe pas. */
+  display: flex;
   align-items: center;
   justify-content: center;
   font-size: 24px;
@@ -2283,6 +2293,23 @@ body.touch .key-hint {
   font-family: var(--display);
   font-size: 12px;
   color: var(--gold);
+}
+
+/* Au clavier, l'indicateur montre la TOUCHE : c'est l'information qui manque.
+   Au tactile il montre le symbole, puisque c'est un vrai bouton qu'on presse. */
+.btn-call-touch::before {
+  content: 'C';
+  position: absolute;
+  top: -2px;
+  right: 6px;
+  font-family: var(--display);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+body.touch .btn-call-touch::before {
+  content: none;
 }
 
 body.touch .btn-call-touch {

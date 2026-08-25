@@ -353,6 +353,19 @@ export class Game {
   // l'argent lointain arrive après le proche. Un effet instantané n'aurait donné
   // aucune lecture — juste des gemmes qui changent de direction sans raison.
   _updateCall(dt) {
+    // Pédagogie : NOVA n'explique l'Appel qu'au premier moment où il SERT
+    // vraiment — de l'argent en vue, hors de portée de l'aimant, et une charge
+    // disponible. Expliqué plus tôt, l'avertissement tombe dans le vide ; expliqué
+    // au bon moment, il se comprend sans être relu.
+    if (this.callLeft > 0 && this.pickups.activeCount() >= 3) {
+      let loin = 0;
+      const r2 = this.stats.magnetRadius * this.stats.magnetRadius;
+      this.pickups.forEachActive?.((e) => {
+        if (e.mesh.position.distanceToSquared(this.player.position) > r2) loin++;
+      });
+      if (loin >= 3) this.characters.teachOnce('callFirst', IS_TOUCH);
+    }
+
     const w = this.callWave;
     if (!w) return;
     w.radius += (w.max / PICKUPS.callSweep) * dt;

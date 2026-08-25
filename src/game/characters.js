@@ -62,6 +62,12 @@ const LINES = {
     'Boulonné. Ça pèse quatre kilos de plus. Tu vas le sentir en virage.',
     'Installé. Je le teste sur le premier qui passe.',
   ],
+  callFirst: [
+    'Il te reste de l’argent dans le champ. Touche C : j’envoie une onde qui te le rabat. Une seule par vague.',
+  ],
+  callFirstTouch: [
+    'Il te reste de l’argent dans le champ. Le bouton ◉ : j’envoie une onde qui te le rabat. Une seule par vague.',
+  ],
   reflexFirst: [
     'Le temps vient de se plier. Pas toi. Sers-t’en : tu as une seconde qui n’existe pas.',
   ],
@@ -161,6 +167,8 @@ const EMOTION_BY_KEY = {
   novaAnswer: 'alerte',
   grazeFirst: 'neutre',
   reflexFirst: 'alerte',
+  callFirst: 'neutre',
+  callFirstTouch: 'neutre',
   bombReady: 'alerte',
   bombReadyTouch: 'alerte',
   odReady: 'determine',

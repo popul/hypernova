@@ -98,6 +98,10 @@ export class Pickups {
     return pris;
   }
 
+  forEachActive(fn) {
+    for (const e of this.entries) if (e.active) fn(e);
+  }
+
   activeCount() {
     let n = 0;
     for (const e of this.entries) if (e.active) n++;

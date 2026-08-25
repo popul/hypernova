@@ -149,7 +149,32 @@ export class Space {
     this.to = blankPalette();
     this.fadeT = 1;
     this.starOpacity = [0.55, 0.4];
+    // Compensation de cadrage. Le champ HORIZONTAL varie énormément selon le
+    // format : 87° en 16/9, mais 37° sur un téléphone en portrait, où fitCamera
+    // resserre pour garder l'arène dans le champ. Un décor calibré en paysage
+    // grossit donc de 2,8 fois dans un cadre portrait — mesuré — et la planète
+    // déborde de partout. On le remet à sa taille apparente prévue.
+    this.framing = 1;
     this._c = new THREE.Color();
+  }
+
+  // Reçoit la demi-tangente du champ horizontal courant. La taille apparente d'un
+  // objet lointain lui est inversement proportionnelle : on compense donc en
+  // rapetissant les décors d'autant. Un objet dans le vide n'a pas d'échelle
+  // propre, le réduire ne se voit pas — c'est ce qui rend l'astuce possible.
+  setFraming(tanHalfH) {
+    const REF = 0.946; // valeur en 16/9, le format de référence
+    this.framing = Math.min(1, tanHalfH / REF);
+    this._applyFraming();
+  }
+
+  _applyFraming() {
+    for (const l of this.landmarks) {
+      const base = l.group.userData.baseScale ?? l.group.scale.x;
+      l.group.userData.baseScale = base;
+      l.group.scale.setScalar(base * this.framing);
+    }
+    this.sun.setSize(this.sunSize * this.framing);
   }
 
   // Bascule de secteur. `instant` sert au démarrage d'une partie, où il n'y a rien
@@ -174,7 +199,10 @@ export class Space {
 
     this._buildNebulas(biome.nebulas);
     this._buildLandmarks(biome.landmark);
-    if (biome.sun != null) this.sun.setSize(biome.sun);
+    if (biome.sun != null) {
+      this.sunSize = biome.sun;
+      this.sun.setSize(biome.sun * this.framing);
+    }
 
     if (instant) {
       copyPalette(this.from, this.to);
@@ -243,6 +271,7 @@ export class Space {
       disposeLandmark(l);
     }
     this.landmarks = [];
+    this.sunSize = this.sunSize ?? 26;
     for (const spec of specs || []) {
       const l = createLandmark(spec);
       l.group.traverse((o) => {
@@ -265,6 +294,9 @@ export class Space {
       this.scene.add(l.group);
       this.landmarks.push(l);
     }
+    // Le cadrage se réapplique après chaque reconstruction, sinon un changement de
+    // secteur ramènerait des décors calibrés pour le paysage.
+    this._applyFraming();
   }
 
   // 0 = vol normal, 1 = passage en lumière. Les points s'effacent au profit des
