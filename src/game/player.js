@@ -248,7 +248,11 @@ export class Player {
     if (this.roll > 0) {
       this.roll -= dt;
       const k = 1 - Math.max(0, this.roll) / ROLL.duration;
-      this.group.rotation.z = this.rollDir * k * Math.PI * 2;
+      // Signe NÉGATIF, comme le roulis normal juste en dessous : partir à droite
+      // fait plonger l'aile droite. Avec le signe opposé, le vaisseau tournait
+      // dans le sens contraire de sa trajectoire — un tonneau qui contredit le
+      // déplacement se lit comme une erreur, pas comme une figure.
+      this.group.rotation.z = -this.rollDir * k * Math.PI * 2;
       targetVx = this.rollDir * ROLL.push;
       targetVz = 0;
       if (this.roll <= 0) this.group.rotation.z = 0;

@@ -315,17 +315,174 @@ export function createSun() {
 // comme appartenant au MÊME vaisseau : des membrures apparentes, une coque pâle
 // d'os, des ouvertures hexagonales, et une seule lumière ambre — morte partout
 // sauf sur le relais. C'est cette lumière unique qui dit « il y a eu quelqu'un ».
-const ELIDE_OS = 0xb9b3a4; // la teinte de coque : pâle, mate, exsangue
 const ELIDE_OMBRE = 0x4a4740;
 const ELIDE_FEU = 0xffb15c;
 
-function elideMat(dark = false) {
+// La texture de coque. C'est elle, et pas la géométrie, qui fait la différence
+// entre « une boîte grise » et « un morceau de vaisseau » — un cube texturé se lit
+// comme une section de coque, un cube nu se lit comme un cube.
+//
+// Quatre couches, et aucune n'est décorative :
+//  1. LES LIGNES DE PANNEAU, irrégulières. Une grille régulière se lit comme du
+//     carrelage ; ce sont les tailles inégales qui font croire à des tôles posées
+//     par quelqu'un qui avait une raison de les poser comme ça.
+//  2. LES RIVETS le long de certaines coutures — pas de toutes. Ils donnent
+//     l'échelle : sans eux on ne sait pas si l'objet fait trois mètres ou trois cents.
+//  3. LES COULURES verticales. Dix mille ans de rien, ça se voit.
+//  4. LES MARQUAGES au pochoir. Trois blocs suffisent : on ne les lit pas, on
+//     reconnaît qu'il y a quelque chose d'écrit, et donc que quelqu'un l'a écrit.
+//
+// Une seconde passe en niveaux de gris sert de carte de relief : les lignes de
+// panneau creusent réellement la surface au lieu d'être peintes dessus.
+let _elideTex = null;
+
+function elideTextures() {
+  if (_elideTex) return _elideTex;
+  const S = 512;
+  const col = document.createElement('canvas');
+  const bmp = document.createElement('canvas');
+  col.width = col.height = bmp.width = bmp.height = S;
+  const c = col.getContext('2d');
+  const b = bmp.getContext('2d');
+  const r = rng(4711);
+
+  c.fillStyle = '#b9b3a4';
+  c.fillRect(0, 0, S, S);
+  b.fillStyle = '#808080';
+  b.fillRect(0, 0, S, S);
+
+  // 1. Panneaux : découpe récursive, ce qui donne des tailles inégales sans avoir
+  // à les écrire une par une.
+  const panneaux = [];
+  const decouper = (x, y, w, h, prof) => {
+    if (prof <= 0 || w < 48 || h < 48) {
+      panneaux.push([x, y, w, h]);
+      return;
+    }
+    const vertical = w > h ? r() < 0.75 : r() < 0.25;
+    const t = 0.32 + r() * 0.36;
+    if (vertical) {
+      decouper(x, y, w * t, h, prof - 1);
+      decouper(x + w * t, y, w * (1 - t), h, prof - 1);
+    } else {
+      decouper(x, y, w, h * t, prof - 1);
+      decouper(x, y + h * t, w, h * (1 - t), prof - 1);
+    }
+  };
+  decouper(0, 0, S, S, 4);
+
+  for (const [x, y, w, h] of panneaux) {
+    // Chaque tôle a sa teinte propre : une coque n'est jamais d'une seule couleur,
+    // les plaques ne viennent pas du même bain.
+    const v = 0.88 + r() * 0.2;
+    c.fillStyle = `rgba(${(185 * v) | 0},${(179 * v) | 0},${(164 * v) | 0},1)`;
+    c.fillRect(x, y, w, h);
+    c.strokeStyle = 'rgba(40,38,34,0.55)';
+    c.lineWidth = 1.6;
+    c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    b.fillStyle = `rgb(${(150 + r() * 20) | 0},${(150 + r() * 20) | 0},${(150 + r() * 20) | 0})`;
+    b.fillRect(x + 1.5, y + 1.5, w - 3, h - 3);
+
+    // 2. Rivets, sur une couture sur trois.
+    if (r() < 0.34) {
+      const n = Math.max(3, Math.floor(w / 22));
+      for (let i = 0; i < n; i++) {
+        const rx = x + 6 + (i * (w - 12)) / Math.max(1, n - 1);
+        for (const ry of [y + 5, y + h - 5]) {
+          c.fillStyle = 'rgba(70,66,58,0.7)';
+          c.beginPath();
+          c.arc(rx, ry, 1.6, 0, Math.PI * 2);
+          c.fill();
+          b.fillStyle = '#c8c8c8';
+          b.beginPath();
+          b.arc(rx, ry, 1.6, 0, Math.PI * 2);
+          b.fill();
+        }
+      }
+    }
+  }
+
+  // 3. Coulures.
+  for (let i = 0; i < 60; i++) {
+    const x = r() * S;
+    const y = r() * S;
+    const h = 20 + r() * 130;
+    const g = c.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(60,54,44,0.22)');
+    g.addColorStop(1, 'rgba(60,54,44,0)');
+    c.fillStyle = g;
+    c.fillRect(x, y, 1 + r() * 3, h);
+  }
+
+  // 4. Marquages au pochoir et bande d'avertissement.
+  c.fillStyle = 'rgba(48,44,38,0.75)';
+  for (let i = 0; i < 4; i++) {
+    const x = r() * (S - 90);
+    const y = r() * (S - 20);
+    for (let k = 0; k < 3 + ((r() * 4) | 0); k++) {
+      c.fillRect(x + k * 13, y, 8, 12);
+    }
+  }
+  const by = r() * (S - 30);
+  for (let x = 0; x < S; x += 22) {
+    c.fillStyle = x % 44 === 0 ? 'rgba(210,150,60,0.5)' : 'rgba(50,46,40,0.5)';
+    c.beginPath();
+    c.moveTo(x, by);
+    c.lineTo(x + 11, by);
+    c.lineTo(x + 22, by + 14);
+    c.lineTo(x + 11, by + 14);
+    c.closePath();
+    c.fill();
+  }
+
+  const mk = (canvas) => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
+  };
+  const map = mk(col);
+  map.colorSpace = THREE.SRGBColorSpace;
+  _elideTex = { map, bump: mk(bmp) };
+  return _elideTex;
+}
+
+function elideMat(dark = false, repeat = 1) {
+  const { map, bump } = elideTextures();
+  const m = map.clone();
+  const bp = bump.clone();
+  m.repeat.set(repeat, repeat);
+  bp.repeat.set(repeat, repeat);
+  m.needsUpdate = bp.needsUpdate = true;
   return new THREE.MeshStandardMaterial({
-    color: dark ? ELIDE_OMBRE : ELIDE_OS,
-    roughness: 0.88,
-    metalness: 0.35,
-    flatShading: true,
+    color: dark ? ELIDE_OMBRE : 0xffffff,
+    map: dark ? null : m,
+    bumpMap: dark ? null : bp,
+    bumpScale: 0.6,
+    roughness: 0.86,
+    metalness: 0.3,
   });
+}
+
+// Greebles : les petits volumes rapportés qui couvrent les coques de vaisseaux au
+// cinéma. Leur rôle n'est pas décoratif — ils CASSENT la silhouette primitive. Un
+// pavé nu se lit comme un pavé quelle que soit sa texture ; le même pavé hérissé
+// de trente détails se lit comme une machine.
+function greeble(group, mat, { count, spread, seed = 1, scale = 1 }) {
+  const r = rng(seed);
+  const geos = [
+    () => new THREE.BoxGeometry(0.9, 0.35, 1.4),
+    () => new THREE.BoxGeometry(0.5, 0.5, 0.5),
+    () => new THREE.CylinderGeometry(0.3, 0.3, 0.5, 6),
+    () => new THREE.BoxGeometry(1.8, 0.25, 0.4),
+  ];
+  for (let i = 0; i < count; i++) {
+    const g = geos[(r() * geos.length) | 0]();
+    const m = new THREE.Mesh(g, mat);
+    m.position.set((r() - 0.5) * spread[0], (r() - 0.5) * spread[1], (r() - 0.5) * spread[2]);
+    m.rotation.set(r() * 0.4, r() * Math.PI, r() * 0.4);
+    m.scale.setScalar(scale * (0.6 + r() * 1.1));
+    group.add(m);
+  }
 }
 
 // Membrures : les côtes d'une carcasse. Elles servent dans toutes les variantes,
@@ -354,103 +511,195 @@ function ajouteMembrures(
 }
 
 const HULKS = {
-  // La tuyère : une cloche de réacteur arrachée, plantée dans le sol martien.
+  // LA TUYÈRE. Une cloche de réacteur arrachée. Ce qui la rend reconnaissable n'est
+  // pas la cloche — c'est le COL étranglé derrière elle, la couronne d'injecteurs
+  // autour, et l'anneau de cardan qui l'attachait. Sans ces trois pièces, un cône
+  // creux n'est qu'un cône creux.
   nozzle(g, mat, dark) {
-    const bell = new THREE.Mesh(new THREE.CylinderGeometry(9, 20, 26, 14, 1, true), mat);
-    bell.rotation.z = 0.5;
+    const bell = new THREE.Mesh(new THREE.CylinderGeometry(8, 19, 24, 24, 4, true), mat);
     bell.material.side = THREE.DoubleSide;
     g.add(bell);
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 8, 14, 10), dark);
-    col.position.set(-7.5, 15, 0);
-    col.rotation.z = 0.5;
+    // Le col : la vraie signature d'une tuyère, l'étranglement avant la sortie.
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 8, 7, 20), mat);
+    col.position.y = 15.5;
     g.add(col);
-    ajouteMembrures(g, dark, { count: 4, radius: 13, span: 20, axis: 'z', seed: 3 });
-  },
-
-  // La déchirure : la section qui a cédé. C'est ici que l'arche s'est ouverte,
-  // et c'est pour ça que la ceinture d'astéroïdes n'est pas une ceinture.
-  torn(g, mat, dark) {
-    for (const [i, len] of [26, 17].entries()) {
-      const t = new THREE.Mesh(new THREE.BoxGeometry(len, 13, 15), mat);
-      t.position.set(i === 0 ? -18 : 20, i === 0 ? 0 : -6, i === 0 ? 0 : 3);
-      t.rotation.z = i === 0 ? 0.05 : -0.34;
-      t.rotation.y = i === 0 ? 0 : 0.2;
-      g.add(t);
+    const chambre = new THREE.Mesh(new THREE.SphereGeometry(6.4, 18, 12), mat);
+    chambre.position.y = 22;
+    g.add(chambre);
+    // Injecteurs en couronne : douze tubes, et l'échelle apparaît.
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const inj = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 5, 6), dark);
+      inj.position.set(Math.cos(a) * 5.6, 20, Math.sin(a) * 5.6);
+      g.add(inj);
     }
-    // Entre les deux tronçons, le squelette nu : c'est le vide qui raconte.
-    ajouteMembrures(g, dark, { count: 7, radius: 7.5, span: 17, seed: 21, jitter: 0.5 });
+    // Anneau de cardan, brisé d'un côté : c'est par là qu'elle s'est détachée.
+    const gimbal = new THREE.Mesh(new THREE.TorusGeometry(9.5, 0.85, 8, 24, Math.PI * 1.5), dark);
+    gimbal.position.y = 13;
+    gimbal.rotation.x = Math.PI / 2;
+    g.add(gimbal);
+    greeble(g, dark, { count: 26, spread: [16, 24, 16], seed: 12, scale: 0.8 });
+    g.rotation.z = 0.55;
   },
 
-  // L'habitat : un tambour à hublots. Fait pour des gens qui n'y ont jamais dormi.
+  // LA DÉCHIRURE. Deux tronçons désalignés et, entre eux, le squelette à nu. C'est
+  // le VIDE au milieu qui raconte : une coque entière n'est pas une épave.
+  torn(g, mat, dark) {
+    const avant = new THREE.Mesh(new THREE.CylinderGeometry(7.5, 8.5, 26, 16, 3), mat);
+    avant.rotation.z = Math.PI / 2;
+    avant.position.set(-19, 0, 0);
+    g.add(avant);
+    const arriere = new THREE.Mesh(new THREE.CylinderGeometry(8, 6.5, 18, 16, 2), mat);
+    arriere.rotation.z = Math.PI / 2;
+    arriere.rotation.y = 0.24;
+    arriere.position.set(20, -5.5, 3);
+    g.add(arriere);
+    // Les tôles arrachées, en éventail : la déchirure elle-même.
+    const r = rng(66);
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      const tole = new THREE.Mesh(new THREE.BoxGeometry(5 + r() * 4, 0.35, 3 + r() * 2), mat);
+      tole.position.set(-6 + r() * 3, Math.sin(a) * 7.5, Math.cos(a) * 7.5);
+      tole.rotation.set(a, r() * 0.5, (r() - 0.5) * 1.2);
+      g.add(tole);
+    }
+    ajouteMembrures(g, dark, { count: 6, radius: 7.5, span: 16, seed: 21, jitter: 0.45 });
+    greeble(g, dark, { count: 34, spread: [46, 14, 14], seed: 33, scale: 0.85 });
+  },
+
+  // L'HABITAT. Un tambour à hublots, avec sa couronne d'accostage à un bout et ses
+  // radiateurs déployés. Les hublots donnent l'échelle humaine — c'est le seul
+  // morceau dont on peut dire « des gens devaient dormir là ».
   habitat(g, mat, dark) {
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(13, 13, 20, 16, 1), mat);
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(12, 12, 22, 28, 3), mat);
     drum.rotation.z = Math.PI / 2;
     g.add(drum);
-    const r = rng(77);
-    for (let i = 0; i < 22; i++) {
-      const a = (i / 22) * Math.PI * 2;
-      const w = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.5, 0.6), dark);
-      w.position.set((r() - 0.5) * 16, Math.sin(a) * 13.2, Math.cos(a) * 13.2);
-      w.lookAt(0, 0, 0);
-      g.add(w);
+    for (const x of [-11.6, 11.6]) {
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(12, 24, 10, 0, Math.PI * 2, 0, 0.5), mat);
+      cap.rotation.z = x < 0 ? Math.PI / 2 : -Math.PI / 2;
+      cap.position.x = x;
+      g.add(cap);
     }
-    ajouteMembrures(g, dark, { count: 3, radius: 14.5, span: 19, seed: 9, jitter: 0.08 });
+    // Deux rangées de hublots, régulières : une coque d'habitat EST régulière.
+    for (let rang = 0; rang < 2; rang++) {
+      for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * Math.PI * 2;
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.5, 8), dark);
+        w.position.set(-5 + rang * 10, Math.sin(a) * 12.1, Math.cos(a) * 12.1);
+        w.rotation.x = -a + Math.PI / 2;
+        w.rotation.z = Math.PI / 2;
+        g.add(w);
+      }
+    }
+    // Couronne d'accostage.
+    const port = new THREE.Mesh(new THREE.TorusGeometry(4.2, 1.1, 8, 20), dark);
+    port.position.x = 13;
+    port.rotation.y = Math.PI / 2;
+    g.add(port);
+    // Radiateurs : deux grands panneaux plats, la seule surface lisse de la pièce.
+    for (const s of [-1, 1]) {
+      const rad = new THREE.Mesh(new THREE.BoxGeometry(20, 0.3, 9), mat);
+      rad.position.set(0, s * 14, 0);
+      rad.rotation.x = s * 0.25;
+      g.add(rad);
+    }
+    greeble(g, dark, { count: 30, spread: [22, 24, 24], seed: 44, scale: 0.8 });
   },
 
-  // La soute : longue, close, régulière. Elle contenait ce qu'on emporte quand on
-  // part pour toujours.
+  // LA SOUTE. Longue, cerclée, close. Ce sont les cerclages réguliers et les
+  // portes de chargement qui la font lire — un pavé lisse ne dit rien.
   hold(g, mat, dark) {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(46, 12, 12), mat);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 46, 8, 6), mat);
+    body.rotation.z = Math.PI / 2;
     g.add(body);
-    for (let i = 0; i < 5; i++) {
-      const band = new THREE.Mesh(new THREE.BoxGeometry(1.6, 13.4, 13.4), dark);
-      band.position.x = -20 + i * 10;
+    for (let i = 0; i < 6; i++) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(9.4, 0.9, 6, 8), dark);
+      band.position.x = -20 + i * 8;
+      band.rotation.y = Math.PI / 2;
       g.add(band);
     }
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 5, 8), dark);
-    cap.rotation.z = Math.PI / 2;
-    cap.position.x = 25;
+    // Portes de chargement : deux grands rectangles en creux, alignés.
+    for (const x of [-10, 6]) {
+      const porte = new THREE.Mesh(new THREE.BoxGeometry(9, 1, 11), dark);
+      porte.position.set(x, 8.4, 0);
+      g.add(porte);
+    }
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(9, 10, 8), mat);
+    cap.rotation.z = -Math.PI / 2;
+    cap.position.x = 28;
     g.add(cap);
+    greeble(g, dark, { count: 30, spread: [44, 16, 16], seed: 55, scale: 0.75 });
   },
 
-  // Le relais : petit, intact, et le SEUL morceau encore alimenté. Sa lampe est la
-  // seule lumière élide de tout le jeu.
+  // LE RELAIS. Petit, intact, et le SEUL morceau encore alimenté. Sa parabole et
+  // son mât le rendent identifiable au premier coup d'œil, ce qui compte parce que
+  // c'est le morceau qu'on cherche.
   relay(g, mat, dark) {
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.2, 22, 8), mat);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.2, 24, 8), mat);
     g.add(mast);
-    const dish = new THREE.Mesh(new THREE.SphereGeometry(9, 20, 12, 0, Math.PI * 2, 0, 1.0), mat);
+    for (let i = 0; i < 5; i++) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.22, 5, 10), dark);
+      ring.position.y = -10 + i * 5;
+      ring.rotation.x = Math.PI / 2;
+      g.add(ring);
+    }
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(9, 28, 14, 0, Math.PI * 2, 0, 0.95), mat);
     dish.material.side = THREE.DoubleSide;
     dish.position.y = 11;
-    dish.rotation.x = Math.PI + 0.5;
+    dish.rotation.x = Math.PI + 0.45;
     g.add(dish);
-    const box = new THREE.Mesh(new THREE.BoxGeometry(5, 4, 5), dark);
-    box.position.y = -9;
+    // Le cornet au foyer : sans lui, une parabole n'est qu'un bol.
+    const feed = new THREE.Mesh(new THREE.ConeGeometry(0.9, 3.4, 8), dark);
+    feed.position.set(0, 6.5, 3.2);
+    feed.rotation.x = -0.45;
+    g.add(feed);
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const stay = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 6.5, 4), dark);
+      stay.position.set(Math.cos(a) * 2.4, 8.6, 1.6 + Math.sin(a) * 2.4);
+      stay.rotation.z = Math.cos(a) * 0.42;
+      stay.rotation.x = Math.sin(a) * 0.42;
+      g.add(stay);
+    }
+    const box = new THREE.Mesh(new THREE.BoxGeometry(5.5, 4.5, 5.5), mat);
+    box.position.y = -10;
     g.add(box);
     const lamp = new THREE.Mesh(
-      new THREE.SphereGeometry(0.75, 8, 6),
+      new THREE.SphereGeometry(0.8, 8, 6),
       new THREE.MeshBasicMaterial({ color: ELIDE_FEU, toneMapped: false })
     );
-    lamp.position.set(2.4, -9, 2.4);
+    lamp.position.set(2.6, -10, 2.6);
     lamp.userData.clignote = true;
     g.add(lamp);
+    greeble(g, dark, { count: 14, spread: [7, 22, 7], seed: 77, scale: 0.5 });
   },
 
-  // La tête : le poste de commande. Le plus gros morceau, le plus loin, celui que
-  // personne n'a jamais atteint — et c'est là que dort la clé.
+  // LA TÊTE. Le poste de commande : la proue effilée, la baie vitrée, et l'anneau
+  // de dérive. Le plus gros morceau, et celui qu'il faut reconnaître de loin.
   head(g, mat, dark) {
-    const prow = new THREE.Mesh(new THREE.ConeGeometry(15, 34, 9), mat);
-    prow.rotation.z = -Math.PI / 2;
-    prow.position.x = -14;
+    const prow = new THREE.Mesh(new THREE.CylinderGeometry(4, 15, 34, 16, 4), mat);
+    prow.rotation.z = Math.PI / 2;
+    prow.position.x = -16;
     g.add(prow);
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(15, 12, 26, 9), mat);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(15, 13, 26, 16, 3), mat);
     body.rotation.z = Math.PI / 2;
-    body.position.x = 16;
+    body.position.x = 15;
     g.add(body);
     ajouteMembrures(g, dark, { count: 5, radius: 16, span: 24, seed: 5, jitter: 0.06 });
-    // Une baie vitrée, éteinte. On voit qu'il y avait un poste, et qu'il est vide.
-    const bay = new THREE.Mesh(new THREE.BoxGeometry(9, 3.5, 12), dark);
-    bay.position.set(-20, 5, 0);
-    g.add(bay);
+    // La baie : trois vitres en bandeau, inclinées. C'est ce qui dit « un poste ».
+    for (let i = 0; i < 3; i++) {
+      const bay = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.6, 3.4), dark);
+      bay.position.set(-24 + i * 5, 5.2 - i * 0.5, 0);
+      bay.rotation.z = -0.28;
+      g.add(bay);
+    }
+    // Anneau de dérive, incliné : la silhouette qu'on reconnaît de loin.
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(17, 1.4, 8, 28), mat);
+    ring.position.x = 24;
+    ring.rotation.y = Math.PI / 2;
+    ring.rotation.z = 0.22;
+    g.add(ring);
+    greeble(g, dark, { count: 46, spread: [56, 26, 26], seed: 99, scale: 1.05 });
   },
 };
 
@@ -502,12 +751,23 @@ export function createKorn() {
   // encore assombri de 45 % par le mode boss, il occupait 127 % de la largeur de
   // l'écran et restait littéralement invisible. Une masse qu'on ne voit pas ne
   // pèse rien.
+  // La MÊME texture de coque que l'épave élide, assombrie. C'est un point de
+  // l'histoire autant qu'un choix graphique : ANDEL et la seconde arche sortent du
+  // même chantier, et le joueur doit pouvoir le reconnaître sans qu'on le lui dise.
+  const { map, bump } = elideTextures();
+  const m = map.clone();
+  const bp = bump.clone();
+  m.repeat.set(6, 2);
+  bp.repeat.set(6, 2);
+  m.needsUpdate = bp.needsUpdate = true;
   const coque = new THREE.MeshStandardMaterial({
-    color: 0x2e2a35,
+    color: 0x4a4550, // teinte sombre appliquée PAR-DESSUS la texture
+    map: m,
+    bumpMap: bp,
+    bumpScale: 1.1,
     emissive: 0x0b0a12,
     roughness: 0.9,
     metalness: 0.45,
-    flatShading: true,
   });
   const r = rng(1010);
 
