@@ -40,16 +40,18 @@ export class Hud {
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
       </div>
       <div class="announce" id="announce"></div>
-      <div class="hud-hints">← → gauche/droite · ↑ ↓ avancer/reculer · X bombe · P pause · M son</div>
+      <div class="hud-hints">← → gauche/droite (×2 pirouette) · ↑ ↓ avancer/reculer · C appel · X bombe · P pause · M son</div>
       <div class="hud-touch">
         <button id="btn-pause-touch" aria-label="Pause">⏸</button>
         <button id="btn-sound-touch" aria-label="Couper le son">♪</button>
       </div>
       <button class="btn-energy-touch" id="btn-energy-touch" aria-label="Bombe / Overdrive">✦</button>
+      <button class="btn-call-touch" id="btn-call-touch" aria-label="Appel des crédits">◉<i></i></button>
       <div class="credit-pops" id="credit-pops"></div>
     `;
     this.el = Object.fromEntries(
       [
+        'btn-call-touch',
         'hud-score',
         'hud-hiscore',
         'hud-wave',
@@ -121,6 +123,16 @@ export class Hud {
 
   // frac 0→1. L'étiquette annonce ce qui est disponible : sans elle, personne ne
   // devine qu'une touche existe.
+  // Appels restants pour la vague. On affiche le NOMBRE, pas une jauge : une
+  // ressource qui ne se recharge pas se compte, elle ne se remplit pas.
+  setCall(reste, total = 1) {
+    const b = this.el['btn-call-touch'];
+    if (!b) return;
+    b.classList.toggle('ready', reste > 0);
+    b.classList.toggle('spent', reste <= 0);
+    b.dataset.left = total > 1 ? String(reste) : '';
+  }
+
   setEnergy(frac) {
     const pct = Math.max(0, Math.min(1, frac));
     this.el['energy-fill'].style.transform = `scaleY(${pct})`;

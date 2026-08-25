@@ -29,6 +29,7 @@ export class Pickups {
       entry.age = 0;
       entry.value = value;
       entry.mesh.visible = true;
+      entry.called = false;
       entry.mesh.position.copy(pos);
       entry.vel.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 2, 2 + Math.random() * 5);
     }
@@ -52,7 +53,12 @@ export class Pickups {
         continue;
       }
       const dist = this._tmp.copy(playerPos).sub(e.mesh.position).length();
-      if (vacuum || dist < magnetRadius) {
+      // Une gemme APPELÉE rentre, quoi qu'il arrive et d'où qu'elle soit : c'est
+      // toute la différence avec l'aimant, qui ne fait qu'élargir une zone.
+      if (e.called) {
+        this._tmp.normalize();
+        e.vel.lerp(this._tmp.multiplyScalar(PICKUPS.callPull), Math.min(1, 9 * dt));
+      } else if (vacuum || dist < magnetRadius) {
         this._tmp.normalize();
         const pull = vacuum ? PICKUPS.magnetPull * 1.6 : PICKUPS.magnetPull;
         e.vel.lerp(this._tmp.multiplyScalar(pull), Math.min(1, 8 * dt));
@@ -76,6 +82,20 @@ export class Pickups {
         onCollect(e.value, e.mesh.position);
       }
     }
+  }
+
+  // L'onde de l'Appel. Elle balaie l'écran depuis le vaisseau et marque tout ce
+  // qu'elle rencontre : les gemmes touchées rentrent, les autres continuent de
+  // tomber. On renvoie combien on en a attrapé, pour que le jeu puisse le dire.
+  call(origin, radius) {
+    let pris = 0;
+    for (const e of this.entries) {
+      if (!e.active || e.called) continue;
+      if (this._tmp.copy(origin).sub(e.mesh.position).length() > radius) continue;
+      e.called = true;
+      pris++;
+    }
+    return pris;
   }
 
   activeCount() {

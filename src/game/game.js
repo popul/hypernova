@@ -12,7 +12,16 @@ import { GalaxyMap } from './galaxymap.js';
 import { Cinematic } from './cinematic.js';
 import { makeWave, dailySeed } from './waves.js';
 import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
-import { COMBO, PLAYER, STORAGE_KEYS, GRAZE, OVERDRIVE, PICKUPS, REFLEX } from './constants.js';
+import {
+  COMBO,
+  PLAYER,
+  STORAGE_KEYS,
+  GRAZE,
+  OVERDRIVE,
+  PICKUPS,
+  REFLEX,
+  ROLL,
+} from './constants.js';
 import { Jump } from './jump.js';
 import { biomeForWave, stageForWave, STAGES } from './space/biomes.js';
 import { routesForStage, palierDeCoque, fragmentsAvantPalierSuivant } from './routes.js';
@@ -146,6 +155,37 @@ export class Game {
     window.addEventListener('pointerdown', () => {
       if (this.state === 'jump') this.jump.skip();
     });
+    // PIROUETTE. Deux appuis rapprochés du même côté : le vaisseau part en tonneau
+    // et devient invincible AUX TIRS le temps de la manœuvre. On mémorise le
+    // dernier appui par direction, jamais un seul horodatage commun — sinon
+    // gauche-droite rapide déclencherait un tonneau, ce qui est exactement le
+    // geste d'un joueur qui slalome.
+    this._lastTap = { left: 0, right: 0 };
+    const tap = (dir) => (e) => {
+      if (typing(e)) return;
+      const now = performance.now() / 1000;
+      const cle = dir < 0 ? 'left' : 'right';
+      if (now - this._lastTap[cle] < ROLL.doubleTapWindow) {
+        this._lastTap[cle] = 0;
+        this._tryRoll(dir);
+      } else {
+        this._lastTap[cle] = now;
+      }
+    };
+    for (const code of ['ArrowLeft', 'KeyA', 'KeyQ']) input.on(code, tap(-1));
+    for (const code of ['ArrowRight', 'KeyD']) input.on(code, tap(1));
+
+    // L'Appel : rabat l'argent vers le vaisseau. Touche dédiée, jamais mélangée
+    // avec la touche d'énergie — ce sont deux économies distinctes, et confondre
+    // leurs boutons ferait de la collecte un choix de survie.
+    input.on('KeyC', (e) => {
+      if (typing(e)) return;
+      this._tryCall();
+    });
+    input.on('ShiftLeft', (e) => {
+      if (typing(e)) return;
+      this._tryCall();
+    });
     input.on('KeyP', () => this.togglePause());
     input.on('Escape', () => {
       if (this.state === 'cinematic') this.cinematic.skip();
@@ -178,6 +218,16 @@ export class Game {
       e.preventDefault();
       this._releaseEnergyButton();
     };
+    const callBtn = this.hud.root.querySelector('#btn-call-touch');
+    if (callBtn) {
+      const appel = (e) => {
+        e.preventDefault();
+        this._tryCall();
+      };
+      callBtn.addEventListener('touchstart', appel, { passive: false });
+      callBtn.addEventListener('mousedown', appel);
+    }
+
     energyBtn.addEventListener('touchstart', press, { passive: false });
     energyBtn.addEventListener('touchend', release, { passive: false });
     energyBtn.addEventListener('mousedown', press);
@@ -258,6 +308,58 @@ export class Game {
     if (this.state !== 'playing' || this.paused || !this.player.alive) return;
     if (held >= OVERDRIVE.holdTime) this._tryOverdrive();
     else this._tryBomb();
+  }
+
+  // La pirouette se paie sur la jauge de furie, un peu. C'est ce qui la relie au
+  // reste de l'économie : la même ressource sert à esquiver et à frapper, donc
+  // chaque tonneau est une fraction de bombe qu'on n'aura pas.
+  _tryRoll(dir) {
+    if (this.state !== 'playing' || this.paused || !this.player.alive) return;
+    if (this.energy < ROLL.cost) {
+      this.audio.deny();
+      return;
+    }
+    if (!this.player.startRoll(dir)) return;
+    this.energy -= ROLL.cost;
+    this.hud.setEnergy(this.energy / OVERDRIVE.max);
+    this.audio.roll(dir);
+    this.fx.burst(this.player.position, 0x8ffbff, { count: 12, speed: 9, life: 0.3, spread: 1.2 });
+  }
+
+  // L'Appel. Une onde part du vaisseau et balaie l'écran : tout l'argent qu'elle
+  // touche rentre. Elle ne coûte pas d'énergie — l'énergie est la ressource de
+  // combat, et mélanger les deux économies ferait de la collecte un choix de
+  // survie. Elle coûte l'UNIQUE charge de la vague.
+  _tryCall() {
+    if (this.state !== 'playing' || this.paused || !this.player.alive) return;
+    if (this.callLeft <= 0) {
+      this.audio.deny();
+      return;
+    }
+    this.callLeft--;
+    this.callWave = {
+      origin: this.player.position.clone(),
+      radius: 0,
+      max: this.stats.callRadius,
+      pris: 0,
+    };
+    this.audio.call();
+    this.hud.setCall(this.callLeft, this.stats.callCharges);
+  }
+
+  // L'onde s'étend au lieu de tout ramasser d'un coup : on la VOIT passer, et
+  // l'argent lointain arrive après le proche. Un effet instantané n'aurait donné
+  // aucune lecture — juste des gemmes qui changent de direction sans raison.
+  _updateCall(dt) {
+    const w = this.callWave;
+    if (!w) return;
+    w.radius += (w.max / PICKUPS.callSweep) * dt;
+    w.pris += this.pickups.call(w.origin, w.radius);
+    this.fx.shockwave(w.origin, 0xffc857, w.radius * 0.5);
+    if (w.radius >= w.max) {
+      if (w.pris > 0) this.audio.callHit(w.pris);
+      this.callWave = null;
+    }
   }
 
   _addEnergy(amount) {
@@ -735,13 +837,21 @@ export class Game {
     this.waveGrazes = 0;
     this.energy = 0;
     this.odTimer = 0;
+    this.callLeft = 0;
+    this.callWave = null;
     this.reflexCooldown = 0;
     this.bombFront = null;
+    this.callLeft = 0; // Appels restants pour la vague en cours
+    this.callWave = null; // onde d'Appel en cours d'expansion
     this.fragments = 0; // morceaux du Registre récupérés sur les routes longues
     this.routeMods = null; // risque choisi, appliqué à la vague suivante seulement
     this.bombCooldown = 0;
     this.waveDeath = false;
     this.waveBestTier = 1;
+    // L'Appel se recharge à chaque vague, jamais entre-temps.
+    this.callLeft = this.stats.callCharges;
+    this.callWave = null;
+    this.hud.setCall(this.callLeft, this.stats.callCharges);
     this._energyPressStart = 0;
     this.director.reset();
     // Graine de la partie : en arcade, celle du jour (mêmes vagues pour tous les
@@ -783,6 +893,10 @@ export class Game {
     this.waveGrazes = 0;
     this.waveDeath = false;
     this.waveBestTier = 1;
+    // L'Appel se recharge à chaque vague, jamais entre-temps.
+    this.callLeft = this.stats.callCharges;
+    this.callWave = null;
+    this.hud.setCall(this.callLeft, this.stats.callCharges);
 
     let def;
     if (this.mode === 'campaign') {
@@ -1061,6 +1175,7 @@ export class Game {
     }
 
     this.timeScale = this.fx.timeScale;
+    this._updateCall(dt);
     this._updateReflex(dt);
     this._updateBombFront(dt);
 
@@ -1293,13 +1408,20 @@ export class Game {
     if (!this.player.alive) return;
     const pPos = this.player.position;
 
-    // Tirs ennemis → joueur.
+    // Tirs ennemis → joueur. Pendant un tonneau, la balle est DÉTRUITE mais ne
+    // touche pas : on doit voir qu'elle a été esquivée, sinon l'invincibilité ne
+    // se lit pas et le joueur croit à un raté du jeu.
     this.enemyBullets.forEachActive((b) => {
       const rr = PLAYER.radius + this.enemyBullets.radius;
-      if (b.mesh.position.distanceToSquared(pPos) < rr * rr) {
+      if (b.mesh.position.distanceToSquared(pPos) >= rr * rr) return;
+      if (this.player.rolling) {
+        this.fx.burst(b.mesh.position, 0x8ffbff, { count: 4, speed: 6, life: 0.25 });
         this.enemyBullets.kill(b);
-        this._playerHit();
+        this._addEnergy(GRAZE.energy * 0.35); // une balle traversée reste un risque pris
+        return;
       }
+      this.enemyBullets.kill(b);
+      this._playerHit();
     });
 
     // Collision de plein fouet avec un ennemi (plongée).
@@ -1369,6 +1491,12 @@ export class Game {
     }
     if (source === 'cannon' && e.state === 'diving') {
       this._addEnergy(OVERDRIVE.energyPerDiverKill); // abattre une menace récompense
+    }
+    // Et la chaîne elle-même nourrit la furie, à chaque kill, proportionnellement
+    // au multiplicateur : la jauge cesse d'être alimentée par le seul frôlement.
+    // Deux façons de la charger, donc deux styles de jeu qui se valent.
+    if (this.combo.mult > 1) {
+      this._addEnergy(OVERDRIVE.energyPerComboHit * this.combo.mult);
     }
 
     // Score.

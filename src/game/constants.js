@@ -238,7 +238,12 @@ export const OVERDRIVE = {
   bombFrontMax: 58, // portée finale : couvre la formation la plus haute et le boss
   bombFrontThickness: 5.5, // épaisseur de la couronne active
   energyPerDiverKill: 3, // uniquement les kills au canon (pas les missiles)
-  energyPerComboTier: 4, // et une seule fois par palier et par vague
+  energyPerComboTier: 4, // prime au premier passage d'un palier dans la vague
+  // …et un gain à CHAQUE kill tant que la chaîne tient, proportionnel au
+  // multiplicateur. La jauge cesse d'être alimentée uniquement par le frôlement :
+  // bien jouer la remplit aussi, ce qui donne deux façons de la charger et donc
+  // deux styles de jeu.
+  energyPerComboHit: 0.9,
 };
 
 export const PICKUPS = {
@@ -254,6 +259,29 @@ export const PICKUPS = {
   // n'arrivaient donc JAMAIS : elles expiraient en chemin.
   fallAccel: 10, // vitesse limite ≈ 4,5 u/s : l'arène est traversée en six secondes
   lifetime: 11,
+
+  // L'APPEL. Une impulsion qui rabat vers le vaisseau tout l'argent qu'elle
+  // touche. Ce n'est pas un aimant plus fort : c'est une DÉCISION.
+  //
+  // Les gemmes tombent et finissent par sortir du champ. L'aimant passif n'attrape
+  // que ce qui passe à portée ; l'Appel va chercher le reste. Le joueur choisit
+  // donc quand le dépenser — tout de suite pour trois gemmes, ou dans deux secondes
+  // pour la grappe entière, en pariant qu'il sera encore en vie.
+  //
+  // Il ne coûte PAS d'énergie : l'énergie est la ressource de combat, et mélanger
+  // les deux économies ferait de la collecte un choix de survie. Le seul prix est
+  // le temps de recharge, et l'attention qu'on ne porte pas aux balles pendant ce
+  // temps-là.
+  // UNE SEULE CHARGE PAR VAGUE. Un temps de recharge n'aurait été qu'un rythme à
+  // subir : on rappuie dès que c'est vert, et la question « quand ? » disparaît.
+  // Avec une charge unique, chaque vague pose la même question et elle est
+  // intéressante — maintenant pour ces trois gemmes, ou plus tard pour la grappe
+  // qu'on espère ? On ne le saura qu'après.
+  callRadiusBase: 9,
+  callRadiusPerLevel: 4.5, // l'Aimant tracteur élargit l'onde
+  callChargeAtLevel: 4, // …et au dernier niveau, il en donne une seconde
+  callPull: 70,
+  callSweep: 0.42, // secondes que met l'onde à atteindre sa portée
 };
 
 export const WAVES = {
@@ -285,6 +313,21 @@ export const FX = {
 // Le monde ralentit, le vaisseau NON — sa vitesse est divisée par la même échelle,
 // donc il garde sa vitesse à l'écran. C'est toute l'astuce : ralentir tout le monde
 // ne donnerait aucune chance de plus, seulement la même scène en plus lent.
+// La pirouette. Un tonneau qui rend invincible AUX TIRS le temps de la manœuvre —
+// pas aux collisions : se jeter dans un ennemi doit rester mortel, sinon la
+// pirouette devient une touche « annuler le danger » et le jeu s'éteint.
+//
+// Elle se paie sur la jauge de furie, un petit peu. C'est ce qui la relie au reste
+// de l'économie : la même ressource sert à esquiver et à frapper, donc chaque
+// tonneau est une bombe qu'on n'aura pas.
+export const ROLL = {
+  doubleTapWindow: 0.28, // secondes entre les deux appuis
+  duration: 0.42,
+  cost: 9, // sur cent : environ un neuvième de bombe
+  push: 13, // dérive latérale pendant la manœuvre
+  cooldown: 0.55, // empêche d'enchaîner deux tonneaux sans reprendre le contrôle
+};
+
 export const REFLEX = {
   lookahead: 0.34, // on ne regarde que les tirs qui touchent dans moins de 0,34 s
   hitPad: 0.55, // marge autour du rayon de collision : on déclenche sur « ça va toucher »

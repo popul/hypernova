@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { createPlayerShip, createShieldMesh, createGrazeAura } from './ships.js';
 import { makeWrapPlanes, aimPlane } from './arena.js';
-import { ARENA, PLAYER, OVERDRIVE } from './constants.js';
+import { ARENA, PLAYER, OVERDRIVE, ROLL } from './constants.js';
 
 // Demi-envergure de la coque (bouts d'ailes compris, échelle de carène appliquée).
 // C'est la distance à partir de laquelle la coque mord sur le bord et doit être
@@ -47,6 +47,10 @@ export class Player {
 
     this.vx = 0;
     this.vz = 0;
+    // Pirouette : sens (-1/+1), temps restant, et délai avant la suivante.
+    this.roll = 0;
+    this.rollDir = 0;
+    this.rollCooldown = 0;
     this.fireCooldown = 0;
     this.missileTimer = 0;
     this.shieldUp = false;
@@ -162,12 +166,32 @@ export class Player {
     this.seam.scale.copy(this.group.scale);
   }
 
+  // Vrai tant que le tonneau protège. Lu par les collisions de projectiles, et
+  // PAS par celles d'ennemis : se jeter dans un vaisseau doit rester mortel,
+  // sinon la pirouette devient une touche « annuler le danger ».
+  get rolling() {
+    return this.roll > 0;
+  }
+
+  // Déclenche le tonneau. Renvoie false si l'on n'est pas en mesure de le faire —
+  // c'est l'appelant qui décide alors de refuser bruyamment ou de se taire.
+  startRoll(dir) {
+    if (this.roll > 0 || this.rollCooldown > 0 || !this.alive) return false;
+    this.roll = ROLL.duration;
+    this.rollDir = dir;
+    this.rollCooldown = ROLL.duration + ROLL.cooldown;
+    return true;
+  }
+
   // shieldRecharge : délai avant que le bouclier ne revienne. À 0 il réapparaîtrait
   // instantanément — c'est justement ce qu'on ne veut plus après une mort.
   reset({ keepUpgrades = true, shieldRecharge = 0 } = {}) {
     this.group.position.set(0, 0, ARENA.playerZ);
     this.vx = 0;
     this.vz = 0;
+    this.roll = 0;
+    this.rollCooldown = 0;
+    this.group.rotation.z = 0;
     this.alive = true;
     this.group.visible = true;
     this.invulnTimer = keepUpgrades ? PLAYER.respawnInvuln : PLAYER.respawnInvulnAfterDeath;
@@ -218,6 +242,18 @@ export class Player {
       const dirZ = (input.back ? 1 : 0) - (input.forward ? 1 : 0);
       targetVz = dirZ * maxSpeed * ARENA.playerZSpeedMul;
     }
+    // La pirouette prend la main sur le pilotage : on est engagé, on ne corrige
+    // plus. C'est ce qui en fait une décision et non un bouton d'invulnérabilité.
+    if (this.rollCooldown > 0) this.rollCooldown -= dt;
+    if (this.roll > 0) {
+      this.roll -= dt;
+      const k = 1 - Math.max(0, this.roll) / ROLL.duration;
+      this.group.rotation.z = this.rollDir * k * Math.PI * 2;
+      targetVx = this.rollDir * ROLL.push;
+      targetVz = 0;
+      if (this.roll <= 0) this.group.rotation.z = 0;
+    }
+
     this.vx += (targetVx - this.vx) * Math.min(1, 14 * pdt);
     this.vz += (targetVz - this.vz) * Math.min(1, 11 * pdt);
 
@@ -247,7 +283,7 @@ export class Player {
 
     // Roulis + léger lacet selon la vitesse, et tangage selon l'avance : le nez
     // pique en avançant, se relève en reculant. C'est ce qui rend l'axe lisible.
-    this.group.rotation.z = -this.vx * 0.035;
+    if (this.roll <= 0) this.group.rotation.z = -this.vx * 0.035;
     this.group.rotation.y = -this.vx * 0.012;
     this.group.rotation.x = this.vz * 0.03;
 

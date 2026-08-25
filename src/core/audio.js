@@ -803,6 +803,37 @@ export class AudioEngine {
     this._noise({ dur: 1.1, gain: 0.2, filterFreq: 8000, filterEnd: 150 });
   }
 
+  // La pirouette : un souffle qui balaie, avec un panoramique qui suit le sens du
+  // tonneau. C'est le déplacement du son dans l'espace qui fait sentir la rotation.
+  roll(dir = 1) {
+    if (!this.ctx) return;
+    const pan = this.ctx.createStereoPanner();
+    pan.pan.setValueAtTime(-0.7 * dir, this.ctx.currentTime);
+    pan.pan.linearRampToValueAtTime(0.7 * dir, this.ctx.currentTime + 0.36);
+    pan.connect(this.sfxBus);
+    this._noise({ dur: 0.36, gain: 0.16, filterFreq: 900, filterEnd: 5200, dest: pan });
+    this._tone({ type: 'sine', freq: hz(38), freqEnd: hz(50), dur: 0.24, gain: 0.09, dest: pan });
+  }
+
+  // L'Appel : une impulsion grave qui part, et rien d'autre. Le son doit dire
+  // « quelque chose vient d'être envoyé », pas « vous avez gagné » — la
+  // récompense, c'est callHit qui la donne, et seulement si l'onde a pris.
+  call() {
+    this._tone({ type: 'sine', freq: hz(14), freqEnd: hz(26), dur: 0.3, gain: 0.2 });
+    this._noise({ dur: 0.28, gain: 0.09, filterFreq: 600, filterEnd: 3200 });
+  }
+
+  // Le retour, proportionnel à la prise : plus on ramasse, plus l'arpège monte
+  // haut. C'est la seule information dont le joueur a besoin pour savoir si son
+  // Appel valait la peine, et elle arrive sans qu'il ait à lire un chiffre.
+  callHit(n = 1) {
+    const notes = [26, 29, 33, 36, 38, 41, 45, 48];
+    const k = Math.min(notes.length, 2 + Math.floor(n / 2));
+    for (let i = 0; i < k; i++) {
+      this._tone({ type: 'triangle', freq: hz(notes[i]), dur: 0.1, gain: 0.075, when: i * 0.045 });
+    }
+  }
+
   // Réflexe Chrono : la dilatation du temps s'entend par une CHUTE de hauteur,
   // c'est le seul signal que l'oreille lit spontanément comme « ça ralentit ».
   reflexIn() {

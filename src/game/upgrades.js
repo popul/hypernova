@@ -57,7 +57,7 @@ export const UPGRADES = [
     maxLevel: 4,
     basePrice: 80,
     priceMul: 1.6,
-    desc: 'Attire les crédits de plus loin.',
+    desc: 'Attire les crédits de plus loin, et élargit l’Appel. Au dernier niveau, un Appel de plus par vague.',
   },
   {
     id: 'reflex',
@@ -105,6 +105,8 @@ export function computeStats(levels) {
     shieldMax: levels.shield > 0 ? 1 : 0,
     shieldRecharge: SHIELD_RECHARGE[levels.shield] ?? 5,
     magnetRadius: PICKUPS.baseMagnetRadius + levels.magnet * PICKUPS.magnetRadiusPerLevel,
+    callRadius: PICKUPS.callRadiusBase + levels.magnet * PICKUPS.callRadiusPerLevel,
+    callCharges: levels.magnet >= PICKUPS.callChargeAtLevel ? 2 : 1,
     reflexDuration: REFLEX.duration[levels.reflex] ?? 0,
     reflexCooldown: REFLEX.cooldown[levels.reflex] ?? 0,
   };
