@@ -36,7 +36,7 @@ export class Hud {
         <div class="energy-label" id="energy-label">X</div>
       </div>
       <div class="boss-bar" id="boss-bar">
-        <div class="boss-label">VORAX — Dévoreur d’Étoiles</div>
+        <div class="boss-label">KORN — Dévoreur de Mondes</div>
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
       </div>
       <div class="announce" id="announce"></div>

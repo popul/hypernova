@@ -184,7 +184,7 @@ export class GalaxyMap {
       <div class="detail-desc">${esc(s.desc || '')}</div>
       <div class="detail-meta">
         <span>${s.waves} vague${s.waves > 1 ? 's' : ''}</span>
-        ${s.bossFinal ? '<span class="detail-boss">⚠ VORAX</span>' : ''}
+        ${s.bossFinal ? '<span class="detail-boss">⚠ KORN</span>' : ''}
         ${best ? `<span>Record <b class="gold">${best}</b></span>` : ''}
       </div>
       <button class="btn-launch" id="mission-launch">Décoller</button>

@@ -78,7 +78,7 @@ const MELODY = [
 ];
 
 // La signature : les cinq premières notes de la mélodie, rien d'autre. Les
-// indicatifs de NOVA et de VORAX, l'appel de début de vague et l'escalier de combo
+// indicatifs de NOVA et de KORN, l'appel de début de vague et l'escalier de combo
 // citent donc littéralement le thème — et le joueur les relie sans y penser.
 const SIGNATURE = [43, 48, 46, 44, 43];
 
@@ -175,7 +175,7 @@ const VOWEL = {
 
 // Les deux voix s'opposent par l'ESPACE et le registre, pas par le volume.
 // NOVA est à 220 Hz (A3) : la quinte de la tonique du jeu, et la 3e harmonique de
-// la fondamentale de VORAX — ils sont harmoniquement verrouillés.
+// la fondamentale de KORN — ils sont harmoniquement verrouillés.
 const VOICE = {
   nova: {
     f0: 220,
@@ -189,7 +189,7 @@ const VOICE = {
     reverb: 0.08, // sèche : elle est dans le casque, à quinze centimètres
     vowels: [VOWEL.e, VOWEL.a, VOWEL.i, VOWEL.o, VOWEL.a, VOWEL.e],
   },
-  vorax: {
+  korn: {
     f0: 73.42,
     wave: 'growl',
     detune: 7,
@@ -735,7 +735,7 @@ export class AudioEngine {
     out.connect(pan);
     pan.connect(this.sfxBus);
 
-    // NOVA est sèche, dans le casque ; VORAX est loin et réverbéré. C'est l'ESPACE
+    // NOVA est sèche, dans le casque ; KORN est loin et réverbéré. C'est l'ESPACE
     // qui les oppose, pas le volume.
     if (this.revSend) {
       const rev = this.ctx.createGain();
@@ -755,8 +755,8 @@ export class AudioEngine {
     return this._speak(text, 'nova');
   }
 
-  voiceVorax(text = 'transmission') {
-    return this._speak(text, 'vorax');
+  voiceKorn(text = 'transmission') {
+    return this._speak(text, 'korn');
   }
 
   // Appel de cors : les trois premières notes du thème, en fanfare. Chaque vague
@@ -946,7 +946,7 @@ export class AudioEngine {
 
     // Chœur : quatre voix à formants sur la même harmonie. Le formant est ce qui
     // distingue une voix humaine d'une onde — et la machinerie existe déjà pour
-    // NOVA et VORAX, on la réutilise telle quelle.
+    // NOVA et KORN, on la réutilise telle quelle.
     this.choirVoices = [];
     this.choirGain = this.ctx.createGain();
     this.choirGain.gain.value = 0;
@@ -1101,20 +1101,6 @@ export class AudioEngine {
       freqEnd: 1500,
       dur: 0.014,
       gain: 0.05 * gain,
-      when: t,
-      dest: this.musicBus,
-    });
-  }
-
-  // Cymbale suspendue frottée : un souffle qui monte puis s'éteint. Sert de
-  // charnière entre les sections, à la place de la cymbale crash.
-  _cymbal(when, gain = 1, dur = 2.2) {
-    const t = when - this.ctx.currentTime;
-    this._noise({
-      dur,
-      gain: 0.075 * gain,
-      filterFreq: 7000,
-      filterEnd: 2000,
       when: t,
       dest: this.musicBus,
     });
@@ -1318,96 +1304,362 @@ export class AudioEngine {
     }
   }
 
-  // Piano. La première version n'en était pas un : huit sinus à décroissance
-  // exponentielle simple, ce qui donne un piano électrique — une tine, pas une
-  // corde. Cinq choses manquaient, et chacune est audible séparément.
+  // ---- Instruments rendus hors ligne ----
   //
-  //  1. LE BATTEMENT. Une note de piano n'a pas une corde mais deux ou trois,
-  //     accordées à un ou deux centièmes de demi-ton près. Leur lente interférence
-  //     est ce que l'oreille reconnaît en premier comme « piano » ; sans elle, on
-  //     entend un synthétiseur, quelle que soit la qualité du reste.
-  //  2. LA DOUBLE DÉCROISSANCE. Le son chute vite pendant un tiers de seconde
-  //     (la corde cède son énergie à la table), puis tient longtemps beaucoup plus
-  //     bas. Une seule exponentielle donne un son qui « s'éteint », pas qui résonne.
-  //  3. LE POINT DE FRAPPE. Le marteau touche la corde au huitième de sa longueur :
-  //     l'harmonique 8 est donc ANNULÉE, et les voisines atténuées. Ce trou dans le
-  //     spectre est une signature — un spectre plein sonne orgue.
-  //  4. LA RAIDEUR. Les partiels ne sont pas à n·f mais à n·f·√(1+Bn²). L'écart est
-  //     minuscule et pourtant c'est lui qui fait la couleur du grave.
-  //  5. LA TABLE D'HARMONIE. Un coup de bruit filtré très bref, qui donne le corps
-  //     de l'instrument — sans lui, la note démarre dans le vide.
-  _piano(when, semi, dur = 2.4, gain = 1) {
-    if (!this.ctx) return;
-    const t0 = when;
-    const f0 = hz(semi);
-    const B = 0.00045; // raideur de corde, registre médium
-    const STRIKE = 1 / 8; // point de frappe du marteau, en fraction de corde
+  // Trois pianos additifs successifs ont échoué, et l'échec était structurel :
+  // on ne fabrique pas un piano en décrivant son SPECTRE. Ce que l'oreille
+  // reconnaît, c'est la manière dont le son s'installe et meurt, et ça ne se
+  // décrit pas, ça se simule.
+  //
+  // On change donc de méthode : guide d'onde numérique pour les cordes, synthèse
+  // modale pour les métaux. Tout ce qu'on imitait péniblement en sort tout seul.
+  //
+  // WebAudio interdit de boucler un DelayNode plus court qu'un bloc de 128
+  // échantillons, soit 345 Hz au minimum — or la mélodie monte à 694 Hz. On
+  // calcule donc l'instrument en JavaScript, une fois par hauteur, dans un
+  // AudioBuffer mis en cache : physique exacte à l'échantillon, coût nul ensuite.
+  //
+  // Les tampons sont rendus à 32 kHz et déclarent eux-mêmes leur fréquence
+  // d'échantillonnage : le navigateur les rééchantillonne sans changer la
+  // hauteur, et on divise par un tiers la mémoire et le temps de calcul pour du
+  // contenu qui, de toute façon, n'a rien au-dessus de 16 kHz.
+  _renderBuffer(key, seconds, fill) {
+    if (!this._bufCache) this._bufCache = new Map();
+    const hit = this._bufCache.get(key);
+    if (hit) return hit;
+    const sr = 32000;
+    const n = Math.floor(sr * seconds);
+    const data = new Float32Array(n);
+    fill(data, sr, n);
 
+    // Normalisation et fondu de fin : un tampon coupé net claque.
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      const v = Math.abs(data[i]);
+      if (v > peak) peak = v;
+    }
+    const norm = peak > 1e-6 ? 0.92 / peak : 0;
+    const fade = Math.round(sr * 0.06);
+    for (let i = 0; i < n; i++) {
+      data[i] *= norm * (i > n - fade ? (n - i) / fade : 1);
+    }
+
+    const buf = this.ctx.createBuffer(1, n, sr);
+    buf.copyToChannel(data, 0);
+    // Le jeu n'utilise qu'une quinzaine de hauteurs : le cache reste petit, mais
+    // on le borne quand même pour ne pas garder de la mémoire GPU pour rien.
+    if (this._bufCache.size > 28) this._bufCache.delete(this._bufCache.keys().next().value);
+    this._bufCache.set(key, buf);
+    return buf;
+  }
+
+  // Générateur déterministe : le même instrument doit sonner pareil d'une partie
+  // à l'autre, sinon ce n'est plus un instrument.
+  _seeded(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // --- La corde de piano, en guide d'onde ---
+  //
+  // Une ligne à retard rebouclée sur un filtre de pertes, c'est une corde. Et
+  // tout ce que les versions additives essayaient de plaquer en sort gratuitement,
+  // parce que c'est ce que fait une vraie corde :
+  //   · les aigus meurent avant les graves, parce que la boucle est passe-bas ;
+  //   · la DOUBLE DÉCROISSANCE — chute rapide puis longue traîne — naît du
+  //     couplage des deux ou trois cordes d'un même chœur par le chevalet : en
+  //     phase elles cèdent vite leur énergie, déphasées elles se la repassent ;
+  //   · le battement ÉVOLUE au lieu d'être un chorus régulier ;
+  //   · l'inharmonicité vient du passe-tout de dispersion, qui rend la corde raide.
+  _pianoBuffer(semi) {
+    return this._renderBuffer(`piano${semi}`, 2.7, (out, sr, n) => {
+      const f0 = hz(semi);
+      const w0 = (2 * Math.PI * f0) / sr;
+      const rnd = this._seeded(semi * 7919 + 13);
+
+      // Comme sur un vrai piano : une corde dans le grave, deux au médium, trois
+      // à partir du médium-aigu.
+      const nStrings = f0 < 110 ? 1 : f0 < 220 ? 2 : 3;
+      const spread = [0, -2.4, 2.9]; // désaccord du chœur, en centièmes (battement ≈ 0,9 Hz)
+
+      // Filtre de pertes de la boucle, et sa contribution au retard total.
+      //
+      // Il doit être BEAUCOUP plus doux que l'intuition ne le suggère, parce qu'il
+      // s'applique à chaque aller-retour de l'onde — soit f0 fois par seconde.
+      // À 0,36, l'atténuation par tour était de 0,88 sur le dixième partiel : au
+      // bout de 0,15 s il avait fait 44 tours et se retrouvait 140 dB plus bas.
+      // Mesuré, le son était devenu une sinusoïde pure. À 0,032 le huitième partiel
+      // tient quatre secondes, le seizième une seconde et demie, la fondamentale
+      // neuf — et c'est cet ÉCART de durée entre partiels, et lui seul, qui fait
+      // qu'une note de piano s'assombrit en tenant au lieu de simplement baisser.
+      const a = 0.032;
+      const pdLoop = Math.atan2(a * Math.sin(w0), 1 - a * Math.cos(w0)) / w0;
+      // Passe-tout de dispersion : son retard DIMINUE avec la fréquence, donc les
+      // partiels aigus se retrouvent au-dessus de n·f0. C'est la raideur de corde.
+      const ap = -0.11;
+      const pdAp =
+        -(
+          Math.atan2(-Math.sin(w0), ap + Math.cos(w0)) -
+          Math.atan2(-ap * Math.sin(w0), 1 + ap * Math.cos(w0))
+        ) / w0;
+
+      // Un grave tient bien plus longtemps qu'un aigu.
+      const t60 = Math.min(14, Math.max(3, 11 * Math.pow(293 / f0, 0.5)));
+
+      const strings = [];
+      for (let si = 0; si < nStrings; si++) {
+        const f = f0 * Math.pow(2, (spread[si] || 0) / 1200);
+        // Le retard TOTAL de la boucle doit valoir sr/f. Le filtre de pertes et le
+        // passe-tout de dispersion en consomment une partie : on retranche.
+        const N = Math.max(4, sr / f - pdLoop - pdAp);
+        // Partie fractionnaire ramenée dans [1, 2[ : c'est la plage où un passe-tout
+        // du premier ordre approche fidèlement un retard fractionnaire, et ça laisse
+        // de la marge au glissando d'attaque qui va raccourcir la ligne.
+        const ni = Math.floor(N - 1);
+        const d = N - ni;
+        strings.push({
+          buf: new Float32Array(ni + 4),
+          size: ni + 4,
+          ni,
+          d,
+          w: 0,
+          lp: 0,
+          fx: 0,
+          fy: 0,
+          ax: 0,
+          ay: 0,
+          out: 0,
+          g: Math.pow(10, (-3 * (sr / f)) / (sr * t60)),
+        });
+      }
+
+      // L'excitation. Une impulsion filtrée par un passe-bas du premier ordre :
+      // sa pente spectrale en 1/n EST la répartition des partiels d'une corde
+      // frappée. Un cosinus surélevé de 1 ms, lui, n'avait plus rien au-dessus de
+      // 1,8 kHz — mesuré, il ne restait que quatre partiels audibles, ce qui donne
+      // une sinusoïde et non un piano. Plus le feutre est mou (grave), plus le
+      // filtre se ferme.
+      const soft = Math.min(0.8, Math.max(0.42, 0.5 + (293 - f0) / 2400));
+      const contact = Math.max(3, Math.round(sr * 0.0011 * Math.pow(220 / f0, 0.5)));
+
+      // Le marteau frappe au huitième de la corde. Les modes qui ont un nœud à cet
+      // endroit ne peuvent pas être mis en mouvement : le partiel 8 est donc
+      // ANNULÉ, et le 16 avec lui. Ce trou dans le spectre est une signature du
+      // piano — un spectre plein sonne orgue. Le peigne doit retarder de L/8 :
+      // à L/4, comme je l'avais écrit, c'est le partiel 4 qu'on annule.
+      const period = Math.max(4, Math.round(sr / f0));
+      const strike = Math.max(1, Math.round(period / 8));
+      const exLen = period + strike + 2;
+      const raw = new Float32Array(exLen);
+      let h = 0;
+      let nz = 0;
+      for (let i = 0; i < exLen; i++) {
+        nz = nz * 0.4 + (rnd() * 2 - 1) * 0.6;
+        const drive =
+          (i === 0 ? 1 : 0) +
+          (i < contact ? (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / contact)) * 0.5 : 0) +
+          (i < contact ? nz * 0.24 : 0);
+        h = h * soft + drive * (1 - soft);
+        raw[i] = h;
+      }
+      const ex = new Float32Array(exLen);
+      for (let i = 0; i < exLen; i++) ex[i] = raw[i] - (i >= strike ? raw[i - strike] : 0);
+
+      // Glissando d'attaque : la corde part légèrement haute et redescend, parce
+      // que sa tension augmente avec l'amplitude. Sans ce petit affaissement de
+      // hauteur, un piano sonne électronique — c'est peut-être le détail le plus
+      // audible de toute la liste.
+      const glideAmt = 0.0042; // ≈ 7 centièmes
+      const glideTau = sr * 0.045;
+      // Couplage au chevalet. Il doit être BEAUCOUP plus faible qu'il n'y paraît :
+      // les trois cordes d'un chœur sont désaccordées, donc dé-corrélées, et ce
+      // qu'on réinjecte de l'une dans l'autre n'est pas en phase — le couplage se
+      // comporte alors comme une PERTE. À 0,05, mesuré, il retirait 87 dB par
+      // seconde aux partiels aigus et il ne restait plus que trois harmoniques au
+      // bout d'une demi-seconde. À 0,006 l'échange met une demi-seconde à se
+      // faire : c'est exactement la constante de temps de la double décroissance
+      // d'un vrai piano, et le reste passe.
+      // ...et il doit être inversement proportionnel à la hauteur : la perte agit
+      // PAR ALLER-RETOUR, et un ré5 en fait deux fois plus par seconde qu'un ré4.
+      // À valeur fixe, mesuré, l'aigu perdait 24 dB/s là où le grave en perdait 10.
+      const k = Math.min(0.02, 1.4 / f0);
+
+      for (let i = 0; i < n; i++) {
+        const glide = 1 + glideAmt * Math.exp(-i / glideTau);
+        let bridge = 0;
+        for (let si = 0; si < strings.length; si++) {
+          const s = strings[si];
+          // Lecture à retard ENTIER, puis passe-tout pour la fraction. L'ancienne
+          // version interpolait linéairement, ce qui est un passe-bas : appliqué
+          // 294 fois par seconde, il retirait 68 dB par seconde au huitième
+          // partiel et 280 au seizième. Mesuré, il ne restait que quatre partiels
+          // — c'est LUI qui transformait la corde en sinusoïde, pas la décroissance.
+          // Un passe-tout a un module de 1 : il retarde sans jamais atténuer.
+          let r = s.w - s.ni;
+          if (r < 0) r += s.size;
+          const x0 = s.buf[r];
+
+          const dNow = (s.ni + s.d) / glide - s.ni;
+          const eta = (1 - dNow) / (1 + dNow);
+          const fy = eta * x0 + s.fx - eta * s.fy;
+          s.fx = x0;
+          s.fy = fy;
+
+          s.lp = (1 - a) * fy + a * s.lp;
+          const x = s.lp * s.g;
+
+          const y = ap * x + s.ax - ap * s.ay;
+          s.ax = x;
+          s.ay = y;
+          s.out = y;
+          bridge += y;
+        }
+        bridge /= strings.length;
+        for (let si = 0; si < strings.length; si++) {
+          const s = strings[si];
+          let v = s.out * (1 - k) + bridge * k;
+          if (i < exLen) v += ex[i] * 0.55;
+          s.buf[s.w] = v;
+          s.w = s.w + 1 >= s.size ? 0 : s.w + 1;
+        }
+        out[i] = bridge;
+      }
+    });
+  }
+
+  // La table d'harmonie. C'est elle qui fait qu'un piano reste le même instrument
+  // du grave à l'aigu : un résonateur COMMUN à toutes les notes. Sans elle, chaque
+  // note est un objet isolé — le symptôme exact de « ça ne sonne pas comme un
+  // instrument ». On la partage donc entre toutes les notes, comme la vraie.
+  _ensureBoard() {
+    if (this.board) return;
+    const input = this.ctx.createGain();
+    let node = input;
+    for (const [f, gain, q] of [
+      [116, 4.5, 1.1],
+      [198, 3, 1.3],
+      [310, -3, 1.9],
+      [575, 3.5, 1.1],
+      [1220, 2, 0.9],
+      [2700, -3.5, 0.8],
+    ]) {
+      const b = this.ctx.createBiquadFilter();
+      b.type = 'peaking';
+      b.frequency.value = f;
+      b.gain.value = gain;
+      b.Q.value = q;
+      node.connect(b);
+      node = b;
+    }
     const out = this.ctx.createGain();
-    out.gain.value = 0.85 * gain;
+    out.gain.value = 0.5;
+    node.connect(out);
     out.connect(this.musicBus);
     if (this.revSend) {
-      const sfx = this.ctx.createGain();
-      sfx.gain.value = 0.26;
-      out.connect(sfx);
-      sfx.connect(this.revSend);
+      const s = this.ctx.createGain();
+      s.gain.value = 0.24;
+      out.connect(s);
+      s.connect(this.revSend);
     }
+    this.board = input;
+  }
 
-    // Les aigus meurent bien plus vite que les graves : c'est vrai de la note
-    // entière comme de chaque partiel à l'intérieur d'elle.
-    const bright = Math.max(0.35, 1 - (semi - 24) / 60);
+  _piano(when, semi, dur = 2.4, gain = 1) {
+    if (!this.ctx) return;
+    this._ensureBoard();
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._pianoBuffer(semi);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.38 * gain, when);
+    // L'étouffoir retombe sur la corde : la note s'amortit, elle ne se coupe pas.
+    g.gain.setTargetAtTime(0.0001, when + dur, 0.16);
+    src.connect(g);
+    g.connect(this.board);
+    src.start(when);
+    src.stop(when + dur + 1.4);
+  }
 
-    for (let n = 1; n <= 12; n++) {
-      // Peigne du point de frappe : sin(nπ/8) s'annule exactement à n = 8.
-      const comb = Math.abs(Math.sin(n * Math.PI * STRIKE));
-      const amp = (comb / Math.pow(n, 1.35)) * (n === 1 ? 1.15 : 1);
-      if (amp < 0.012) continue;
-      const f = f0 * n * Math.sqrt(1 + B * n * n);
-      if (f > 15000) break;
-
-      const life = Math.max(0.14, dur * bright * (0.42 + 0.58 / Math.pow(n, 0.75)));
-
-      // Deux cordes par partiel, désaccordées de ±1,2 centième : le battement.
-      for (const cents of [-1.2, 1.2]) {
-        const o = this.ctx.createOscillator();
-        o.type = 'sine';
-        o.frequency.value = f;
-        o.detune.value = cents;
-
-        const g = this.ctx.createGain();
-        const peak = amp * 0.05;
-        g.gain.setValueAtTime(0.0001, t0);
-        g.gain.linearRampToValueAtTime(peak, t0 + 0.0025);
-        // Double décroissance : chute rapide vers 22 % en un tiers de seconde,
-        // puis longue traîne. C'est ce coude qui fait résonner plutôt qu'éteindre.
-        g.gain.exponentialRampToValueAtTime(peak * 0.22, t0 + Math.min(0.33, life * 0.3));
-        g.gain.exponentialRampToValueAtTime(0.00008, t0 + life);
-
-        o.connect(g);
-        g.connect(out);
-        o.start(t0);
-        o.stop(t0 + life + 0.04);
+  // --- La cymbale, en synthèse modale ---
+  //
+  // Du bruit blanc filtré ne fait pas une cymbale : ça fait un « pshhh ». Une
+  // cymbale est une PLAQUE, donc des centaines de modes inharmoniques discrets
+  // qui battent les uns contre les autres — c'est ce battement qui fait le
+  // scintillement métallique, et le bruit n'en a aucun.
+  //
+  // Deux détails achèvent l'illusion :
+  //   · les aigus TIENNENT longtemps, là où un bruit filtré s'éteint avec son
+  //     filtre. Une cymbale reste brillante jusqu'au bout ;
+  //   · le son se CONSTRUIT après la frappe au lieu d'être maximal au premier
+  //     instant : sur une vraie plaque, l'énergie migre vers le haut du spectre.
+  //     On le rend en faisant entrer les modes aigus légèrement en retard.
+  //
+  // Chaque mode est un résonateur du second ordre en récurrence — deux
+  // multiplications par échantillon — plutôt qu'un appel à Math.sin : cent
+  // quarante modes sur trois secondes tiennent ainsi en quelques dizaines de
+  // millisecondes.
+  _cymbalBuffer(variant = 0) {
+    return this._renderBuffer(`cym${variant}`, 3.4, (out, sr, n) => {
+      const rnd = this._seeded(1789 + variant * 977);
+      const bright = variant === 0 ? 1 : 0.82;
+      for (let k = 1; k < 200; k++) {
+        // Répartition dense vers l'aigu, comme les modes d'une plaque circulaire.
+        const f = 255 * Math.pow(k, 0.85) * (1 + (rnd() - 0.5) * 0.09);
+        if (f > 15500) break;
+        const w = (2 * Math.PI * f) / sr;
+        const amp = (1 / Math.pow(k, 0.55)) * (0.55 + 0.45 * Math.sin(k * 1.7)) * bright;
+        const t60 = (3.1 / (1 + k / 60)) * (0.75 + rnd() * 0.5);
+        const r = Math.pow(10, -3 / (t60 * sr));
+        const start = Math.round(sr * (0.001 + 0.055 * Math.pow(k / 200, 1.3) * rnd()));
+        const phase = rnd() * Math.PI * 2;
+        const c = 2 * r * Math.cos(w);
+        const r2 = r * r;
+        // Amorçage de la récurrence pour obtenir A·rⁿ·sin(ωn + φ) : deux
+        // échantillons suffisent à fixer amplitude ET phase.
+        let y1 = amp * Math.sin(phase);
+        let y2 = (amp * Math.sin(phase - w)) / r;
+        for (let i = start; i < n; i++) {
+          const y = c * y1 - r2 * y2;
+          y2 = y1;
+          y1 = y;
+          out[i] += y;
+        }
       }
-    }
+      // La baguette : un choc très court et large bande, qui donne le point
+      // d'impact. Sans lui, la cymbale n'a pas de début.
+      const stick = Math.round(sr * 0.012);
+      let s = 0;
+      for (let i = 0; i < stick; i++) {
+        s = s * 0.55 + (rnd() * 2 - 1) * 0.45;
+        out[i] += s * 0.9 * (1 - i / stick);
+      }
+    });
+  }
 
-    // Le marteau et la table d'harmonie, en un seul geste très court.
-    const t = t0 - this.ctx.currentTime;
-    this._noise({
-      dur: 0.02,
-      gain: 0.045 * gain,
-      filterFreq: Math.min(6500, f0 * 7),
-      filterEnd: f0 * 1.6,
-      when: t,
-      dest: this.musicBus,
-    });
-    this._tone({
-      type: 'triangle',
-      freq: f0 * 0.5,
-      dur: 0.1,
-      gain: 0.02 * gain,
-      when: t,
-      dest: this.musicBus,
-    });
+  _cymbal(when, gain = 1, dur = 2.2) {
+    if (!this.ctx) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._cymbalBuffer(dur > 2.6 ? 0 : 1);
+    // Deux tampons seulement, mais une hauteur légèrement différente à chaque
+    // coup : deux cymbales identiques d'affilée s'entendent immédiatement.
+    src.playbackRate.value = 0.94 + Math.random() * 0.12;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.085 * gain, when);
+    g.gain.setTargetAtTime(0.0001, when + dur * 0.7, dur * 0.3);
+    src.connect(g);
+    g.connect(this.musicBus);
+    if (this.revSend) {
+      const rev = this.ctx.createGain();
+      rev.gain.value = 0.4;
+      g.connect(rev);
+      rev.connect(this.revSend);
+    }
+    src.start(when);
+    src.stop(when + dur + 1);
   }
 
   // Célesta : le thème nu, cristallin. Deux partiels inharmoniques au-dessus de la
@@ -1631,9 +1883,9 @@ export class AudioEngine {
     this._bell(t0 + 0.11, THEME[1] + 12, 1.4);
   }
 
-  // VORAX : la même quarte, mais DIMINUÉE, et deux octaves plus bas. Le thème du
+  // KORN : la même quarte, mais DIMINUÉE, et deux octaves plus bas. Le thème du
   // joueur passé de l'autre côté.
-  voraxSting() {
+  kornSting() {
     const t0 = this.ctx?.currentTime;
     if (t0 == null) return;
     this._horn(t0, THEME_BOSS[0] - 24, 3, 0.9);

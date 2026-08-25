@@ -2,17 +2,28 @@
 //
 // NOVA — l'IA copilote : pilote holographique à la crête lumineuse cyan-magenta,
 // grands yeux vifs, sourire en coin. Confiante, chaleureuse, un brin cabotine.
-// VORAX, le Dévoreur d'Étoiles — seigneur de l'essaim : tête blindée couronnée de
-// pointes, cornes, fissures incandescentes, œil unique furieux. Théâtral et vaniteux.
+// KORN, le Dévoreur de Mondes — une arche qu'on a remplie d'un peuple entier puis
+// abandonnée sans la clé pour l'ouvrir. Il les porte encore. Il cherche depuis dix
+// mille ans ceux qui ont fui, et il vient de découvrir qu'ils sont morts de vieillesse
+// sans jamais repenser à lui.
 //
 // Une seule fenêtre de comm (portrait animé + nom + texte). Les visages sont pilotés
 // image par image par FaceRig : regard, paupières, articulation, cheveux.
 
-import { NOVA_SVG, VORAX_SVG, FaceRig } from './face.js';
+import { NOVA_SVG, KORN_SVG, FaceRig } from './face.js';
 
-// Le script. Deux voix qui s'opposent par la GRAMMAIRE : NOVA tutoie, VORAX vouvoie.
-// NOVA ne félicite jamais, elle constate — d'où son tic, « Je note ». VORAX ne crie
-// jamais : sa politesse est sa menace. {PILOTE} et {SYSTEME} sont substitués à l'affichage.
+// Le script. Deux voix qui s'opposent par leur OBJET, pas par leur registre.
+//
+// NOVA ne félicite jamais, elle constate — d'où son tic, « Je note » : elle est
+// littéralement faite des rapports de trente-neuf pilotes morts.
+//
+// KORN, lui, NE PARLE PAS AU JOUEUR. Il s'adresse à la coque, aux modules, au métal —
+// parce que le métal est élide et qu'il le reconnaît piece par piece, avec le nom de
+// celui qui l'a soudé. L'humain aux commandes ne l'intéresse pas plus qu'un insecte
+// posé sur une pièce de musée. Qu'il finisse par s'adresser DIRECTEMENT au pilote est
+// l'escalade de tout le jeu, et c'est bien plus inquiétant qu'une menace.
+//
+// {PILOTE}, {SYSTEME} et {SECTEUR} sont substitués à l'affichage.
 const LINES = {
   runStart: [
     'Trente-neuf avant toi. Aucun retour. Poste de tir à toi, le reste est à moi.',
@@ -61,21 +72,27 @@ const LINES = {
   ],
   odReady: ['Jauge pleine. Maintiens X. Quatre secondes où tu ne recules pas.'],
   odReadyTouch: ['Jauge pleine. Maintiens le bouton ✦. Quatre secondes où tu ne recules pas.'],
-  voraxIntro: [
-    'Bonsoir. Vous êtes en avance : je comptais éteindre celle-ci demain. Cela ne me dérange pas.',
-    'Ah. La lumière qui bougeait encore. Bételgeuse a mis onze minutes. Celle-ci en mettra neuf.',
+  // Première apparition. Il regarde le VAISSEAU. Pas le pilote.
+  kornIntro: [
+    'Tourne à gauche. Je veux voir le flanc.',
+    'Réacteur élide, modèle quatre. Sur une coque en fer-blanc. Où as-tu pris ça.',
+    'Ce blindage a été coulé par des mains que je connais. Il n’est pas à toi.',
+    'Encore leurs outils. Toujours leurs outils, et jamais eux.',
   ],
   bossIntro: [
     "Ne réponds pas. Tant qu'il parle, il ne tire pas. Sers-t'en.",
     'Il parle pour gagner du temps. Nous aussi. Approche maintenant.',
   ],
-  voraxHalf: [
-    "Merci. J'apprends votre façon de tourner. Personne ne m'y avait obligé depuis Bételgeuse.",
-    "Vous m'obligez à faire attention. Tu viens de perdre le « vous ».",
+  // À mi-vie : il s'aperçoit qu'il y a quelqu'un dedans. C'est l'escalade du jeu.
+  kornHalf: [
+    'Attends. … Il y a quelqu’un là-dedans.',
+    'Ce n’est pas le vaisseau qui tourne comme ça. C’est toi.',
+    'Tu pilotes mieux que cette ferraille ne le mérite. Je te regarde, maintenant.',
   ],
-  voraxDown: [
-    'Merci. Ce corps était lent. Le suivant le sera moins.',
-    "{PILOTE}. Voilà. Je note ton nom. C'est rare.",
+  kornDown: [
+    'Ce corps était en fer. J’ai la lune entière derrière moi.',
+    'Tu as cassé un outil. Je suis déjà dans le suivant.',
+    '{PILOTE}. Voilà. Maintenant je sais quoi chercher.',
   ],
   bossDown: [
     'Corps détruit, signal intact. Ne fête pas encore. Tu peux respirer trois secondes.',
@@ -95,19 +112,22 @@ const LINES = {
     'Saut armé. {SECTEUR}. Garde tes mains sur la barre.',
   ],
   jumpAfterBoss: ['Corps froid derrière nous. {SECTEUR}. Ne te retourne pas.'],
-  // Échanges à deux voix. VORAX parle le premier, NOVA a le dernier mot — toujours
+  // Échanges à deux voix. KORN parle le premier, NOVA a le dernier mot — toujours
   // dans cet ordre : c'est ce qui fait d'elle une alliée et non un commentaire.
-  voraxJump: [
-    'Vous fuyez bien. Continuez. {SECTEUR} est déjà à moi.',
-    'Vous en détruisez, j’en refais. Ce n’est pas une course que vous puissiez gagner.',
-    'Sautez donc. J’ai tout le temps. C’est la seule chose que j’aie en trop.',
-    'Vous comptez vos victoires ? Moi je compte les vôtres. Nous n’avons pas le même total.',
+  kornJump: [
+    'Chaque pièce de ta coque porte un nom. Je les connais tous. Toi, aucun.',
+    'Je ne te poursuis pas. Je rentre chez moi. Tu es sur le chemin.',
+    'Ils sont morts avant que j’arrive. Morts de vieillesse. Et tu portes leurs affaires.',
+    'Cours vers {SECTEUR}. Il n’y a rien là-bas non plus. Il n’y a rien nulle part.',
+    'J’ai ouvert des milliers de mondes pour les trouver. Le tien ne pèse pas plus lourd.',
   ],
+  // Chaque réponse doit tenir SEULE : les deux listes sont tirées au sort
+  // indépendamment, donc aucune ne peut supposer la réplique qui la précède.
   novaAnswer: [
-    'Il t’écoute. C’est mauvais signe. Coupe la fréquence et pousse.',
-    'Ne réponds pas. Il apprend ta voix. Il n’aura pas la mienne.',
-    'Il parle. Donc il attend. Ça nous laisse une vague d’avance.',
-    'Il en refait plus vite qu’on en descend. Alors on ne descend pas : on avance.',
+    'Il parle à la coque. Pas à toi. Garde-le comme ça le plus longtemps possible.',
+    'Il a raison sur un point : rien de ce vaisseau n’est de nous. Ça ne change rien.',
+    'Il cherche quelqu’un. Ce n’est pas toi. Ne lui donne pas de raison de changer d’avis.',
+    'Coupe la fréquence. Il n’a pas besoin d’un interlocuteur, il a besoin d’un coupable.',
   ],
   gameOver: [
     "Ligne quarante. Je ne l'écris pas encore. Reviens la chercher.",
@@ -116,7 +136,7 @@ const LINES = {
 };
 
 // Chaque situation a son émotion. NOVA ne sourit presque jamais : elle constate.
-// VORAX reste impassible — c'est son calme qui inquiète, pas ses grimaces.
+// KORN reste impassible — c'est son calme qui inquiète, pas ses grimaces.
 const EMOTION_BY_KEY = {
   runStart: 'determine',
   missionStart: 'neutre',
@@ -126,10 +146,10 @@ const EMOTION_BY_KEY = {
   shieldLost: 'alerte',
   lifeLost: 'inquiet',
   bossIntro: 'determine',
-  voraxIntro: 'neutre',
-  voraxHalf: 'neutre',
+  kornIntro: 'neutre',
+  kornHalf: 'neutre',
   bossDown: 'neutre',
-  voraxDown: 'neutre',
+  kornDown: 'neutre',
   shopOpen: 'neutre',
   buyGood: 'neutre',
   missionWon: 'content',
@@ -137,7 +157,7 @@ const EMOTION_BY_KEY = {
   novaIntro: 'neutre',
   jump: 'determine',
   jumpAfterBoss: 'neutre',
-  voraxJump: 'neutre',
+  kornJump: 'neutre',
   novaAnswer: 'alerte',
   grazeFirst: 'neutre',
   reflexFirst: 'alerte',
@@ -177,7 +197,7 @@ export class Characters {
     this.el.innerHTML = `
       <div class="comm-portrait">
         <span class="comm-face nova">${NOVA_SVG}</span>
-        <span class="comm-face vorax">${VORAX_SVG}</span>
+        <span class="comm-face korn">${KORN_SVG}</span>
       </div>
       <div class="comm-panel">
         <span class="comm-name" id="comm-name">NOVA</span>
@@ -194,28 +214,28 @@ export class Characters {
     // Les deux visages sont animés en permanence : ils ne s'immobilisent jamais.
     this.rigs = {
       nova: new FaceRig(this.el.querySelector('.comm-face.nova'), { kind: 'nova' }),
-      vorax: new FaceRig(this.el.querySelector('.comm-face.vorax'), { kind: 'vorax' }),
+      korn: new FaceRig(this.el.querySelector('.comm-face.korn'), { kind: 'korn' }),
     };
     this.rigs.nova.setEmotion('neutre');
-    this.rigs.vorax.setEmotion('determine');
+    this.rigs.korn.setEmotion('determine');
     this.current = 'nova';
   }
 
   // Appelé chaque frame par la boucle de rendu.
   update(dt) {
     this.rigs.nova.update(dt);
-    this.rigs.vorax.update(dt);
+    this.rigs.korn.update(dt);
   }
 
   sayText(text, { speaker = 'nova', priority = false, emotion = null, duration = null } = {}) {
     const now = performance.now();
     if (!priority && now - this.lastShown < QUIET_TIME) return;
     this.lastShown = now;
-    this.el.classList.remove('vorax-mode', 'nova-mode');
+    this.el.classList.remove('korn-mode', 'nova-mode');
     // Relance l'animation d'allumage de la fenêtre de comm.
     void this.el.offsetWidth;
-    this.el.classList.add(speaker === 'vorax' ? 'vorax-mode' : 'nova-mode', 'visible');
-    this.nameEl.textContent = speaker === 'vorax' ? 'VORAX' : 'NOVA';
+    this.el.classList.add(speaker === 'korn' ? 'korn-mode' : 'nova-mode', 'visible');
+    this.nameEl.textContent = speaker === 'korn' ? 'KORN' : 'NOVA';
     this.textEl.textContent = text;
     this.current = speaker;
 
@@ -231,14 +251,14 @@ export class Characters {
     // Indicatif d'ouverture de canal, uniquement quand l'interlocuteur CHANGE :
     // c'est le basculement qui doit s'entendre, pas chaque réplique.
     if (speaker !== this.lastSpeaker) {
-      if (speaker === 'vorax') this.audio.voraxSting();
+      if (speaker === 'korn') this.audio.kornSting();
       else this.audio.novaSting();
     }
     this.lastSpeaker = speaker;
 
     // La voix est synthétisée à partir du TEXTE : sa durée et son articulation
     // suivent la phrase, au lieu d'être un bip de longueur fixe.
-    if (speaker === 'vorax') this.audio.voiceVorax(text);
+    if (speaker === 'korn') this.audio.voiceKorn(text);
     else this.audio.voiceNova(text);
     if (this.talkTimer) clearTimeout(this.talkTimer);
     this.talkTimer = setTimeout(() => rig.stopTalking(), talkMs);
@@ -281,7 +301,7 @@ export class Characters {
       const line = pick(LINES[key] || []);
       if (!line) continue;
       const text = this._fill(line);
-      const speaker = key.startsWith('vorax') ? 'vorax' : 'nova';
+      const speaker = key.startsWith('korn') ? 'korn' : 'nova';
       const hold = readingTime(text) + 350;
       this._exchange.push(
         setTimeout(
@@ -329,19 +349,19 @@ export class Characters {
   // Les duos boss passent par le même mécanisme que le saut : la réponse attend
   // que la première réplique ait eu le temps d'être lue, pas un délai forfaitaire.
   onBossIntro() {
-    this.playExchange(['voraxIntro', 'bossIntro']);
+    this.playExchange(['kornIntro', 'bossIntro']);
   }
 
   onBossHalf() {
-    this.say('voraxHalf', { speaker: 'vorax', priority: true });
+    this.say('kornHalf', { speaker: 'korn', priority: true });
   }
 
   onBossDown() {
-    this.playExchange(['voraxDown', 'bossDown']);
+    this.playExchange(['kornDown', 'bossDown']);
   }
 
   onShopOpen() {
-    // La boutique s'ouvre à la fin du saut, alors que l'échange avec VORAX est
+    // La boutique s'ouvre à la fin du saut, alors que l'échange avec KORN est
     // souvent encore en cours. On ne le coupe pas : ce dialogue-là est la
     // récompense, le conseil d'achat peut attendre le tour suivant.
     if (this.inExchange()) return;

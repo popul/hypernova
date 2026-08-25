@@ -750,13 +750,13 @@ export class Game {
       if (n === 1) {
         this.hud.announce(system.name, this.mission.campaign.title, 2600);
       } else {
-        this.hud.announce(`Vague ${n}/${system.waves}`, def.boss ? '⚠ VORAX ⚠' : '');
+        this.hud.announce(`Vague ${n}/${system.waves}`, def.boss ? '⚠ KORN ⚠' : '');
       }
     } else {
       def = makeWave(n, { seed: this.seed });
       this.enemies.startWave(def, n, DEFAULT_MODS, this.director.heat);
       this.hud.setWave(n);
-      this.hud.announce(`Vague ${n}`, def.boss ? '⚠ VORAX en approche ⚠' : '');
+      this.hud.announce(`Vague ${n}`, def.boss ? '⚠ KORN en approche ⚠' : '');
     }
     // Le secteur est déjà en place quand la vague démarre : il a basculé sous le
     // flash du saut. Ce setBiome n'agit donc qu'au tout premier lancement, ou après
@@ -773,12 +773,12 @@ export class Game {
     const nextBiome = this._biomeFor(nextWave);
     this.characters.setContext({ secteur: nextBiome.name });
 
-    // VORAX s'invite une fois sur trois, et systématiquement après un boss : sa
+    // KORN s'invite une fois sur trois, et systématiquement après un boss : sa
     // rareté est ce qui lui donne du poids. Un ennemi qui commente chaque vague
     // n'est plus une menace, c'est un présentateur.
     const afterBoss = !!this.enemies.bossDefeatedThisWave;
     const taunt = afterBoss || this.wave % 3 === 0;
-    const dialogue = taunt ? ['voraxJump', 'novaAnswer'] : [afterBoss ? 'jumpAfterBoss' : 'jump'];
+    const dialogue = taunt ? ['kornJump', 'novaAnswer'] : [afterBoss ? 'jumpAfterBoss' : 'jump'];
 
     this.state = 'jump';
     this.enemyBullets.clear();

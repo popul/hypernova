@@ -365,7 +365,7 @@ export class Cinematic {
       },
       { t: 10.2, fn: () => A.cinePad('dark', 6) },
       { t: 10.4, fn: () => this._eclipseEnters() },
-      { t: 12.5, fn: () => this._say('vorax', 'Oh… de la lumière. J’adore ça.') },
+      { t: 12.5, fn: () => this._say('korn', 'Oh… de la lumière. J’adore ça.') },
       { t: 14.0, fn: () => A.cineRiser(2.6) },
       { t: 16.6, fn: () => this._openMaw() },
       { t: 17.2, fn: () => this._firstStrike() },
@@ -382,9 +382,9 @@ export class Cinematic {
       { t: 29.5, fn: () => this._chargeShot() },
       { t: 30.5, fn: () => this._chargeShot() },
       { t: 31.2, fn: () => this._chargeShot() },
-      { t: 33.2, fn: () => this._grazeVorax() },
-      { t: 33.6, fn: () => this._say('vorax', 'Un seul ? … UN SEUL ?!') },
-      { t: 35.0, fn: () => this._say('vorax', 'Il m’a… ÉRAFLÉ.') },
+      { t: 33.2, fn: () => this._grazeKorn() },
+      { t: 33.6, fn: () => this._say('korn', 'Un seul ? … UN SEUL ?!') },
+      { t: 35.0, fn: () => this._say('korn', 'Il m’a… ÉRAFLÉ.') },
       { t: 36.0, fn: () => this._titleCard() },
       { t: 40.4, fn: () => this._say('nova', 'NOVA, ta copilote. À toi de jouer.') },
     ].sort((a, b) => a.t - b.t);
@@ -456,7 +456,7 @@ export class Cinematic {
     this.fx.hitStop(0.045);
   }
 
-  _grazeVorax() {
+  _grazeKorn() {
     this.veils.punch(0.18);
     this.fx.addShake(1.0);
     this.fx.explosionBig(this.eyeWorld, 0xfff0c0);

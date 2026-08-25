@@ -1626,7 +1626,7 @@ body.touch .key-hint {
   text-shadow: 0 0 26px rgba(255, 61, 240, 0.45);
 }
 
-/* ---------- Personnages : fenêtre de comm façon Star Fox (NOVA / VORAX) ---------- */
+/* ---------- Personnages : fenêtre de comm façon Star Fox (NOVA / KORN) ---------- */
 
 .comm {
   position: absolute;
@@ -1675,7 +1675,7 @@ body.touch .key-hint {
     inset 0 0 18px rgba(79, 242, 255, 0.12);
 }
 
-.comm.vorax-mode .comm-portrait {
+.comm.korn-mode .comm-portrait {
   border-color: var(--red);
   box-shadow:
     0 0 16px rgba(255, 71, 87, 0.4),
@@ -1698,9 +1698,9 @@ body.touch .key-hint {
   animation: nova-float 2.6s ease-in-out infinite;
 }
 
-.comm.vorax-mode .comm-face.vorax {
+.comm.korn-mode .comm-face.korn {
   display: block;
-  animation: vorax-shake 0.5s ease-in-out infinite;
+  animation: korn-shake 0.5s ease-in-out infinite;
 }
 
 @keyframes nova-float {
@@ -1713,7 +1713,7 @@ body.touch .key-hint {
   }
 }
 
-@keyframes vorax-shake {
+@keyframes korn-shake {
   0%,
   100% {
     transform: translateX(0);
@@ -1760,7 +1760,7 @@ body.touch .key-hint {
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
 }
 
-.comm.vorax-mode .comm-panel {
+.comm.korn-mode .comm-panel {
   border-color: rgba(255, 71, 87, 0.5);
 }
 
@@ -1771,7 +1771,7 @@ body.touch .key-hint {
   color: var(--cyan);
 }
 
-.comm.vorax-mode .comm-name {
+.comm.korn-mode .comm-name {
   color: var(--red);
 }
 

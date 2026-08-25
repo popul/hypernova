@@ -98,10 +98,10 @@ export const NOVA_SVG = `
   <path d="M50 26 Q53 20 48 15" stroke="#8ffbff" stroke-width="1.4" fill="none" opacity="0.55"/>
 </svg>`;
 
-export const VORAX_SVG = `
-<svg viewBox="0 0 64 70" aria-hidden="true" class="face face-vorax">
+export const KORN_SVG = `
+<svg viewBox="0 0 64 70" aria-hidden="true" class="face face-korn">
   <defs>
-    <radialGradient id="vorax-shell" cx="46%" cy="30%" r="82%">
+    <radialGradient id="korn-shell" cx="46%" cy="30%" r="82%">
       <stop offset="0%" stop-color="#9c2f4a"/>
       <stop offset="58%" stop-color="#4d0f22"/>
       <stop offset="100%" stop-color="#160309"/>
@@ -115,7 +115,7 @@ export const VORAX_SVG = `
   </g>
 
   <!-- Carapace -->
-  <path class="head" d="M32 6 L54 22 L49 50 L15 50 L10 22 Z" fill="url(#vorax-shell)"
+  <path class="head" d="M32 6 L54 22 L49 50 L15 50 L10 22 Z" fill="url(#korn-shell)"
         stroke="#ff4757" stroke-width="1.4"/>
   <path d="M32 6 L32 50" stroke="rgba(255,71,87,0.35)" stroke-width="0.8"/>
 
@@ -134,7 +134,7 @@ export const VORAX_SVG = `
         <ellipse class="pupil" cx="32" cy="33" rx="1.5" ry="5.4" fill="#000"/>
         <circle class="glint" cx="29.6" cy="30.2" r="1.5" fill="#fff8e0"/>
       </g>
-      <path class="lid" d="M20.5 33 A11.5 8.6 0 0 1 43.5 33 Z" fill="url(#vorax-shell)"/>
+      <path class="lid" d="M20.5 33 A11.5 8.6 0 0 1 43.5 33 Z" fill="url(#korn-shell)"/>
     </g>
   </g>
 
@@ -303,7 +303,7 @@ export class FaceRig {
       });
     }
 
-    // Antennes de VORAX : elles ploient selon l'humeur.
+    // Antennes de KORN : elles ploient selon l'humeur.
     if (this.antennae.length) {
       const droop = this.emotionName === 'triste' || this.emotionName === 'inquiet' ? 10 : 0;
       this.antennae.forEach((a, i) => {

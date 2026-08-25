@@ -50,7 +50,7 @@ export const BUILTIN_CAMPAIGN = {
     {
       id: 'betelgeuse',
       name: 'Bételgeuse',
-      desc: 'Le cuirassé de VORAX rôde près de la supergéante rouge. Détruisez-le.',
+      desc: 'Le cuirassé de KORN rôde près de la supergéante rouge. Détruisez-le.',
       waves: 3,
       baseWave: 5,
       bossFinal: true,
@@ -67,7 +67,7 @@ export const BUILTIN_CAMPAIGN = {
     {
       id: 'sgrA',
       name: 'Sagittarius A★',
-      desc: 'Le cœur noir de la galaxie. VORAX, le Dévoreur d’Étoiles, vous y attend.',
+      desc: 'Le cœur noir de la galaxie. KORN, le Dévoreur de Mondes, vous y attend.',
       waves: 4,
       baseWave: 9,
       bossFinal: true,

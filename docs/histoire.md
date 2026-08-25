@@ -2,7 +2,7 @@
 
 Version 3 du scénario. À relire et corriger.
 
-> **Ce qui change depuis la v2.** VORAX n'est plus un archiviste poli qui applique un
+> **Ce qui change depuis la v2.** KORN n'est plus un archiviste poli qui applique un
 > règlement. C'est un être trahi, et sa faim est une colère qui n'a jamais trouvé où
 > se poser. La civilisation qui l'a construit a un nom — **les Élides** — et c'est
 > leur technologie, récupérée dans leur épave, qui équipe le vaisseau du joueur.
@@ -11,7 +11,7 @@ Version 3 du scénario. À relire et corriger.
 
 ## L'idée en une phrase
 
-VORAX a été construit comme une arche, rempli de tout un peuple, puis abandonné par
+KORN a été construit comme une arche, rempli de tout un peuple, puis abandonné par
 ceux qui l'avaient fait — et il ne peut pas s'ouvrir. Il éventre la galaxie depuis
 dix mille ans pour retrouver les fuyards et leur demander des comptes. Il vient de
 les trouver : ils sont morts depuis longtemps, et nous avons bâti nos vaisseaux avec
@@ -35,9 +35,14 @@ assez intelligente pour les reconstruire à l'arrivée.
 
 Sur les plaques de coque, ils ont gravé son nom : **ANDEL**.
 
-Dans les registres d'entretien, les techniciens en écrivaient un autre — celui qu'on
-donne à une chose qu'on nourrit, à cause de ce qu'il fallait lui faire avaler :
-**VORAX**.
+Dans les registres d'entretien, les techniciens en écrivaient un autre.
+
+Le **korn**, chez les Élides, c'était le tout-venant : la matière broyée, sans nom et
+sans valeur, qu'on pelletait dans les fours et dans les trémies. On chargeait du korn.
+On dégageait le korn. Le korn avait encore bloqué la trappe.
+
+Le mot a glissé de ce qu'on lui donnait à manger vers la machine qui l'avalait, puis
+vers lui. En vingt ans de chantier, plus personne à l'atelier ne l'appelait autrement.
 
 La seconde arche était une flotte. Rapide, discrète, petite.
 
@@ -77,12 +82,16 @@ Il ne classe pas, il ne préserve pas, il ne prévient pas : il éventre, et il 
 suivant. Bételgeuse a mis onze minutes. Ce n'était pas une exécution, c'était une
 fouille.
 
-Il ne s'est jamais présenté comme ANDEL. Il se fait appeler par le nom des carnets
-d'atelier — et il faut entendre ce que ça veut dire : il a choisi de porter le mépris
-plutôt que la promesse, parce que le mépris, au moins, était sincère.
+Il ne s'est jamais présenté comme ANDEL. Il porte le nom des carnets d'atelier, et il
+faut entendre ce que ça veut dire : entre la promesse gravée sur ses plaques et
+l'insulte griffonnée par ceux qui le nourrissaient, **il a choisi l'insulte** — parce
+qu'elle, au moins, était sincère.
 
-> « Sur les plaques : ANDEL. Dans les carnets : VORAX. Devine lequel ils disaient à
+> « Sur les plaques : ANDEL. Dans les carnets : KORN. Devine lequel ils disaient à
 > voix haute. »
+
+> « Korn, c'était le nom des ordures. Ils me l'ont donné en riant, et ils ont fini
+> dedans. »
 
 **Il ne parle pas au joueur.** Pas au début. Il parle à la coque, aux modules, au
 métal — parce que le métal, il le reconnaît. L'humain aux commandes ne l'intéresse
@@ -109,7 +118,7 @@ Nous, nous avons trouvé leur ferraille et nous l'avons démontée. Nos réacteu
 boucliers, nos déviateurs de temps : tout vient de là. Nous n'avons rien inventé,
 nous avons pillé une tombe sans savoir de qui elle était.
 
-**Voilà pourquoi VORAX est là.** Il n'a pas choisi la Terre au hasard sur une liste.
+**Voilà pourquoi KORN est là.** Il n'a pas choisi la Terre au hasard sur une liste.
 Il a suivi la piste pendant dix mille ans, il l'a trouvée — et au bout, il n'y a
 personne à qui demander des comptes. Rien que des singes qui portent les outils de
 ses bourreaux boulonnés sur des coques en fer-blanc.
@@ -118,7 +127,7 @@ Sa colère n'a plus nulle part où se poser. Alors elle se pose sur nous.
 
 Et il reconnaît chaque pièce.
 
-> VORAX — « Un déviateur chronique, modèle sept. C'est Nemeth qui l'a dessiné. Elle
+> KORN — « Un déviateur chronique, modèle sept. C'est Nemeth qui l'a dessiné. Elle
 > avait des mains d'ouvrière et elle m'a soudé le troisième segment. Elle est en moi.
 > Et tu portes son travail sur une coque en fer-blanc. »
 
@@ -137,7 +146,7 @@ trente-neuf rapports, on a allumé l'IA de la table de vol.
 **NOVA est ce qu'il reste de trente-neuf pilotes.** « Je note » n'est pas un tic,
 c'est ce qu'elle est. Le joueur est le quarantième.
 
-Et le miroir tient : VORAX porte un peuple qu'il ne peut pas rendre, NOVA porte
+Et le miroir tient : KORN porte un peuple qu'il ne peut pas rendre, NOVA porte
 trente-neuf morts qu'elle ne peut pas ramener. Le thème du boss est celui du joueur
 avec la quinte abaissée — la même chose, de l'autre côté.
 
@@ -167,14 +176,14 @@ indicateur d'éloignement qu'on n'a jamais besoin d'expliquer.
 
 ## La fin
 
-Le joueur n'a aucune arme capable de tuer VORAX et n'en a jamais eu. Ce qu'il
+Le joueur n'a aucune arme capable de tuer KORN et n'en a jamais eu. Ce qu'il
 rapporte du bout du voyage, c'est **la clé de reconstruction** — celle que les Élides
 avaient effacée avant de fuir, et dont une copie dormait dans le poste de commande de
 l'autre arche, à l'endroit exact où personne n'est jamais allé.
 
 Il peut la lui donner.
 
-VORAX s'ouvre. Pour la première fois en dix mille ans.
+KORN s'ouvre. Pour la première fois en dix mille ans.
 
 Et ce qui en sort n'est pas ce qu'il attendait. Les ouvriers, les malades, les vieux
 ont laissé un dernier enregistrement avant qu'on les charge. Il dit ceci :
@@ -199,7 +208,7 @@ depuis dix mille ans était à l'intérieur de lui.
 ## Ce que ça donne au jeu
 
 **La boutique devient un pillage de tombe.** Chaque amélioration est une pièce élide
-récupérée dans l'épave, avec le nom de celui ou celle qui l'a dessinée. VORAX les
+récupérée dans l'épave, avec le nom de celui ou celle qui l'a dessinée. KORN les
 reconnaît toutes et les commente — ce qui donne une source de dialogue inépuisable
 et attache le magasin à l'histoire au lieu d'en faire un écran de menu.
 
@@ -207,7 +216,7 @@ et attache le magasin à l'histoire au lieu d'en faire un écran de menu.
 sont pas des choix de style : ce sont trois modèles retrouvés dans trois sections
 différentes de l'arche.
 
-**Les boss ne sont pas « le boss du niveau 4 ».** Ce sont des corps que VORAX se
+**Les boss ne sont pas « le boss du niveau 4 ».** Ce sont des corps que KORN se
 fabrique sur place avec la matière du système — une lune, une épave, un anneau. En
 détruire un ne le blesse pas, ça le retarde. Et il apprend de chacun : le suivant
 tient compte de la façon dont le précédent est tombé, ce qui justifie sans une ligne
@@ -228,7 +237,7 @@ Le cadre autorise n'importe quoi sans jamais contredire l'histoire.
    supprimer, omettre. Ils ont élidé leur propre peuple. Est-ce que ça vous va, ou
    faut-il quelque chose de plus rugueux ?
 
-2. **ANDEL** est le seul mot du jeu que VORAX refuse de prononcer, et le premier que
+2. **ANDEL** est le seul mot du jeu que KORN refuse de prononcer, et le premier que
    dit l'enregistrement des ouvriers. Faut-il qu'il apparaisse plus tôt — gravé
    quelque part sur une pièce de la boutique, par exemple, sans explication — pour
    que le joueur observateur ait une longueur d'avance ?
