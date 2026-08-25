@@ -16,8 +16,20 @@
 
 import { UPGRADES, priceOf } from './upgrades.js';
 
+// Le prix de la relance est MULTIPLIÉ par 1,5 à chaque clic dans la même visite,
+// et non augmenté d'un palier fixe. La différence n'est pas cosmétique : une
+// progression additive reste abordable indéfiniment — au dixième clic on paie dix
+// fois la mise, ce qui n'arrête personne. Une progression géométrique double le
+// prix tous les deux clics et devient très vite dissuasive.
+//
+//   additif  20 · 40 · 60 · 80 · 100 · 120 …
+//   ×1,5     20 · 30 · 45 · 68 · 101 · 152 · 228 …
+//
+// Les deux premières relances restent bon marché — on a le droit de ne pas aimer
+// son tirage — mais la cinquième coûte le prix d'une amélioration, et c'est là que
+// la question devient intéressante : relancer, ou acheter ce qu'on a sous les yeux ?
 const RELANCE_BASE = 20;
-const RELANCE_PALIER = 20; // +20 par relance dans la même visite
+const RELANCE_FACTEUR = 1.5;
 
 export class Shop {
   constructor(overlayRoot, { onBuy, onLaunch }) {
@@ -71,7 +83,10 @@ export class Shop {
   }
 
   get prixRelance() {
-    return RELANCE_BASE + this.rerolls * RELANCE_PALIER;
+    // Arrondi au multiple de cinq, comme tous les prix du jeu : un « 67 cr » au
+    // milieu de prix ronds se lit comme un bug d'affichage.
+    const brut = RELANCE_BASE * Math.pow(RELANCE_FACTEUR, this.rerolls);
+    return Math.round(brut / 5) * 5;
   }
 
   open(state) {
