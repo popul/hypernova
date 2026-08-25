@@ -1,7 +1,7 @@
 // Définitions data-driven des améliorations : prix, niveaux, effets.
 // `computeStats` transforme les niveaux possédés en stats concrètes du vaisseau.
 
-import { PLAYER, PICKUPS } from './constants.js';
+import { PLAYER, PICKUPS, REFLEX } from './constants.js';
 
 export const UPGRADES = [
   {
@@ -59,6 +59,15 @@ export const UPGRADES = [
     desc: 'Attire les crédits de plus loin.',
   },
   {
+    id: 'reflex',
+    name: 'Réflexe Chrono',
+    icon: '◷',
+    maxLevel: 3,
+    basePrice: 340,
+    priceMul: 2.0,
+    desc: 'Quand un tir va vous toucher, le temps ralentit — mais pas vous. Niveaux : ralenti plus long, recharge plus courte.',
+  },
+  {
     id: 'hull',
     name: 'Coque renforcée',
     icon: '♥',
@@ -91,5 +100,7 @@ export function computeStats(levels) {
     shieldMax: levels.shield > 0 ? 1 : 0,
     shieldRecharge: SHIELD_RECHARGE[levels.shield] ?? 5,
     magnetRadius: PICKUPS.baseMagnetRadius + levels.magnet * PICKUPS.magnetRadiusPerLevel,
+    reflexDuration: REFLEX.duration[levels.reflex] ?? 0,
+    reflexCooldown: REFLEX.cooldown[levels.reflex] ?? 0,
   };
 }

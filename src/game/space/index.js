@@ -1,0 +1,296 @@
+// Le ciel : étoiles en parallaxe, nébuleuses, objet remarquable, et le fondu d'un
+// secteur au suivant.
+//
+// Remplace l'ancien champ d'étoiles, qui était strictement identique de la vague 1
+// à la vague 30. Ici chaque vague a son lieu, et le changement de lieu se produit
+// PENDANT le saut lumière — donc à couvert du flash, sans aucun raccord visible.
+
+import * as THREE from 'three';
+import { createLandmark, disposeLandmark } from './landmarks.js';
+
+const FIELD = { xSpread: 90, yMin: -40, yMax: 10, zNear: 30, zFar: -120 };
+const LAYERS = [
+  { count: 420, size: 0.42, speed: 9 },
+  { count: 240, size: 0.78, speed: 16 },
+];
+const FADE = 1.1; // secondes de transition d'un secteur à l'autre
+
+function blankPalette() {
+  return {
+    bg: new THREE.Color(),
+    fog: new THREE.Color(),
+    hemiSky: new THREE.Color(),
+    hemiGround: new THREE.Color(),
+    rim: new THREE.Color(),
+    star: new THREE.Color(),
+    density: 0.0075,
+    intensity: 1.1,
+    exposure: 1.15,
+  };
+}
+
+function copyPalette(dst, src) {
+  dst.bg.copy(src.bg);
+  dst.fog.copy(src.fog);
+  dst.hemiSky.copy(src.hemiSky);
+  dst.hemiGround.copy(src.hemiGround);
+  dst.rim.copy(src.rim);
+  dst.star.copy(src.star);
+  dst.density = src.density;
+  dst.intensity = src.intensity;
+  dst.exposure = src.exposure;
+}
+
+function starTexture() {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.4, 'rgba(200,230,255,0.6)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function nebulaTexture(inner) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, inner);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export class Space {
+  constructor(scene, { lights, renderer } = {}) {
+    this.scene = scene;
+    this.lights = lights;
+    this.renderer = renderer;
+    this.layers = [];
+    this.nebulas = [];
+    this.landmark = null;
+    this.warp = 0;
+
+    const tex = starTexture();
+    for (const [i, def] of LAYERS.entries()) {
+      const positions = new Float32Array(def.count * 3);
+      for (let n = 0; n < def.count; n++) {
+        positions[n * 3] = (Math.random() - 0.5) * FIELD.xSpread;
+        positions[n * 3 + 1] = FIELD.yMin + Math.random() * (FIELD.yMax - FIELD.yMin);
+        positions[n * 3 + 2] = FIELD.zFar + Math.random() * (FIELD.zNear - FIELD.zFar);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const mat = new THREE.PointsMaterial({
+        size: def.size,
+        map: tex,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        color: 0xbfe8ff,
+      });
+      const points = new THREE.Points(geo, mat);
+      points.renderOrder = -10;
+      points.frustumCulled = false;
+      scene.add(points);
+
+      // Les mêmes étoiles en segments, invisibles hors du saut. Un PointsMaterial ne
+      // sait pas s'étirer : sans cette seconde représentation, un « passage en
+      // lumière » ne serait qu'un champ de points qui va plus vite.
+      const line = new Float32Array(def.count * 6);
+      const lgeo = new THREE.BufferGeometry();
+      lgeo.setAttribute('position', new THREE.BufferAttribute(line, 3));
+      const streaks = new THREE.LineSegments(
+        lgeo,
+        new THREE.LineBasicMaterial({
+          color: 0xdfefff,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      streaks.renderOrder = -9;
+      streaks.frustumCulled = false;
+      streaks.visible = false;
+      scene.add(streaks);
+
+      this.layers.push({ points, streaks, positions, line, geo, lgeo, speed: def.speed, index: i });
+    }
+
+    // Cibles de fondu : on interpole des couleurs, jamais on ne les remplace d'un
+    // coup — un fond qui change de teinte en une image se lit comme un bug d'affichage.
+    this.from = blankPalette();
+    this.to = blankPalette();
+    this.fadeT = 1;
+    this.starOpacity = [0.55, 0.4];
+    this._c = new THREE.Color();
+  }
+
+  // Bascule de secteur. `instant` sert au démarrage d'une partie, où il n'y a rien
+  // à fondre : le joueur n'a pas encore vu l'écran précédent.
+  setBiome(biome, { instant = false } = {}) {
+    if (this.biome?.id === biome.id && !instant) return;
+    this.biome = biome;
+
+    // Le fondu part de la cible actuelle, pas de l'état interpolé : sur deux
+    // changements rapprochés, repartir de l'entre-deux ferait un aller-retour.
+    copyPalette(this.from, this.to);
+    this.to.bg.setHex(biome.bg);
+    this.to.fog.setHex(biome.fog.color);
+    this.to.hemiSky.setHex(biome.hemi.sky);
+    this.to.hemiGround.setHex(biome.hemi.ground);
+    this.to.rim.setHex(biome.rim);
+    this.to.star.setHex(biome.star.color);
+    this.to.density = biome.fog.density;
+    this.to.intensity = biome.hemi.intensity;
+    this.to.exposure = biome.exposure;
+    this.starOpacity = biome.star.opacity;
+
+    this._buildNebulas(biome.nebulas);
+    this._buildLandmark(biome.landmark);
+
+    if (instant) {
+      copyPalette(this.from, this.to);
+      this._applyPalette(1); // applique VRAIMENT : sans cet appel, la première vague
+      this.fadeT = 1; // se jouerait avec le fond noir par défaut de la scène
+      for (const n of this.nebulas) n.sprite.material.opacity = n.target;
+    } else {
+      this.fadeT = 0;
+    }
+  }
+
+  // Interpole la palette entre l'ancien secteur et le nouveau, et la pose sur la
+  // scène, les lampes et l'exposition — les quatre doivent bouger ENSEMBLE, sinon
+  // le lieu ne change pas, seule sa couleur change.
+  _applyPalette(k) {
+    const c = this._c;
+    this.scene.background.copy(c.copy(this.from.bg).lerp(this.to.bg, k));
+    this.scene.fog.color.copy(c.copy(this.from.fog).lerp(this.to.fog, k));
+    this.scene.fog.density = THREE.MathUtils.lerp(this.from.density, this.to.density, k);
+    if (this.lights) {
+      this.lights.hemi.color.copy(c.copy(this.from.hemiSky).lerp(this.to.hemiSky, k));
+      this.lights.hemi.groundColor.copy(c.copy(this.from.hemiGround).lerp(this.to.hemiGround, k));
+      this.lights.hemi.intensity = THREE.MathUtils.lerp(this.from.intensity, this.to.intensity, k);
+      this.lights.rimLight.color.copy(c.copy(this.from.rim).lerp(this.to.rim, k));
+    }
+    if (this.renderer) {
+      this.renderer.toneMappingExposure = THREE.MathUtils.lerp(
+        this.from.exposure,
+        this.to.exposure,
+        k
+      );
+    }
+    for (const l of this.layers) {
+      l.points.material.color.copy(c.copy(this.from.star).lerp(this.to.star, k));
+    }
+  }
+
+  _buildNebulas(defs) {
+    for (const n of this.nebulas) {
+      this.scene.remove(n.sprite);
+      n.sprite.material.map.dispose();
+      n.sprite.material.dispose();
+    }
+    this.nebulas = [];
+    for (const [color, pos, scale] of defs) {
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: nebulaTexture(color),
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      sprite.position.set(...pos);
+      sprite.scale.setScalar(scale);
+      sprite.renderOrder = -20;
+      this.scene.add(sprite);
+      this.nebulas.push({ sprite, target: 0.55 });
+    }
+  }
+
+  _buildLandmark(spec) {
+    if (this.landmark) {
+      this.scene.remove(this.landmark.group);
+      disposeLandmark(this.landmark);
+    }
+    this.landmark = createLandmark(spec);
+    this.landmark.group.traverse((o) => {
+      o.frustumCulled = false;
+      if (o.renderOrder === 0) o.renderOrder = -15;
+    });
+    this.scene.add(this.landmark.group);
+  }
+
+  // 0 = vol normal, 1 = passage en lumière. Les points s'effacent au profit des
+  // segments, dont la longueur EST la vitesse ressentie.
+  setWarp(amount) {
+    this.warp = THREE.MathUtils.clamp(amount, 0, 1);
+  }
+
+  update(dt, speedScale = 1) {
+    // Fondu de secteur.
+    if (this.fadeT < 1) {
+      this.fadeT = Math.min(1, this.fadeT + dt / FADE);
+      const t = this.fadeT;
+      this._applyPalette(t * t * (3 - 2 * t)); // lissage aux deux bouts
+    }
+
+    // Les nébuleuses montent en opacité à l'arrivée dans le secteur.
+    for (const n of this.nebulas) {
+      const o = n.sprite.material;
+      o.opacity += (n.target - o.opacity) * Math.min(1, dt * 1.6);
+    }
+
+    this.landmark?.update(dt);
+
+    // Défilement. Pendant le saut, les étoiles filent bien plus vite : c'est la
+    // seule chose qui donne une sensation de vitesse, le vaisseau étant immobile
+    // à l'écran par construction.
+    const boost = 1 + this.warp * this.warp * 26;
+    for (const layer of this.layers) {
+      const pos = layer.positions;
+      const step = layer.speed * speedScale * boost * dt;
+      for (let i = 2; i < pos.length; i += 3) {
+        pos[i] += step;
+        if (pos[i] > FIELD.zNear) pos[i] = FIELD.zFar + ((pos[i] - FIELD.zNear) % 150);
+      }
+      layer.geo.attributes.position.needsUpdate = true;
+
+      const w = this.warp;
+      layer.points.material.opacity = this.starOpacity[layer.index] * (1 - w * 0.9);
+      layer.streaks.visible = w > 0.02;
+      if (!layer.streaks.visible) continue;
+
+      // Un segment par étoile, orienté vers la caméra. La longueur suit le carré du
+      // taux de saut pour que l'étirement se déclenche tard et vite.
+      const len = 2 + w * w * 62;
+      const line = layer.line;
+      for (let n = 0, p = 0, q = 0; n < pos.length / 3; n++, p += 3, q += 6) {
+        line[q] = pos[p];
+        line[q + 1] = pos[p + 1];
+        line[q + 2] = pos[p + 2];
+        line[q + 3] = pos[p];
+        line[q + 4] = pos[p + 1];
+        line[q + 5] = pos[p + 2] - len;
+      }
+      layer.lgeo.attributes.position.needsUpdate = true;
+      layer.streaks.material.opacity =
+        Math.min(0.85, w * 1.3) * this.starOpacity[layer.index] * 1.6;
+    }
+  }
+}

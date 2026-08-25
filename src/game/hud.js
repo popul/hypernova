@@ -40,7 +40,7 @@ export class Hud {
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
       </div>
       <div class="announce" id="announce"></div>
-      <div class="hud-hints">X bombe · P pause · M son</div>
+      <div class="hud-hints">← → gauche/droite · ↑ ↓ avancer/reculer · X bombe · P pause · M son</div>
       <div class="hud-touch">
         <button id="btn-pause-touch" aria-label="Pause">⏸</button>
         <button id="btn-sound-touch" aria-label="Couper le son">♪</button>

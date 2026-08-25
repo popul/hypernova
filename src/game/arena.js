@@ -1,0 +1,145 @@
+// Les bords de l'arène, et ce qui s'y passe.
+//
+// Deux problèmes tenaient ensemble : on ne voyait pas où était le bord, et le
+// bouclage affichait un second vaisseau complet de l'autre côté — donc deux
+// vaisseaux à l'écran, dont un seul répondait aux commandes.
+//
+// La solution est la même pour les deux : matérialiser la frontière par un rideau
+// lumineux, et faire TRAVERSER le vaisseau au lieu de le dupliquer. Le vaisseau est
+// tranché par un plan de découpe au niveau du bord, et le morceau manquant est
+// dessiné à l'autre bord par le plan complémentaire. À aucun instant il n'y a deux
+// vaisseaux : il y en a un, coupé en deux par une couture.
+
+import * as THREE from 'three';
+import { ARENA } from './constants.js';
+
+function seamTexture() {
+  const w = 64;
+  const h = 8;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  // Dégradé dans la LARGEUR : un cœur net qui s'estompe de part et d'autre. C'est
+  // ce profil qui fait lire un trait lumineux plutôt qu'un ruban plat.
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, 'rgba(110,250,255,0)');
+  g.addColorStop(0.5, 'rgba(220,255,255,1)');
+  g.addColorStop(1, 'rgba(110,250,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export class ArenaEdges {
+  constructor(scene) {
+    this.seams = [];
+    const tex = seamTexture();
+    // La couture ne couvre QUE la bande de profondeur où le joueur peut se trouver,
+    // plus une courte marge. Étendue au-delà, elle traversait tout l'écran en
+    // diagonale et devenait un élément de décor permanent — alors que son seul rôle
+    // est de dire « le bord est ici », à l'instant où c'est utile.
+    const depth = ARENA.playerZMax - ARENA.playerZMin + 5;
+    const midZ = (ARENA.playerZMax + ARENA.playerZMin) / 2;
+
+    for (const side of [-1, 1]) {
+      const group = new THREE.Group();
+      group.position.set(side * ARENA.playerXMax, 0, midZ);
+
+      // Le trait, POSÉ À PLAT dans le plan de jeu. Une version verticale se lisait,
+      // sous une caméra en plongée, comme un grand trapèze translucide en travers de
+      // l'écran — un mur, alors que c'est précisément un passage.
+      const line = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.7, depth),
+        new THREE.MeshBasicMaterial({
+          map: tex,
+          color: 0x6ffaff,
+          transparent: true,
+          opacity: 0.12,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        })
+      );
+      line.rotation.x = -Math.PI / 2;
+      line.renderOrder = 2;
+      group.add(line);
+
+      // Un voile vertical très bas et très discret : il suggère l'épaisseur du
+      // passage sans jamais masquer ce qui se trouve derrière.
+      const veil = new THREE.Mesh(
+        new THREE.PlaneGeometry(depth, 1.6),
+        new THREE.MeshBasicMaterial({
+          map: tex,
+          color: 0x6ffaff,
+          transparent: true,
+          opacity: 0.05,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        })
+      );
+      veil.rotation.y = Math.PI / 2;
+      veil.position.y = 0.8;
+      veil.renderOrder = 2;
+      group.add(veil);
+
+      this.scene = scene;
+      scene.add(group);
+      this.seams.push({ group, line, veil, side, flash: 0 });
+    }
+    this.time = 0;
+  }
+
+  // Appelé au moment du bouclage : la couture s'embrase du côté franchi.
+  ping(side) {
+    const c = this.seams.find((x) => x.side === side);
+    if (c) c.flash = 1;
+  }
+
+  update(dt, playerX) {
+    this.time += dt;
+    for (const s of this.seams) {
+      if (s.flash > 0) s.flash = Math.max(0, s.flash - dt * 2.6);
+      // La couture se révèle à l'approche : invisible au centre de l'arène, nette
+      // quand on arrive dessus. Elle informe quand c'est utile et se tait sinon.
+      const dist = Math.abs(ARENA.playerXMax * s.side - playerX);
+      const near = THREE.MathUtils.clamp(1 - dist / (ARENA.wrapGhostZone * 1.6), 0, 1);
+      const breathe = 0.03 + Math.sin(this.time * 1.7 + s.side) * 0.012;
+      s.line.material.opacity = breathe + near * 0.2 + s.flash * 0.7;
+      s.veil.material.opacity = near * 0.04 + s.flash * 0.18;
+      s.line.scale.x = 1 + s.flash * 0.9;
+    }
+  }
+}
+
+// Les deux demi-plans de la couture. Le vaisseau porte l'un, son prolongement de
+// l'autre côté porte l'autre : leur réunion redonne exactement une coque.
+//
+// Ils sont créés UNE fois et ne quittent jamais les matières : on les déplace au
+// lieu de les brancher et débrancher. Ajouter un plan de découpe à une matière déjà
+// compilée force Three.js à recompiler son shader — soit un à-coup d'une image
+// entière, garanti pile à l'instant où le joueur touche un bord à pleine vitesse.
+// Hors bouclage, on repousse simplement le plan à l'infini : il ne coupe rien.
+export const FAR_AWAY = 1e6;
+
+export function makeWrapPlanes() {
+  return {
+    hull: new THREE.Plane(new THREE.Vector3(-1, 0, 0), FAR_AWAY),
+    seam: new THREE.Plane(new THREE.Vector3(1, 0, 0), FAR_AWAY),
+  };
+}
+
+// Oriente un plan pour garder l'intérieur de l'arène du côté demandé.
+export function aimPlane(plane, side) {
+  if (side === 0) {
+    plane.constant = FAR_AWAY; // ne coupe plus rien
+    return;
+  }
+  plane.normal.set(-side, 0, 0);
+  plane.constant = ARENA.playerXMax;
+}

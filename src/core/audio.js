@@ -667,9 +667,60 @@ export class AudioEngine {
   }
 
   waveStart() {
-    [330, 440, 550, 660].forEach((f, i) =>
-      this._tone({ type: 'square', freq: f, dur: 0.14, gain: 0.12, when: i * 0.09 })
+    // Les quatre notes montantes du thème, pas une gamme quelconque : chaque vague
+    // s'ouvre sur le motif que le joueur connaît déjà par l'écran-titre.
+    [THEME[0], THEME[1], THEME[2], THEME[1] + 12].forEach((s, i) =>
+      this._tone({ type: 'triangle', freq: hz(s), dur: 0.15, gain: 0.11, when: i * 0.09 })
     );
+  }
+
+  // Montée en régime du saut lumière : un accord qui s'ouvre pendant que le bruit
+  // filtré monte. La tension vient de l'ATTENTE, pas du volume.
+  jumpCharge() {
+    if (!this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    for (const [i, semi] of [26, 33, 38, 45].entries()) {
+      const o = this.ctx.createOscillator();
+      o.setPeriodicWave(this.W.brass);
+      o.frequency.setValueAtTime(hz(semi) * 0.985, t0);
+      o.frequency.linearRampToValueAtTime(hz(semi), t0 + 1.1);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.08);
+      g.gain.exponentialRampToValueAtTime(0.05, t0 + 1.05);
+      g.gain.exponentialRampToValueAtTime(0.0004, t0 + 1.35);
+      o.connect(g);
+      g.connect(this.sfxBus);
+      o.start(t0 + i * 0.08);
+      o.stop(t0 + 1.45);
+    }
+    this._noise({ dur: 1.15, gain: 0.09, filterFreq: 400, filterEnd: 6500 });
+  }
+
+  // Le départ : une chute d'octave sur la tonique, et un souffle qui s'éloigne.
+  jumpGo() {
+    this._tone({ type: 'sine', freq: hz(38), freqEnd: hz(14), dur: 0.75, gain: 0.3 });
+    this._noise({ dur: 0.9, gain: 0.26, filterFreq: 9000, filterEnd: 200 });
+    this._tone({ type: 'triangle', freq: hz(50), freqEnd: hz(26), dur: 0.5, gain: 0.12 });
+  }
+
+  // Réflexe Chrono : la dilatation du temps s'entend par une CHUTE de hauteur,
+  // c'est le seul signal que l'oreille lit spontanément comme « ça ralentit ».
+  reflexIn() {
+    this._tone({ type: 'sine', freq: hz(50), freqEnd: hz(31), dur: 0.34, gain: 0.16 });
+    this._tone({
+      type: 'triangle',
+      freq: hz(38),
+      freqEnd: hz(26),
+      dur: 0.5,
+      gain: 0.1,
+      when: 0.03,
+    });
+    this._noise({ dur: 0.45, gain: 0.08, filterFreq: 6000, filterEnd: 500 });
+  }
+
+  // Et la remontée quand le temps reprend : le mouvement inverse, plus court.
+  reflexOut() {
+    this._tone({ type: 'sine', freq: hz(31), freqEnd: hz(50), dur: 0.2, gain: 0.11 });
   }
 
   bossAlarm() {

@@ -12,7 +12,9 @@ import { GalaxyMap } from './galaxymap.js';
 import { Cinematic } from './cinematic.js';
 import { makeWave, dailySeed } from './waves.js';
 import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
-import { COMBO, PLAYER, STORAGE_KEYS, GRAZE, OVERDRIVE, PICKUPS } from './constants.js';
+import { COMBO, PLAYER, STORAGE_KEYS, GRAZE, OVERDRIVE, PICKUPS, REFLEX } from './constants.js';
+import { Jump } from './jump.js';
+import { biomeForWave } from './space/biomes.js';
 import { loadScores, saveScore, challengeText } from './leaderboard.js';
 import {
   loadCampaigns,
@@ -81,8 +83,19 @@ export class Game {
       characters: this.characters,
       stage,
     });
+    this.jump = new Jump({
+      scene,
+      audio,
+      fx,
+      space: stage.space,
+      player: this.player,
+      characters: this.characters,
+      overlayRoot,
+    });
     this.cameraOverride = null;
     this.director = new Director();
+    this.timeScale = 1; // échelle de temps courante, lue par le vaisseau
+    this.reflexCooldown = 0;
 
     this.state = 'title';
     this.mode = 'arcade';
@@ -107,6 +120,7 @@ export class Game {
     input.on('Space', (e) => {
       if (typing(e)) return;
       if (this.state === 'cinematic') this.cinematic.skip();
+      else if (this.state === 'jump') this.jump.skip();
       else if (this.state === 'gate') {
         this.audio.unlock();
         this.playCinematic();
@@ -121,9 +135,16 @@ export class Game {
     window.addEventListener('keyup', (e) => {
       if (e.code === 'KeyX') this._releaseEnergyButton();
     });
+    // Le saut s'escamote aussi d'une simple touche à l'écran : sur mobile il n'y a
+    // pas de barre d'espace, et une transition qu'on ne peut pas couper devient une
+    // corvée dès la troisième partie.
+    window.addEventListener('pointerdown', () => {
+      if (this.state === 'jump') this.jump.skip();
+    });
     input.on('KeyP', () => this.togglePause());
     input.on('Escape', () => {
       if (this.state === 'cinematic') this.cinematic.skip();
+      else if (this.state === 'jump') this.jump.skip();
       else this.togglePause();
     });
     input.on('KeyM', (e) => {
@@ -261,15 +282,17 @@ export class Game {
       this.fx.burst(b.mesh.position, 0xff3df0, { count: 2, speed: 4, life: 0.25 });
       this.enemyBullets.kill(b);
     });
-    for (const e of [...this.enemies.list]) {
-      if (!e.alive) continue;
-      if (e.type === 'boss') {
-        this.enemies.damage(e, OVERDRIVE.bombBossDamage, this);
-      } else if (e.group.position.z > OVERDRIVE.bombZMax) {
-        this.enemies.damage(e, OVERDRIVE.bombDamage, this); // ni score, ni combo, ni crédits
-      } else if (e.state === 'diving') {
-        e.state = 'returning';
-      }
+    // Puis un front qui part du vaisseau et balaie l'arène en un peu moins d'une
+    // seconde. Retarder ainsi la détonation est ce qui lui permet enfin d'atteindre
+    // la formation lointaine et le boss, sans rien retirer à son effet immédiat.
+    this.bombFront = {
+      origin: this.player.position.clone(),
+      radius: OVERDRIVE.bombRadius,
+      hit: new Set(),
+      ringTimer: 0,
+    };
+    for (const e of this.enemies.list) {
+      if (e.alive && e.state === 'diving') e.state = 'returning';
     }
     this.fx.shockwave(this.player.position, 0x8ffbff, OVERDRIVE.bombRadius * 2);
     this.fx.addShake(1.2);
@@ -661,6 +684,8 @@ export class Game {
     this.waveGrazes = 0;
     this.energy = 0;
     this.odTimer = 0;
+    this.reflexCooldown = 0;
+    this.bombFront = null;
     this.bombCooldown = 0;
     this.waveDeath = false;
     this.waveBestTier = 1;
@@ -733,7 +758,49 @@ export class Game {
       this.hud.setWave(n);
       this.hud.announce(`Vague ${n}`, def.boss ? '⚠ VORAX en approche ⚠' : '');
     }
+    // Le secteur est déjà en place quand la vague démarre : il a basculé sous le
+    // flash du saut. Ce setBiome n'agit donc qu'au tout premier lancement, ou après
+    // un saut escamoté.
+    this.stage.space?.setBiome(this._biomeFor(n), { instant: this.wave <= 1 });
     if (!def.boss) this.audio.waveStart();
+  }
+
+  // Entre deux vagues : on saute. La boutique s'ouvre à l'arrivée, dans le nouveau
+  // secteur — donc le joueur choisit ses améliorations en regardant déjà l'endroit
+  // où il va se battre, et non l'arène vide qu'il vient de nettoyer.
+  _startJump() {
+    const nextWave = this.wave + 1;
+    const nextBiome = this._biomeFor(nextWave);
+    this.characters.setContext({ secteur: nextBiome.name });
+
+    // VORAX s'invite une fois sur trois, et systématiquement après un boss : sa
+    // rareté est ce qui lui donne du poids. Un ennemi qui commente chaque vague
+    // n'est plus une menace, c'est un présentateur.
+    const afterBoss = !!this.enemies.bossDefeatedThisWave;
+    const taunt = afterBoss || this.wave % 3 === 0;
+    const dialogue = taunt ? ['voraxJump', 'novaAnswer'] : [afterBoss ? 'jumpAfterBoss' : 'jump'];
+
+    this.state = 'jump';
+    this.enemyBullets.clear();
+    this.bullets.clear();
+    this.missiles.clear();
+    this.fx.cancelSlowmo();
+    this.jump.start({
+      dialogue,
+      onSwap: () => {
+        this.stage.space?.setBiome(nextBiome);
+        this.hud.announce(nextBiome.name, nextBiome.sub, 2400);
+      },
+      onDone: () => this.openShop(),
+    });
+  }
+
+  _biomeFor(wave) {
+    if (this.mode === 'campaign') {
+      const { system } = this.mission;
+      return biomeForWave(system.baseWave + wave - 1);
+    }
+    return biomeForWave(wave, wave % 4 === 0);
   }
 
   launchNextWave() {
@@ -812,6 +879,13 @@ export class Game {
     }
     this.cameraOverride = null;
 
+    // Le saut avance avec le temps RÉEL : une transition d'interface ne doit pas
+    // s'étirer parce qu'un ralenti d'esquive traînait encore.
+    if (this.state === 'jump') {
+      this.jump.update(this.fx.timeScale ? dt / this.fx.timeScale : dt);
+      return;
+    }
+
     if (this.state === 'playing') {
       this._updatePlaying(dt);
     } else if (this.state === 'shop') {
@@ -836,6 +910,10 @@ export class Game {
       this.hud.announce(`MENACE ${romanTier(tier)}`, '', 1200);
       this.enemies.setHeat(this.director.heat);
     }
+
+    this.timeScale = this.fx.timeScale;
+    this._updateReflex(dt);
+    this._updateBombFront(dt);
 
     this.player.update(dt, this);
     this.enemies.update(dt, this);
@@ -891,10 +969,92 @@ export class Game {
         this.hud.announce('Vague nettoyée', `+${bonus} cr de prime`, 1800);
       }
       this.waveEndTimer += dt;
-      if (this.waveEndTimer > 1.7 && this.pickups.activeCount() === 0) {
+      if (this.waveEndTimer > 1.2 && this.pickups.activeCount() === 0) {
         if (lastMissionWave) this.showMissionComplete();
-        else this.openShop();
+        else this._startJump();
       }
+    }
+  }
+
+  // Réflexe Chrono : le ralenti de la dernière chance.
+  //
+  // On ne déclenche PAS sur « une balle est proche » — ce serait le frôlement, qui
+  // rapporte déjà de l'énergie. On déclenche sur « cette balle va toucher » :
+  // approche la plus courte calculée dans le repère de la balle, et déclenchement
+  // seulement si cette approche passe sous le rayon de collision.
+  _updateReflex(dt) {
+    if (this.reflexCooldown > 0) this.reflexCooldown -= dt;
+    const duration = this.stats.reflexDuration;
+    if (!duration || this.reflexCooldown > 0 || !this.player.alive) return;
+    if (this.player.invulnTimer > 0 || this.player.shieldUp) return; // rien à sauver
+
+    const p = this.player.position;
+    const threat = PLAYER.radius + REFLEX.hitPad;
+    let found = null;
+    this.enemyBullets.forEachActive((b) => {
+      if (found) return;
+      const v = b.vel;
+      const dx = b.mesh.position.x - p.x;
+      const dz = b.mesh.position.z - p.z;
+      const vv = v.x * v.x + v.z * v.z;
+      if (vv < 1e-4) return;
+      // Instant de l'approche minimale : dérivée nulle de la distance au carré.
+      const tca = -(dx * v.x + dz * v.z) / vv;
+      if (tca <= 0 || tca > REFLEX.lookahead) return; // déjà passée, ou pas encore le moment
+      const mx = dx + v.x * tca;
+      const mz = dz + v.z * tca;
+      if (mx * mx + mz * mz <= threat * threat) found = b;
+    });
+    if (!found) return;
+
+    this.reflexCooldown = this.stats.reflexCooldown;
+    this.fx.slowmo(duration, REFLEX.scale);
+    this.fx.shockwave(p, 0xffd166, 5, { faceCamera: true, camera: this.camera });
+    this.audio.reflexIn();
+    setTimeout(() => this.audio.reflexOut(), duration * 1000 * REFLEX.scale * 3);
+    this.hud.announce('RÉFLEXE', '', 700);
+    this.characters.teachOnce('reflexFirst');
+  }
+
+  // Front de la Nova Bomb : une couronne qui s'éloigne du vaisseau et détruit ce
+  // qu'elle traverse. L'ancienne version frappait tout instantanément dans un rayon
+  // fixe — donc jamais la formation en haut de l'écran, et jamais le boss.
+  _updateBombFront(dt) {
+    const f = this.bombFront;
+    if (!f) return;
+    const prev = f.radius;
+    f.radius += OVERDRIVE.bombFrontSpeed * dt;
+    if (prev > OVERDRIVE.bombFrontMax) {
+      this.bombFront = null;
+      return;
+    }
+    const inner = Math.max(0, f.radius - OVERDRIVE.bombFrontThickness);
+    for (const e of [...this.enemies.list]) {
+      if (!e.alive || f.hit.has(e.id)) continue;
+      const d = e.group.position.distanceTo(f.origin);
+      if (d > f.radius || d < inner) continue;
+      f.hit.add(e.id);
+      this.fx.burst(e.group.position, 0x8ffbff, { count: 6, speed: 7, life: 0.35 });
+      this.enemies.damage(
+        e,
+        e.type === 'boss' ? OVERDRIVE.bombBossDamage : OVERDRIVE.bombDamage,
+        this
+      );
+    }
+    // Le front efface aussi les projectiles qu'il rattrape : la bombe reste un
+    // bouton panique du début à la fin de son parcours, pas seulement à l'allumage.
+    this.enemyBullets.forEachActive((b) => {
+      const d = b.mesh.position.distanceTo(f.origin);
+      if (d > f.radius || d < inner) return;
+      this.fx.burst(b.mesh.position, 0xff3df0, { count: 2, speed: 4, life: 0.25 });
+      this.enemyBullets.kill(b);
+    });
+    // Une onde visible toutes les deux étapes : le front doit se VOIR avancer,
+    // sinon les ennemis lointains meurent sans cause apparente.
+    f.ringTimer -= dt;
+    if (f.ringTimer <= 0) {
+      f.ringTimer = 0.16;
+      this.fx.shockwave(f.origin, 0x8ffbff, f.radius * 0.9);
     }
   }
 

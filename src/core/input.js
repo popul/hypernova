@@ -92,6 +92,16 @@ export class Input {
     return this.held.has('ArrowRight') || this.held.has('KeyD');
   }
 
+  // Avance / recul. KeyW et KeyZ couvrent QWERTY et AZERTY sur la même touche
+  // physique — c'est tout l'intérêt de raisonner en event.code.
+  get forward() {
+    return this.held.has('ArrowUp') || this.held.has('KeyW') || this.held.has('KeyZ');
+  }
+
+  get back() {
+    return this.held.has('ArrowDown') || this.held.has('KeyS');
+  }
+
   get fire() {
     return this.held.has('Space') || this.mouseDown || this.touchActive;
   }

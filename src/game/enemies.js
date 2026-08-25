@@ -83,6 +83,7 @@ export class Enemies {
     this.waveClock = 0;
     this.diveTimer = this.diff.diveInterval + 2; // répit le temps de l'entrée
     this.fireTimer = 2;
+    this.bossDefeatedThisWave = false;
   }
 
   // Recalcule la difficulté en cours de vague quand le directeur monte d'un cran.
@@ -418,23 +419,39 @@ export class Enemies {
   // roleMul répartit l'anticipation entre les tireurs d'une même volée : 1.0 vise
   // loin devant, 0 vise sur place (et cueille celui qui freine).
   _predictPoint(fromZ, game, roleMul) {
-    const tof = Math.abs(ARENA.playerZ - fromZ) / this.diff.bulletSpeed;
+    // Temps de vol mesuré jusqu'à la position RÉELLE du joueur : depuis qu'il peut
+    // avancer et reculer, viser le plan de départ manquerait systématiquement.
+    const tof = Math.abs(game.player.position.z - fromZ) / this.diff.bulletSpeed;
     const lead = this.diff.lead ?? ENEMY.leadBase;
     const jitter = (Math.random() - 0.5) * 2 * ENEMY.leadJitter;
     const x = game.player.position.x + game.player.vx * tof * lead * roleMul + jitter;
     return THREE.MathUtils.clamp(x, -ARENA.playerXMax, ARENA.playerXMax);
   }
 
+  // Point de passage OBLIGÉ de tout projectile ennemi : c'est ici, et nulle part
+  // ailleurs, qu'on garantit au joueur un temps de réaction. Un tir dont la balle
+  // arriverait en moins de minReactionTime n'est pas une difficulté, c'est une
+  // perte de vie annoncée — on ne le tire pas.
+  _spawnShot(from, dir, kind, game) {
+    const speed = dir.length();
+    if (speed > 1e-3) {
+      const dist = from.distanceTo(game.player.position);
+      if (dist / speed < ENEMY.minReactionTime) return false;
+    }
+    game.enemyBullets.spawn(from, dir, kind);
+    return true;
+  }
+
   // Tire une balle depuis `from` vers le point x cible (au plan du joueur).
   _shootToward(from, aimX, game, speedMul = 1, spread = 0, kind = 'aimed') {
-    const dir = this._tmp2.set(aimX - from.x, 0, ARENA.playerZ - from.z);
+    const dir = this._tmp2.set(aimX - from.x, 0, game.player.position.z - from.z);
     dir.normalize();
     if (spread) {
       dir.x += (Math.random() - 0.5) * 2 * spread;
       dir.normalize();
     }
     dir.multiplyScalar(this.diff.bulletSpeed * speedMul);
-    game.enemyBullets.spawn(from, dir, kind);
+    return this._spawnShot(from, dir, kind, game);
   }
 
   // Tir visé d'un ennemi, avec la signature de son type (drone/guêpe/brute).
@@ -528,7 +545,7 @@ export class Enemies {
           0,
           Math.cos(angle) * this.diff.bulletSpeed
         );
-        game.enemyBullets.spawn(from, dir, 'straight');
+        this._spawnShot(from, dir, 'straight', game);
       }
       game.audio.enemyShoot();
     } else {
@@ -541,7 +558,7 @@ export class Enemies {
   _fireFan(e, game, offsetU = 0) {
     const from = this._tmp.copy(e.group.position);
     from.z += 1.2;
-    const dz = Math.max(1, ARENA.playerZ - from.z);
+    const dz = Math.max(1, game.player.position.z - from.z);
     const span = Math.min(
       BOSS.fanSpanMax,
       BOSS.fanSpanBase + BOSS.fanSpanPerWave * this.waveNumber
@@ -552,10 +569,9 @@ export class Enemies {
       const aimX = centerX + (i - (count - 1) / 2) * BOSS.fanSpacingU + offsetU;
       const dir = new THREE.Vector3(aimX - from.x, 0, dz).normalize();
       dir.multiplyScalar(this.diff.bulletSpeed);
-      game.enemyBullets.spawn(from, dir, 'straight');
+      this._spawnShot(from, dir, 'straight', game);
     }
     game.audio.enemyShoot();
-    void dz;
   }
 
   // Inflige des dégâts ; renvoie true si l'ennemi meurt.
@@ -578,6 +594,7 @@ export class Enemies {
     e.dispose();
     if (e.type === 'boss') {
       this.boss = null;
+      this.bossDefeatedThisWave = true; // le saut suivant a droit à sa réplique
       game.hud.hideBossBar();
       game.fx.explosionBig(e.group.position, EXPLOSION_COLORS.boss);
       game.audio.explosionBig();

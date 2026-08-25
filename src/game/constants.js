@@ -3,6 +3,12 @@
 export const ARENA = {
   playerZ: 13,
   playerXMax: 14.5,
+  // Profondeur jouable. Rester cloué sur une ligne réduisait l'esquive à un seul
+  // axe : avancer permet d'aller chercher les crédits et de raccourcir la portée
+  // du tir, reculer donne du temps de réaction. Les deux se paient.
+  playerZMin: 5.5, // en avant : plus exposé, mais on touche plus vite
+  playerZMax: 17.5, // en arrière : plus de temps pour lire, mais les gemmes s'échappent
+  playerZSpeedMul: 0.72, // l'axe de profondeur est plus lent : il reste secondaire
   // Le bord n'est pas visible : buter contre un mur invisible se ressent comme un
   // bug. On boucle donc l'arène — sortir par la gauche fait rentrer par la droite.
   // C'est aussi une échappatoire tactique : la fuite devient une option.
@@ -78,6 +84,12 @@ export const ENEMY_TYPES = {
 };
 
 export const ENEMY = {
+  // Un ennemi ne tire pas si sa balle atteindrait le joueur en moins de ce délai.
+  // Sans cette règle, un plongeur arrivé à bout portant tirait une balle qui
+  // apparaissait déjà sur la coque : rien à lire, rien à esquiver, juste une perte
+  // de vie annoncée. La menace du piqué reste entière — c'est la COLLISION qui
+  // doit faire peur de près, pas un tir impossible à voir partir.
+  minReactionTime: 0.42,
   bulletSpeedBase: 13,
   bulletSpeedPerWave: 0.55,
   bulletSpeedMax: 27,
@@ -205,8 +217,13 @@ export const OVERDRIVE = {
   bombDamage: 2,
   bombBossDamage: 8,
   bombCooldown: 6,
-  bombRadius: 11, // n'efface que les tirs proches, pas tout l'écran
-  bombZMax: 2, // ne frappe que ce qui est descendu vers le joueur
+  bombRadius: 11, // rayon de l'effacement IMMÉDIAT des projectiles
+  // La détonation n'est plus instantanée : un front part du vaisseau et balaie
+  // l'arène en un peu moins d'une seconde. Sans lui, la bombe ne touchait que ce
+  // qui était déjà descendu — donc jamais la formation, et jamais le boss.
+  bombFrontSpeed: 62, // unités/seconde : traverse l'arène en ~0,9 s
+  bombFrontMax: 58, // portée finale : couvre la formation la plus haute et le boss
+  bombFrontThickness: 5.5, // épaisseur de la couronne active
   energyPerDiverKill: 3, // uniquement les kills au canon (pas les missiles)
   energyPerComboTier: 4, // et une seule fois par palier et par vague
 };
@@ -242,6 +259,19 @@ export const FX = {
   hitStopScale: 0.15,
   hitStopDuration: 0.07,
   shakeDecay: 2.6,
+};
+
+// Réflexe : le ralenti d'esquive de la dernière chance.
+//
+// Le monde ralentit, le vaisseau NON — sa vitesse est divisée par la même échelle,
+// donc il garde sa vitesse à l'écran. C'est toute l'astuce : ralentir tout le monde
+// ne donnerait aucune chance de plus, seulement la même scène en plus lent.
+export const REFLEX = {
+  lookahead: 0.34, // on ne regarde que les tirs qui touchent dans moins de 0,34 s
+  hitPad: 0.55, // marge autour du rayon de collision : on déclenche sur « ça va toucher »
+  scale: 0.3, // le monde tourne à 30 % — en dessous, le ralenti se lit comme un gel
+  duration: [0, 0.45, 0.6, 0.78], // par niveau d'amélioration
+  cooldown: [0, 9, 7, 5.5],
 };
 
 export const STORAGE_KEYS = {

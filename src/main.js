@@ -7,7 +7,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Input, isTouchDevice } from './core/input.js';
 import { AudioEngine } from './core/audio.js';
-import { Starfield } from './game/starfield.js';
+import { Space } from './game/space/index.js';
+import { ArenaEdges } from './game/arena.js';
 import { Fx } from './game/fx.js';
 import { Game } from './game/game.js';
 import './style.css';
@@ -22,6 +23,10 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
+// Nécessaire au bouclage d'arène : le vaisseau qui franchit un bord est TRANCHÉ par
+// un demi-plan, et son complément est dessiné à l'autre bord. Sans découpe locale,
+// il faudrait afficher deux coques entières — ce qui se lit comme deux vaisseaux.
+renderer.localClippingEnabled = true;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05040f);
@@ -84,7 +89,8 @@ export function setCinematicQuality(on) {
 
 const input = new Input();
 const audio = new AudioEngine();
-const starfield = new Starfield(scene);
+const space = new Space(scene, { lights: { hemi, keyLight, rimLight, mawLight }, renderer });
+const arenaEdges = new ArenaEdges(scene);
 const fx = new Fx(scene);
 
 const game = new Game({
@@ -101,6 +107,7 @@ const game = new Game({
     bloom,
     lights: { hemi, keyLight, rimLight, mawLight },
     setQuality: setCinematicQuality,
+    space, // le ciel : le jeu lui demande de changer de secteur à chaque saut
     fitCamera,
     cameraHome: CAMERA_BASE,
     cameraTarget: CAMERA_TARGET,
@@ -108,6 +115,7 @@ const game = new Game({
   hudRoot: document.getElementById('hud'),
   overlayRoot: document.getElementById('overlay'),
 });
+game.arenaEdges = arenaEdges; // le vaisseau allume la couture qu'il franchit
 
 if (isTouchDevice()) document.body.classList.add('touch');
 
@@ -138,7 +146,7 @@ document.addEventListener('visibilitychange', () => {
 
 // Accès debug en dev uniquement (tests pilotés, réglages en console).
 if (import.meta.env.DEV) {
-  window.__NOVA = { game, scene, camera, renderer };
+  window.__NOVA = { game, scene, camera, renderer, space, arenaEdges };
 }
 
 let lastTime = performance.now();
@@ -150,7 +158,8 @@ function frame() {
   lastTime = now;
   const dt = fx.tick(realDt); // hit-stop : dt gameplay éventuellement ralenti
 
-  starfield.update(realDt, game.state === 'playing' ? 1 : 0.35);
+  space.update(realDt, game.state === 'playing' || game.state === 'jump' ? 1 : 0.35);
+  arenaEdges.update(realDt, game.player ? game.player.position.x : 0);
   game.characters.update(realDt); // les visages vivent même quand le jeu est en pause
   game.update(dt);
 

@@ -3,7 +3,14 @@
 
 import * as THREE from 'three';
 import { createPlayerShip, createShieldMesh, createGrazeAura } from './ships.js';
+import { makeWrapPlanes, aimPlane } from './arena.js';
 import { ARENA, PLAYER, OVERDRIVE } from './constants.js';
+
+// Demi-envergure de la coque (bouts d'ailes compris, échelle de carène appliquée).
+// C'est la distance à partir de laquelle la coque mord sur le bord et doit être
+// tranchée. La chiffrer ici plutôt que de la deviner évite le défaut classique :
+// une couture qui s'ouvre trop tôt (deux morceaux flottants) ou trop tard (un saut).
+const HALF_WIDTH = 1.85 * 0.78 + 0.1;
 
 export class Player {
   constructor(scene) {
@@ -21,13 +28,28 @@ export class Player {
     this.group.add(this.grazeAura);
     this.grazeFlash = 0;
 
-    // Double pour le bouclage de l'arène (voir _updateGhost).
-    this.ghost = createPlayerShip();
-    this.ghost.traverse((o) => {
+    // Le prolongement de la coque de l'autre côté de la couture. Ce n'est PAS un
+    // second vaisseau : les deux morceaux sont découpés par des demi-plans
+    // complémentaires, donc à tout instant on voit exactement une coque, coupée.
+    this.seam = createPlayerShip();
+    this.seam.traverse((o) => {
       if (o.name === 'hitcore' || o.name === 'hitring') o.visible = false;
     });
-    this.ghost.visible = false;
-    scene.add(this.ghost);
+    this.seam.visible = false;
+    scene.add(this.seam);
+
+    // Les plans sont posés dès la construction, donc compilés avec le reste : plus
+    // aucune recompilation en cours de partie.
+    this.planes = makeWrapPlanes();
+    const attach = (root, plane) =>
+      root.traverse((o) => {
+        if (!o.material) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          m.clippingPlanes = [plane];
+        }
+      });
+    attach(this.group, this.planes.hull);
+    attach(this.seam, this.planes.seam);
 
     this.exhausts = [];
     this.hitMarkers = [];
@@ -37,6 +59,7 @@ export class Player {
     });
 
     this.vx = 0;
+    this.vz = 0;
     this.fireCooldown = 0;
     this.missileTimer = 0;
     this.shieldUp = false;
@@ -45,6 +68,7 @@ export class Player {
     this.alive = true;
     this.time = 0;
     this._tmp = new THREE.Vector3();
+    this._aim = new THREE.Vector3();
   }
 
   get position() {
@@ -57,25 +81,37 @@ export class Player {
     for (const m of this.hitMarkers) m.visible = visible;
   }
 
-  // Double affiché de l'autre côté quand on approche d'un bord : sans lui, le
-  // bouclage serait une téléportation incompréhensible.
-  _updateGhost() {
-    if (!ARENA.wrap || !this.ghost) return;
+  // La couture. Tant que la coque tient entière dans l'arène, rien n'est découpé et
+  // rien n'est dupliqué. Dès qu'elle mord sur un bord, on tranche : le morceau resté
+  // à l'intérieur est dessiné ici, le morceau qui dépasse est dessiné à l'autre bord.
+  // C'est un seul objet qui traverse une frontière, pas deux objets côte à côte.
+  _updateSeam() {
+    if (!ARENA.wrap || !this.seam) return;
     const x = this.group.position.x;
     const span = ARENA.playerXMax * 2;
-    const nearRight = ARENA.playerXMax - x < ARENA.wrapGhostZone;
-    const nearLeft = x + ARENA.playerXMax < ARENA.wrapGhostZone;
-    if (nearRight || nearLeft) {
-      this.ghost.visible = this.group.visible;
-      this.ghost.position.set(
-        x + (nearRight ? -span : span),
-        this.group.position.y,
-        this.group.position.z
-      );
-      this.ghost.rotation.copy(this.group.rotation);
-    } else {
-      this.ghost.visible = false;
+    const overRight = ARENA.playerXMax - x < HALF_WIDTH;
+    const overLeft = x + ARENA.playerXMax < HALF_WIDTH;
+
+    if (!overRight && !overLeft) {
+      aimPlane(this.planes.hull, 0);
+      aimPlane(this.planes.seam, 0);
+      this.seam.visible = false;
+      return;
     }
+
+    // La coque garde le côté où elle est ; son prolongement garde l'autre.
+    const side = overRight ? 1 : -1;
+    aimPlane(this.planes.hull, side);
+    aimPlane(this.planes.seam, -side);
+
+    this.seam.visible = this.group.visible;
+    this.seam.position.set(
+      x + (overRight ? -span : span),
+      this.group.position.y,
+      this.group.position.z
+    );
+    this.seam.rotation.copy(this.group.rotation);
+    this.seam.scale.copy(this.group.scale);
   }
 
   // shieldRecharge : délai avant que le bouclier ne revienne. À 0 il réapparaîtrait
@@ -83,6 +119,7 @@ export class Player {
   reset({ keepUpgrades = true, shieldRecharge = 0 } = {}) {
     this.group.position.set(0, 0, ARENA.playerZ);
     this.vx = 0;
+    this.vz = 0;
     this.alive = true;
     this.group.visible = true;
     this.invulnTimer = keepUpgrades ? PLAYER.respawnInvuln : PLAYER.respawnInvulnAfterDeath;
@@ -100,38 +137,76 @@ export class Player {
     this.time += dt;
     const { input, stats, bullets, missiles, enemies, audio, fx } = game;
 
+    // Pendant le ralenti d'esquive, le MONDE ralentit et le vaisseau non : son
+    // déplacement est intégré avec le temps réel, pas avec le temps de jeu.
+    //
+    // Plafonner sa vitesse de pointe ne suffisait pas — mesuré : l'approche la plus
+    // courte d'un tir mortel passait seulement de 0,38 à 0,83, sous le rayon de
+    // collision. Parce que le facteur limitant n'est pas la vitesse, c'est
+    // l'INERTIE : le vaisseau mettait toujours le même temps de jeu à s'inverser,
+    // donc exactement le même temps relatif à la balle. En intégrant tout son
+    // mouvement en temps réel, il réagit comme d'habitude pendant que la balle rampe.
+    //
+    // Seul le déplacement en profite : cadence de tir, bouclier et invulnérabilité
+    // restent en temps de jeu. Le Réflexe sauve une vie, il ne fait pas de dégâts.
+    const pdt = game.timeScale ? dt / game.timeScale : dt;
+    const maxSpeed = stats.speed;
+
     // Déplacement avec accélération/friction pour un feeling précis mais vivant.
     // Tactile : le vaisseau rejoint la position du doigt (vitesse plafonnée par les stats,
     // pour que l'amélioration Propulseurs garde son intérêt sur mobile).
     let targetVx;
+    let targetVz;
     if (input.touchActive) {
-      const targetX = this._touchWorldX(input.touchNdc, game.camera);
-      targetVx = THREE.MathUtils.clamp(
-        (targetX - this.group.position.x) * 8,
-        -stats.speed,
-        stats.speed
-      );
+      const aim = this._touchWorldPoint(input.touchNdc, game.camera);
+      targetVx = THREE.MathUtils.clamp((aim.x - this.group.position.x) * 8, -maxSpeed, maxSpeed);
+      // Le doigt pilote aussi la profondeur : le geste est une position dans le
+      // plan, pas une abscisse. Un pouce qui glisse vers le haut avance.
+      const zSpeed = maxSpeed * ARENA.playerZSpeedMul;
+      targetVz = THREE.MathUtils.clamp((aim.z - this.group.position.z) * 8, -zSpeed, zSpeed);
     } else {
       const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      targetVx = dir * stats.speed;
+      targetVx = dir * maxSpeed;
+      const dirZ = (input.back ? 1 : 0) - (input.forward ? 1 : 0);
+      targetVz = dirZ * maxSpeed * ARENA.playerZSpeedMul;
     }
-    this.vx += (targetVx - this.vx) * Math.min(1, 14 * dt);
-    let nx = this.group.position.x + this.vx * dt;
+    this.vx += (targetVx - this.vx) * Math.min(1, 14 * pdt);
+    this.vz += (targetVz - this.vz) * Math.min(1, 11 * pdt);
+
+    let nx = this.group.position.x + this.vx * pdt;
     if (ARENA.wrap) {
       const span = ARENA.playerXMax * 2;
-      if (nx > ARENA.playerXMax) nx -= span;
-      else if (nx < -ARENA.playerXMax) nx += span;
+      if (nx > ARENA.playerXMax) {
+        nx -= span;
+        game.arenaEdges?.ping(1);
+      } else if (nx < -ARENA.playerXMax) {
+        nx += span;
+        game.arenaEdges?.ping(-1);
+      }
     } else {
       nx = THREE.MathUtils.clamp(nx, -ARENA.playerXMax, ARENA.playerXMax);
     }
     this.group.position.x = nx;
-    this._updateGhost();
-    // Roulis + léger lacet selon la vitesse.
+    // La profondeur, elle, est BORNÉE : boucler en z n'aurait aucun sens (on
+    // ressortirait dans la formation ennemie) et un mur y est parfaitement lisible,
+    // puisque le haut et le bas de l'écran sont visibles.
+    this.group.position.z = THREE.MathUtils.clamp(
+      this.group.position.z + this.vz * pdt,
+      ARENA.playerZMin,
+      ARENA.playerZMax
+    );
+    this._updateSeam();
+
+    // Roulis + léger lacet selon la vitesse, et tangage selon l'avance : le nez
+    // pique en avançant, se relève en reculant. C'est ce qui rend l'axe lisible.
     this.group.rotation.z = -this.vx * 0.035;
     this.group.rotation.y = -this.vx * 0.012;
+    this.group.rotation.x = this.vz * 0.03;
 
-    // Halo moteur qui pulse, plus fort en mouvement.
-    const pulse = 1 + Math.sin(this.time * 30) * 0.25 + Math.abs(this.vx) * 0.02;
+    // Halo moteur qui pulse, plus fort en mouvement — et franchement plus fort en
+    // accélération : la poussée doit se voir.
+    const thrust = Math.max(0, -this.vz) * 0.06;
+    const pulse = 1 + Math.sin(this.time * 30) * 0.25 + Math.abs(this.vx) * 0.02 + thrust;
     for (const e of this.exhausts) e.scale.setScalar(pulse);
 
     // L'aura de frôlement respire doucement, et s'embrase quand une balle est frôlée.
@@ -182,11 +257,18 @@ export class Player {
     }
   }
 
-  // Projette la position du doigt (NDC) sur la ligne de déplacement du vaisseau (y=0, z=playerZ).
-  _touchWorldX(ndc, camera) {
+  // Projette la position du doigt (NDC) sur le PLAN de jeu (y = 0) et renvoie le
+  // point visé en x ET en z. L'ancienne version ne rendait que x : la profondeur
+  // était jetée à la frontière de l'entrée tactile.
+  _touchWorldPoint(ndc, camera) {
     this._tmp.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position);
-    const t = (ARENA.playerZ - camera.position.z) / this._tmp.z;
-    return camera.position.x + this._tmp.x * t;
+    const t = -camera.position.y / this._tmp.y; // intersection avec le plan y = 0
+    this._aim.set(
+      camera.position.x + this._tmp.x * t,
+      0,
+      THREE.MathUtils.clamp(camera.position.z + this._tmp.z * t, ARENA.playerZMin, ARENA.playerZMax)
+    );
+    return this._aim;
   }
 
   _shoot(stats, bullets, audio, fx) {

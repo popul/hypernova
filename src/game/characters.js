@@ -51,6 +51,9 @@ const LINES = {
     'Boulonné. Ça pèse quatre kilos de plus. Tu vas le sentir en virage.',
     'Installé. Je le teste sur le premier qui passe.',
   ],
+  reflexFirst: [
+    'Le temps vient de se plier. Pas toi. Sers-t’en : tu as une seconde qui n’existe pas.',
+  ],
   grazeFirst: ['Tu viens de la frôler à quatre centimètres. Refais-le : ça charge la jauge.'],
   bombReady: ["Nova Bomb armée. X, et tout ce qui est devant toi cesse d'exister. Tu en as une."],
   bombReadyTouch: [
@@ -82,6 +85,30 @@ const LINES = {
     '{SYSTEME} repris. Trente-neuf noms au dossier, et un vivant en bas de page.',
     "Système propre. C'était pas mal, {PILOTE}. Ne le prends pas mal, je ne le redirai pas.",
   ],
+  // Fin de vague. NOVA constate, jamais elle ne félicite — et elle annonce le
+  // secteur suivant, ce qui donne au saut sa raison d'être : on va QUELQUE PART.
+  jump: [
+    'Secteur vide. Cap sur {SECTEUR}. Accroche-toi, je pousse.',
+    'Plus rien qui bouge ici. {SECTEUR} au cap. Trois secondes.',
+    'On dégage. {SECTEUR} — et je te préviens tout de suite, ce n’est pas mieux.',
+    'Zone propre. {SECTEUR}. Tu tiens encore debout, je le note.',
+    'Saut armé. {SECTEUR}. Garde tes mains sur la barre.',
+  ],
+  jumpAfterBoss: ['Corps froid derrière nous. {SECTEUR}. Ne te retourne pas.'],
+  // Échanges à deux voix. VORAX parle le premier, NOVA a le dernier mot — toujours
+  // dans cet ordre : c'est ce qui fait d'elle une alliée et non un commentaire.
+  voraxJump: [
+    'Vous fuyez bien. Continuez. {SECTEUR} est déjà à moi.',
+    'Onze mille corps, pilote. Vous en avez éteint six.',
+    'Sautez donc. J’ai tout le temps. C’est la seule chose que j’aie en trop.',
+    'Vous comptez vos victoires ? Moi je compte les vôtres. Nous n’avons pas le même total.',
+  ],
+  novaAnswer: [
+    'Il t’écoute. C’est mauvais signe. Coupe la fréquence et pousse.',
+    'Ne réponds pas. Il apprend ta voix. Il n’aura pas la mienne.',
+    'Il parle. Donc il attend. Ça nous laisse une vague d’avance.',
+    'Six sur onze mille. Il a dit le chiffre lui-même. Retiens-le.',
+  ],
   gameOver: [
     "Ligne quarante. Je ne l'écris pas encore. Reviens la chercher.",
     "Non. Pas deux fois. Remets-moi en l'air.",
@@ -108,7 +135,12 @@ const EMOTION_BY_KEY = {
   missionWon: 'content',
   gameOver: 'triste',
   novaIntro: 'neutre',
+  jump: 'determine',
+  jumpAfterBoss: 'neutre',
+  voraxJump: 'neutre',
+  novaAnswer: 'alerte',
   grazeFirst: 'neutre',
+  reflexFirst: 'alerte',
   bombReady: 'alerte',
   bombReadyTouch: 'alerte',
   odReady: 'determine',
@@ -210,12 +242,37 @@ export class Characters {
   _fill(text) {
     return text
       .replace('{PILOTE}', this.ctx?.pilote || 'pilote')
-      .replace('{SYSTEME}', this.ctx?.systeme || 'Ce système');
+      .replace('{SYSTEME}', this.ctx?.systeme || 'Ce système')
+      .replace('{SECTEUR}', this.ctx?.secteur || 'le secteur suivant');
   }
 
   say(key, opts = {}) {
     const line = pick(LINES[key] || []);
     if (line) this.sayText(this._fill(line), { emotion: EMOTION_BY_KEY[key], ...opts });
+  }
+
+  // Enchaîne plusieurs répliques dans l'ordre, chacune attendant que la précédente
+  // ait fini de s'articuler. Les répliques du saut n'ont pas le droit d'être
+  // filtrées par le silence minimal : la séquence dure trois secondes et n'a pas
+  // de seconde chance.
+  playExchange(keys) {
+    if (this._exchange) this._exchange.forEach(clearTimeout);
+    this._exchange = [];
+    let delay = 0;
+    for (const key of keys) {
+      const line = pick(LINES[key] || []);
+      if (!line) continue;
+      const text = this._fill(line);
+      const speaker = key.startsWith('vorax') ? 'vorax' : 'nova';
+      const hold = Math.min(4200, 420 + text.length * 46) + 260;
+      this._exchange.push(
+        setTimeout(
+          () => this.sayText(text, { speaker, priority: true, emotion: EMOTION_BY_KEY[key] }),
+          delay
+        )
+      );
+      delay += hold;
+    }
   }
 
   hide() {

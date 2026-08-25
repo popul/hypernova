@@ -73,6 +73,12 @@ export class Fx {
     this.trauma = 0;
     this.shakeOffset = new THREE.Vector3();
     this.hitStopTimer = 0;
+    // Ralenti d'esquive : plus long et moins brutal que le hit-stop, et il doit
+    // pouvoir cohabiter avec lui sans qu'ils se marchent dessus — d'où deux
+    // compteurs distincts, et non un seul avec deux réglages.
+    this.slowTimer = 0;
+    this.slowScale = 1;
+    this.timeScale = 1;
     this._tmpColor = new THREE.Color();
   }
 
@@ -144,6 +150,20 @@ export class Fx {
     this.hitStopTimer = Math.max(this.hitStopTimer, duration);
   }
 
+  // Dilatation du temps. On garde la plus longue des demandes en cours plutôt que
+  // de repartir de zéro : deux déclenchements rapprochés ne doivent pas raccourcir
+  // la fenêtre d'esquive, ce serait exactement le contraire de ce qu'on veut.
+  slowmo(duration, scale) {
+    if (duration > this.slowTimer) {
+      this.slowTimer = duration;
+      this.slowScale = scale;
+    }
+  }
+
+  cancelSlowmo() {
+    this.slowTimer = 0;
+  }
+
   // Avance les effets avec le dt réel et renvoie le dt gameplay (ralenti si hit-stop).
   tick(realDt) {
     // Particules.
@@ -192,11 +212,21 @@ export class Fx {
       (Math.random() - 0.5) * 2 * s * 0.8
     );
 
-    // Hit-stop.
+    // Échelle de temps : le hit-stop (bref, très fort) l'emporte sur le ralenti
+    // d'esquive (long, modéré) tant qu'il dure.
+    let scale = 1;
+    if (this.slowTimer > 0) {
+      this.slowTimer -= realDt;
+      // Sortie en fondu sur les 120 dernières millisecondes : une reprise sèche
+      // du temps normal se ressent comme un à-coup, pas comme un soulagement.
+      const out = Math.min(1, Math.max(0, this.slowTimer) / 0.12);
+      scale = THREE.MathUtils.lerp(1, this.slowScale, out);
+    }
     if (this.hitStopTimer > 0) {
       this.hitStopTimer -= realDt;
-      return realDt * FX.hitStopScale;
+      scale = Math.min(scale, FX.hitStopScale);
     }
-    return realDt;
+    this.timeScale = scale;
+    return realDt * scale;
   }
 }
