@@ -201,14 +201,25 @@ body {
 
 /* Jauge d'énergie (frôlements) : bombe à 50 %, Overdrive à 100 % */
 
+/* À DROITE, et pas à gauche : la fenêtre de comm occupe tout le coin bas-gauche
+   et passe devant (z-index 36). La jauge de furie y était donc invisible dès que
+   NOVA ou KORN parlait — c'est-à-dire précisément aux moments de tension, quand
+   on a le plus besoin de savoir si la bombe est chargée. */
 .hud-energy {
   position: absolute;
-  left: max(28px, env(safe-area-inset-left));
+  right: max(28px, env(safe-area-inset-right));
   bottom: 64px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 5px;
+  z-index: 30;
+}
+
+/* Au tactile, les deux boutons ronds occupent le coin : on remonte la jauge
+   au-dessus d'eux plutôt que de la superposer. */
+body.touch .hud-energy {
+  bottom: 178px;
 }
 
 .energy-track {
