@@ -1,6 +1,13 @@
 # HYPERNOVA — Le Registre
 
-Version 1 du scénario, à relire et corriger.
+Version 2 du scénario, à relire et corriger.
+
+> **Changement depuis la v1** — VORAX n'a plus « onze mille corps ». Un nombre fini
+> se lit comme une barre de vie, et invitait à le vaincre par attrition, ce qui
+> entrait en concurrence avec la vraie fin. Ses corps sont désormais fabriqués sur
+> place, en nombre indéterminé, et il apprend de chacun de ceux qu'on lui détruit.
+> Les onze mille restent, mais ce sont les **civilisations archivées** : le seul
+> chiffre du récit qui doit rester net, puisque c'est un compte de morts.
 
 ---
 
@@ -17,20 +24,34 @@ l'arrêter est de la lui montrer.
 
 L'histoire évidente serait : des extraterrestres attaquent la Terre, on va chercher
 l'arme légendaire, on revient, on gagne. Le problème est qu'elle ne résiste pas à
-son propre jeu : VORAX dit lui-même « J'en ai onze mille » en parlant de ses corps.
-On ne bat pas à la mitrailleuse quelque chose qui possède onze mille corps. Si le
-joueur peut le tuer, il n'était pas menaçant ; s'il ne peut pas, la quête n'a pas
-de fin.
+son propre jeu : si le joueur peut tuer VORAX, celui-ci n'était pas menaçant ; s'il
+ne peut pas, la quête n'a pas de fin.
+
+Et il ne suffit pas de lui donner beaucoup de corps. **Un nombre fini, c'est une
+barre de vie.** Un enfant de douze ans à qui l'on dit « il en a onze mille » entend
+« il faut en tuer onze mille » : l'attrition redevient une stratégie gagnante en
+théorie, et elle entre en concurrence directe avec la vraie fin. Le nombre doit donc
+disparaître.
+
+VORAX ne POSSÈDE pas ses corps, il les FABRIQUE. Chaque système traité fournit la
+matière du suivant : détruire un corps ne prélève rien sur un stock, ça lui coûte
+quelques heures de fonderie. Il ne dit jamais combien il en a, parce que la question
+n'a pas de sens pour lui — et c'est parfaitement cohérent avec son personnage
+d'archiviste : il compte ce qu'il classe, jamais ce qu'il consomme.
+
+Ce qui reste chiffré, c'est le bilan : **onze mille civilisations archivées.** Celui-là
+doit rester net, parce que c'est un compte de morts.
 
 D'où le renversement : **la victoire n'est pas un tir, c'est une preuve livrée.**
-Le jeu de tir reste entier — il faut traverser onze mille corps pour arriver
+Le jeu de tir reste entier — il faut traverser tout ce qu'il envoie pour arriver
 jusqu'à lui — mais ce qu'on ramène du bout du voyage n'est pas un canon.
 
 Et ce renversement était déjà écrit dans le jeu sans que je l'aie prévu :
 
 - VORAX **vouvoie** et reste poli. Un massacreur ne fait pas ça. Un fonctionnaire, si.
-- VORAX **compte**. Onze mille corps, onze minutes pour Bételgeuse, neuf pour ici.
-  « Je note ton nom. C'est rare. » Il tient un registre.
+- VORAX **compte**. Onze mille civilisations, onze minutes pour Bételgeuse, neuf
+  pour ici. « Je note ton nom. C'est rare. » Il tient un registre. Ses corps, en
+  revanche, il ne les compte jamais : ce ne sont pas des entrées.
 - NOVA dit **« Je note »** à chaque fois qu'elle est impressionnée. Elle aussi tient
   un registre.
 - Le thème musical du boss est **le thème du joueur avec la quinte abaissée** : la
@@ -72,6 +93,22 @@ de tout ce qu'elle sauvait.
 **Onze mille civilisations sauvées. Aucune vivante.**
 
 La Terre est la onze mille et unième.
+
+### Ses corps
+
+VORAX n'a pas de vaisseau amiral, pas de forme propre, pas de nombre d'exemplaires.
+Il se coule dans la matière disponible : une lune, une épave, un anneau de débris
+lui suffisent à se bâtir un corps en quelques heures. C'est pour cette raison qu'il
+est arrivé sans flotte — il n'en avait pas besoin, il en a fabriqué une sur place.
+
+En détruire un ne le blesse pas et ne l'épuise pas. Ça le retarde, et c'est tout ce
+qu'on peut lui faire.
+
+Pire : **il apprend.** Chaque corps abattu est un prototype dont il tire les
+conclusions, et le suivant tient compte de la façon dont le précédent est tombé.
+C'est ce qui justifie, sans une ligne d'explication, que les boss deviennent plus
+durs au fil de la partie : ils sont plus durs PARCE QUE le joueur a tué les
+premiers.
 
 ### Le Registre
 
@@ -201,8 +238,11 @@ entrées, il trouve une erreur dans son propre registre : l'entrée n° 1 est ma
 
 Il ne s'excuse pas, il ne se repent pas, il ne se sacrifie pas héroïquement. **Il
 s'arrête**, parce qu'un système correct s'arrête quand la condition d'arrêt est
-enfin connue. Ses onze mille corps s'éteignent en même temps, ce qui prend, quelque
-part, onze minutes.
+enfin connue.
+
+Il ne meurt pas : rien n'aurait pu le tuer, et c'est bien pour ça que la fin tient.
+Le procédé cesse, simplement. Partout où il était en train de se bâtir un corps, la
+matière retombe — et ça prend, quelque part, onze minutes.
 
 Et il reste un dernier problème, qui est le vrai sujet du jeu : les onze mille
 civilisations sont toujours dans les balises. Intactes. Archivées.
@@ -220,8 +260,11 @@ civilisations sont toujours dans les balises. Intactes. Archivées.
 dépôts sont plus vieux. Le joueur sait toujours où il en est sans lire un chiffre.
 
 **Les boss ont un sens.** Ce ne sont pas « le boss du niveau 4 ». Ce sont des corps
-que VORAX envoie, et il le dit lui-même. En détruire un ne le blesse pas — ça le
-retarde. La barre de vie du boss n'est pas sa vie, c'est **son temps**.
+que VORAX se fabrique sur place, et il le dit lui-même. En détruire un ne le blesse
+pas et n'entame aucun stock — ça le retarde. La barre du boss n'est donc pas sa vie
+mais **son temps** : on ne le tue pas, on tient assez longtemps pour qu'il lâche ce
+corps-là. Et comme il apprend de chacun, la montée en difficulté n'a plus besoin
+d'être justifiée : le joueur la fabrique lui-même.
 
 **Les fragments justifient les routes.** Le choix entre deux trajectoires devient :
 la route courte (crédits, matériel) ou la route longue (un fragment, donc un
@@ -239,10 +282,11 @@ décor. Le cadre autorise n'importe quoi sans jamais contredire l'histoire.
 
 ## Points sur lesquels j'hésite — à trancher ensemble
 
-1. **La fin est-elle trop douce ?** VORAX s'arrête au lieu d'être détruit. C'est ce
-   qui rend l'histoire intéressante, mais ça prive d'un affrontement final
-   spectaculaire. On peut garder les deux : le dernier corps se bat vraiment fort
-   pendant qu'on transmet, et la transmission est une jauge à remplir sous le feu.
+1. **La fin est-elle trop douce ?** VORAX s'arrête au lieu d'être détruit — ce qui
+   est désormais obligatoire, puisqu'il est devenu impossible à tuer. On garde donc
+   les deux : le dernier corps se bat vraiment fort pendant qu'on transmet, et la
+   transmission est une jauge à remplir sous le feu. Reste à décider si cette jauge
+   se vide quand on est touché, ou seulement si l'on sort de portée.
 
 2. **Le pilote 39 doit-il avoir un nom ?** Lui en donner un la rend inoubliable ;
    la laisser anonyme garde le vertige des « trente-neuf ». Je penche pour un nom.

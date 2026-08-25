@@ -74,7 +74,7 @@ const LINES = {
     "Vous m'obligez à faire attention. Tu viens de perdre le « vous ».",
   ],
   voraxDown: [
-    "Merci. Ce corps était lent. J'en ai onze mille.",
+    'Merci. Ce corps était lent. Le suivant le sera moins.',
     "{PILOTE}. Voilà. Je note ton nom. C'est rare.",
   ],
   bossDown: [
@@ -99,7 +99,7 @@ const LINES = {
   // dans cet ordre : c'est ce qui fait d'elle une alliée et non un commentaire.
   voraxJump: [
     'Vous fuyez bien. Continuez. {SECTEUR} est déjà à moi.',
-    'Onze mille corps, pilote. Vous en avez éteint six.',
+    'Vous en détruisez, j’en refais. Ce n’est pas une course que vous puissiez gagner.',
     'Sautez donc. J’ai tout le temps. C’est la seule chose que j’aie en trop.',
     'Vous comptez vos victoires ? Moi je compte les vôtres. Nous n’avons pas le même total.',
   ],
@@ -107,7 +107,7 @@ const LINES = {
     'Il t’écoute. C’est mauvais signe. Coupe la fréquence et pousse.',
     'Ne réponds pas. Il apprend ta voix. Il n’aura pas la mienne.',
     'Il parle. Donc il attend. Ça nous laisse une vague d’avance.',
-    'Six sur onze mille. Il a dit le chiffre lui-même. Retiens-le.',
+    'Il en refait plus vite qu’on en descend. Alors on ne descend pas : on avance.',
   ],
   gameOver: [
     "Ligne quarante. Je ne l'écris pas encore. Reviens la chercher.",
