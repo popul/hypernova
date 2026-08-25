@@ -11,6 +11,7 @@ export class Input {
     this.held = new Set();
     this.listeners = new Map(); // code -> Set<fn>, déclenché au keydown (pas en répétition)
     this.mouseDown = false;
+    this.autoFire = true;
     this.touchActive = false;
     this.touchNdc = { x: 0, y: 0 }; // position du doigt en coordonnées NDC (-1..1)
     this._touchId = null; // identifier du doigt qui pilote (robuste au multi-touch)
@@ -102,7 +103,11 @@ export class Input {
     return this.held.has('ArrowDown') || this.held.has('KeyS');
   }
 
+  // Tir automatique, comme au tactile. Maintenir une touche pendant toute une
+  // partie n'apporte aucune décision : le choix intéressant est OÙ l'on est, pas
+  // si l'on appuie. Le tir manuel reste possible et ne change rien puisqu'il
+  // s'ajoute à l'automatique.
   get fire() {
-    return this.held.has('Space') || this.mouseDown || this.touchActive;
+    return this.autoFire || this.held.has('Space') || this.mouseDown || this.touchActive;
   }
 }

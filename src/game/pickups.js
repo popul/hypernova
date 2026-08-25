@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { createGem } from './ships.js';
-import { PICKUPS } from './constants.js';
+import { PICKUPS, ARENA } from './constants.js';
 
 const POOL_SIZE = 60;
 
@@ -44,15 +44,25 @@ export class Pickups {
         e.mesh.visible = false;
         continue;
       }
+      // Une gemme passée SOUS le joueur est perdue : elle sort du champ. On la
+      // retire tout de suite plutôt que de la laisser clignoter hors écran.
+      if (e.mesh.position.z > ARENA.playerZMax + 4) {
+        e.active = false;
+        e.mesh.visible = false;
+        continue;
+      }
       const dist = this._tmp.copy(playerPos).sub(e.mesh.position).length();
       if (vacuum || dist < magnetRadius) {
         this._tmp.normalize();
         const pull = vacuum ? PICKUPS.magnetPull * 1.6 : PICKUPS.magnetPull;
         e.vel.lerp(this._tmp.multiplyScalar(pull), Math.min(1, 8 * dt));
       } else {
-        // Dérive douce vers le joueur + friction.
-        e.vel.multiplyScalar(1 - 2.2 * dt);
-        e.vel.z += 1.5 * dt;
+        // Chute vers le joueur : la friction freine l'impulsion latérale de
+        // l'explosion, mais l'accélération en z tient bon et donne une vitesse
+        // limite d'environ 4,5 u/s. C'est ce qui fait que les gemmes ARRIVENT.
+        e.vel.x *= 1 - 2.6 * dt;
+        e.vel.y *= 1 - 2.6 * dt;
+        e.vel.z += (PICKUPS.fallAccel - e.vel.z * 2.2) * dt;
       }
       e.mesh.position.addScaledVector(e.vel, dt);
       e.mesh.rotation.y += 4 * dt;

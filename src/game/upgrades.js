@@ -2,6 +2,7 @@
 // `computeStats` transforme les niveaux possédés en stats concrètes du vaisseau.
 
 import { PLAYER, PICKUPS, REFLEX } from './constants.js';
+import { UPGRADE_ART } from './upgradeart.js';
 
 export const UPGRADES = [
   {
@@ -77,6 +78,10 @@ export const UPGRADES = [
     desc: '+1 vie (5 max).',
   },
 ];
+
+// Chaque amélioration porte son illustration. Le glyphe reste en secours, mais
+// aucun ne devrait s'afficher : la table d'art couvre toute la liste.
+for (const u of UPGRADES) u.art = UPGRADE_ART[u.id] || null;
 
 export function priceOf(upgrade, level) {
   return Math.round((upgrade.basePrice * Math.pow(upgrade.priceMul, level)) / 5) * 5;

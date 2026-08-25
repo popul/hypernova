@@ -41,18 +41,18 @@ export class ArenaEdges {
     // plus une courte marge. Étendue au-delà, elle traversait tout l'écran en
     // diagonale et devenait un élément de décor permanent — alors que son seul rôle
     // est de dire « le bord est ici », à l'instant où c'est utile.
-    const depth = ARENA.playerZMax - ARENA.playerZMin + 5;
-    const midZ = (ARENA.playerZMax + ARENA.playerZMin) / 2;
+    // Géométrie de longueur unitaire : la zone étant recalculée à chaque cadrage,
+    // la couture se met à l'échelle au lieu d'être reconstruite.
 
     for (const side of [-1, 1]) {
       const group = new THREE.Group();
-      group.position.set(side * ARENA.playerXMax, 0, midZ);
+      group.position.set(side * ARENA.playerXMax, 0, 0);
 
       // Le trait, POSÉ À PLAT dans le plan de jeu. Une version verticale se lisait,
       // sous une caméra en plongée, comme un grand trapèze translucide en travers de
       // l'écran — un mur, alors que c'est précisément un passage.
       const line = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.7, depth),
+        new THREE.PlaneGeometry(0.7, 1),
         new THREE.MeshBasicMaterial({
           map: tex,
           color: 0x6ffaff,
@@ -71,7 +71,7 @@ export class ArenaEdges {
       // Un voile vertical très bas et très discret : il suggère l'épaisseur du
       // passage sans jamais masquer ce qui se trouve derrière.
       const veil = new THREE.Mesh(
-        new THREE.PlaneGeometry(depth, 1.6),
+        new THREE.PlaneGeometry(1, 1.6),
         new THREE.MeshBasicMaterial({
           map: tex,
           color: 0x6ffaff,
@@ -93,6 +93,19 @@ export class ArenaEdges {
       this.seams.push({ group, line, veil, side, flash: 0 });
     }
     this.time = 0;
+    this.setZone();
+  }
+
+  // Recalée après chaque cadrage : la couture couvre exactement la bande de
+  // profondeur où le joueur peut se trouver, plus une courte marge.
+  setZone() {
+    const depth = ARENA.playerZMax - ARENA.playerZMin + 5;
+    const midZ = (ARENA.playerZMax + ARENA.playerZMin) / 2;
+    for (const s of this.seams) {
+      s.group.position.z = midZ;
+      s.line.scale.y = depth;
+      s.veil.scale.x = depth;
+    }
   }
 
   // Appelé au moment du bouclage : la couture s'embrase du côté franchi.
@@ -115,6 +128,30 @@ export class ArenaEdges {
       s.line.scale.x = 1 + s.flash * 0.9;
     }
   }
+}
+
+// Borne arrière de la zone jouable, déduite du CADRAGE RÉEL.
+//
+// Elle était fixée à 17,5 alors que le bord bas de l'écran tombe à z = 16,3 en
+// 16/9 : le vaisseau sortait du champ par le bas, ce qui se ressent comme un bug
+// puisque plus rien ne dit où sont les limites. En portrait, la caméra recule
+// tellement que le rayon du bord bas ne rencontre plus jamais le plan de jeu —
+// il n'y a alors aucune contrainte, et on garde la valeur de repli.
+const _ray = new THREE.Vector3();
+
+export function fitPlayZone(camera) {
+  _ray.set(0, -1, 0.5).unproject(camera).sub(camera.position);
+  // Le rayon doit descendre vers le plan pour le couper devant la caméra.
+  if (_ray.y < -1e-4) {
+    const t = -camera.position.y / _ray.y;
+    const zBottom = camera.position.z + _ray.z * t;
+    if (t > 0 && zBottom > ARENA.playerZMin + 4) {
+      ARENA.playerZMax = zBottom - ARENA.playerZMargin;
+      return ARENA.playerZMax;
+    }
+  }
+  ARENA.playerZMax = 14;
+  return ARENA.playerZMax;
 }
 
 // Les deux demi-plans de la couture. Le vaisseau porte l'un, son prolongement de

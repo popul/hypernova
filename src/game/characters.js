@@ -151,8 +151,21 @@ function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-const BUBBLE_TIME = 3800; // ms d'affichage d'une réplique
-const QUIET_TIME = 5000; // ms minimum entre deux répliques non prioritaires
+// Durée de LECTURE, qui n'a rien à voir avec la durée de la voix. L'affichage était
+// calé sur l'articulation (environ 46 ms par caractère) : une réplique de cent
+// signes tenait 4,9 s à l'écran alors qu'il en faut près de neuf pour la lire au
+// rythme d'un enfant de douze ans — et encore, en pleine partie, sans regarder.
+// 1,4 s pour repérer la fenêtre qui s'allume, puis 75 ms par caractère (≈ 13
+// signes par seconde, marge de compréhension comprise).
+const READ_NOTICE = 1400;
+const READ_PER_CHAR = 75;
+const READ_MAX = 11000;
+
+function readingTime(text) {
+  return Math.min(READ_MAX, READ_NOTICE + text.length * READ_PER_CHAR);
+}
+
+const QUIET_TIME = 6500; // ms minimum entre deux répliques non prioritaires
 
 export class Characters {
   // Monté au niveau de l'app (pas dans le HUD) : les personnages parlent aussi
@@ -206,9 +219,11 @@ export class Characters {
     this.textEl.textContent = text;
     this.current = speaker;
 
-    // Durée d'articulation proportionnelle à la longueur du texte : la bouche
-    // s'arrête quand la phrase est finie, pas après un délai forfaitaire.
+    // Deux durées distinctes, et c'est tout l'enjeu : la bouche s'arrête quand la
+    // phrase est dite, la fenêtre reste tant que le texte n'est pas lu.
     const talkMs = duration ?? Math.min(4200, 420 + text.length * 46);
+    const holdMs = readingTime(text);
+    this.busyUntil = performance.now() + holdMs;
     const rig = this.rigs[speaker] || this.rigs.nova;
     if (emotion) rig.setEmotion(emotion);
     rig.startTalking(talkMs, 1);
@@ -228,10 +243,7 @@ export class Characters {
     if (this.talkTimer) clearTimeout(this.talkTimer);
     this.talkTimer = setTimeout(() => rig.stopTalking(), talkMs);
     if (this.hideTimer) clearTimeout(this.hideTimer);
-    this.hideTimer = setTimeout(
-      () => this.el.classList.remove('visible'),
-      Math.max(BUBBLE_TIME, talkMs + 700)
-    );
+    this.hideTimer = setTimeout(() => this.el.classList.remove('visible'), holdMs);
   }
 
   // Contexte de substitution : {PILOTE} et {SYSTEME} sont remplis par le jeu.
@@ -255,16 +267,22 @@ export class Characters {
   // ait fini de s'articuler. Les répliques du saut n'ont pas le droit d'être
   // filtrées par le silence minimal : la séquence dure trois secondes et n'a pas
   // de seconde chance.
+  // Vrai tant que la réplique en cours n'a pas eu le temps d'être lue.
+  isBusy() {
+    return performance.now() < (this.busyUntil ?? 0);
+  }
+
   playExchange(keys) {
     if (this._exchange) this._exchange.forEach(clearTimeout);
     this._exchange = [];
     let delay = 0;
+    this.exchangeUntil = 0;
     for (const key of keys) {
       const line = pick(LINES[key] || []);
       if (!line) continue;
       const text = this._fill(line);
       const speaker = key.startsWith('vorax') ? 'vorax' : 'nova';
-      const hold = Math.min(4200, 420 + text.length * 46) + 260;
+      const hold = readingTime(text) + 350;
       this._exchange.push(
         setTimeout(
           () => this.sayText(text, { speaker, priority: true, emotion: EMOTION_BY_KEY[key] }),
@@ -273,6 +291,12 @@ export class Characters {
       );
       delay += hold;
     }
+    this.exchangeUntil = performance.now() + delay;
+  }
+
+  // Un échange scénarisé ne doit pas être coupé par une réplique de contexte.
+  inExchange() {
+    return performance.now() < (this.exchangeUntil ?? 0);
   }
 
   hide() {
@@ -302,9 +326,10 @@ export class Characters {
     this.say('lifeLost', { priority: true });
   }
 
+  // Les duos boss passent par le même mécanisme que le saut : la réponse attend
+  // que la première réplique ait eu le temps d'être lue, pas un délai forfaitaire.
   onBossIntro() {
-    this.say('voraxIntro', { speaker: 'vorax', priority: true });
-    setTimeout(() => this.say('bossIntro', { priority: true }), BUBBLE_TIME + 200);
+    this.playExchange(['voraxIntro', 'bossIntro']);
   }
 
   onBossHalf() {
@@ -312,11 +337,14 @@ export class Characters {
   }
 
   onBossDown() {
-    this.say('voraxDown', { speaker: 'vorax', priority: true });
-    setTimeout(() => this.say('bossDown', { priority: true }), BUBBLE_TIME + 200);
+    this.playExchange(['voraxDown', 'bossDown']);
   }
 
   onShopOpen() {
+    // La boutique s'ouvre à la fin du saut, alors que l'échange avec VORAX est
+    // souvent encore en cours. On ne le coupe pas : ce dialogue-là est la
+    // récompense, le conseil d'achat peut attendre le tour suivant.
+    if (this.inExchange()) return;
     this.say('shopOpen', { priority: true });
   }
 

@@ -21,10 +21,12 @@ export class Shop {
         <h2 class="shop-title">Hangar d'armement</h2>
         <div class="shop-credits">Crédits <span class="gold" id="shop-credits">${state.credits}</span></div>
       </div>
-      <div class="shop-grid" id="shop-grid"></div>
-      <button class="btn-launch" id="btn-launch">
-        Lancer la vague ${state.wave} <span class="key-hint">Entrée</span>
-      </button>
+      <div class="shop-scroll"><div class="shop-grid" id="shop-grid"></div></div>
+      <div class="shop-foot">
+        <button class="btn-launch" id="btn-launch">
+          Lancer la vague ${state.wave} <span class="key-hint">Entrée</span>
+        </button>
+      </div>
     `;
     this.root.appendChild(this.panel);
     this.panel.querySelector('#btn-launch').addEventListener('click', () => this.onLaunch());
@@ -61,7 +63,7 @@ export class Shop {
       card.style.setProperty('--stagger', `${i * 55}ms`);
       card.innerHTML = `
         <span class="card-key">${i + 1}</span>
-        <span class="card-icon">${u.icon}</span>
+        <span class="card-icon">${u.art || u.icon}</span>
         <span class="card-name">${u.name}</span>
         <span class="card-pips">${Array.from(
           { length: u.maxLevel },

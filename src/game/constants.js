@@ -6,9 +6,16 @@ export const ARENA = {
   // Profondeur jouable. Rester cloué sur une ligne réduisait l'esquive à un seul
   // axe : avancer permet d'aller chercher les crédits et de raccourcir la portée
   // du tir, reculer donne du temps de réaction. Les deux se paient.
-  playerZMin: 5.5, // en avant : plus exposé, mais on touche plus vite
-  playerZMax: 17.5, // en arrière : plus de temps pour lire, mais les gemmes s'échappent
-  playerZSpeedMul: 0.72, // l'axe de profondeur est plus lent : il reste secondaire
+  //
+  // Avancer beaucoup plus loin qu'avant : la zone était trop courte pour aller
+  // récupérer les gemmes, qui tombent depuis la formation.
+  playerZMin: 0, // en avant : au contact, on touche vite et on ramasse
+  // La borne arrière est CALCULÉE au lancement à partir du cadrage réel (voir
+  // fitPlayZone) : à 17,5 en dur, le vaisseau passait sous le bord bas de l'écran,
+  // qui tombe à z = 16,3 en 16/9. Une limite de jeu qu'on ne voit pas est un bug.
+  playerZMax: 14, // valeur de repli, écrasée dès le premier cadrage
+  playerZMargin: 2.2, // recul gardé sur le bord bas : longueur de coque + confort
+  playerZSpeedMul: 0.8, // l'axe de profondeur reste un peu plus lent que le latéral
   // Le bord n'est pas visible : buter contre un mur invisible se ressent comme un
   // bug. On boucle donc l'arène — sortir par la gauche fait rentrer par la droite.
   // C'est aussi une échappatoire tactique : la fuite devient une option.
@@ -90,9 +97,13 @@ export const ENEMY = {
   // de vie annoncée. La menace du piqué reste entière — c'est la COLLISION qui
   // doit faire peur de près, pas un tir impossible à voir partir.
   minReactionTime: 0.42,
-  bulletSpeedBase: 13,
-  bulletSpeedPerWave: 0.55,
-  bulletSpeedMax: 27,
+  // Vitesse des projectiles, abaissée d'environ 12 %. Elle décide seule du temps
+  // de lecture : à 13 de base, une balle traversait l'arène plus vite que l'œil
+  // ne la suivait. Le budget de balles empêche de son côté la saturation, donc
+  // ralentir ne rend pas la vague plus facile — seulement plus lisible.
+  bulletSpeedBase: 11.5,
+  bulletSpeedPerWave: 0.48,
+  bulletSpeedMax: 23.5,
   formationFireIntervalBase: 2.6, // secondes entre tirs venant de la formation
   formationFireIntervalMin: 0.65,
 
@@ -196,7 +207,9 @@ export const COMBO = {
 // Frôlement : passer près d'une balle ennemie sans la toucher rapporte points,
 // énergie et un sursis de combo. Crédité quand la balle DÉPASSE le joueur.
 export const GRAZE = {
-  radius: 2.0,
+  // Rayon élargi : à 2.0 il fallait viser la balle au pixel près pour créditer un
+  // frôlement, et la mécanique centrale du jeu restait hors de portée.
+  radius: 2.7,
   score: 25,
   energy: 9, // le frôlement est désormais la principale source d'énergie
   comboRefill: 0.4,
@@ -230,11 +243,17 @@ export const OVERDRIVE = {
 
 export const PICKUPS = {
   gemValueScale: 0.58, // multiplié par ENEMY_TYPES[type].credits / gemCount
-  collectRadius: 1.5,
-  baseMagnetRadius: 3.0,
+  collectRadius: 1.8,
+  baseMagnetRadius: 4.2,
   magnetRadiusPerLevel: 2.2,
   magnetPull: 46,
-  lifetime: 9,
+  // Les gemmes DESCENDENT vers le joueur, elles ne flottent plus sur place.
+  // Ancienne physique : friction 2,2 contre une accélération de 1,5, soit une
+  // vitesse limite de 0,7 u/s. Depuis la formation, il leur fallait quarante
+  // secondes pour atteindre le vaisseau — pour une durée de vie de neuf. Elles
+  // n'arrivaient donc JAMAIS : elles expiraient en chemin.
+  fallAccel: 10, // vitesse limite ≈ 4,5 u/s : l'arène est traversée en six secondes
+  lifetime: 11,
 };
 
 export const WAVES = {

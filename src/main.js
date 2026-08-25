@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Input, isTouchDevice } from './core/input.js';
 import { AudioEngine } from './core/audio.js';
 import { Space } from './game/space/index.js';
-import { ArenaEdges } from './game/arena.js';
+import { ArenaEdges, fitPlayZone } from './game/arena.js';
 import { Fx } from './game/fx.js';
 import { Game } from './game/game.js';
 import './style.css';
@@ -32,6 +32,10 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05040f);
 scene.fog = new THREE.FogExp2(0x05040f, 0.0075);
 
+// Déclarés avant fitCamera : celui-ci les recale, et il tourne une première fois
+// dès l'initialisation, avant que la scène ne soit peuplée.
+let arenaEdges = null;
+
 const camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerHeight, 0.1, 300);
 const CAMERA_HOME = new THREE.Vector3(0, 21, 27);
 const CAMERA_TARGET = new THREE.Vector3(0, 0, -3);
@@ -49,6 +53,11 @@ function fitCamera() {
   camera.position.copy(CAMERA_BASE);
   camera.lookAt(CAMERA_TARGET);
   camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true); // fitPlayZone déprojette : la matrice doit être à jour
+  // La limite arrière du joueur se déduit du cadrage, jamais l'inverse : sinon le
+  // vaisseau sort du champ par le bas sur les écrans larges.
+  fitPlayZone(camera);
+  arenaEdges?.setZone();
 }
 fitCamera();
 
@@ -90,7 +99,8 @@ export function setCinematicQuality(on) {
 const input = new Input();
 const audio = new AudioEngine();
 const space = new Space(scene, { lights: { hemi, keyLight, rimLight, mawLight }, renderer });
-const arenaEdges = new ArenaEdges(scene);
+arenaEdges = new ArenaEdges(scene);
+fitCamera(); // second passage : la couture existe enfin et peut être calée
 const fx = new Fx(scene);
 
 const game = new Game({
