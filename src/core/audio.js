@@ -20,28 +20,81 @@ import { STORAGE_KEYS } from '../game/constants.js';
 const ROOT = 36.708; // ré1
 const hz = (s) => ROOT * Math.pow(2, s / 12);
 
-// Tempo UNIQUE. Changer de tempo entre les écrans cassait l'illusion d'un seul
-// morceau ; l'intensité passe désormais par l'instrumentation et le filtre.
-// 150 BPM → un pas de 0,100 s pile, une mesure de 1,600 s.
-const TEMPO = 150;
+// Tempo UNIQUE : changer de tempo entre les écrans casserait l'illusion d'un seul
+// morceau. Mais 150 BPM avec une grosse caisse à quatre temps, c'était un morceau
+// de club — aucun rapport avec un voyage de plusieurs mois vers l'extérieur du
+// système. 84 BPM, c'est un pas d'orchestre, et surtout le temps y tombe à
+// 0,714 s : la seconde d'horloge à un cheveu près. C'est ce tic-là qui porte la
+// pulsation, pas une caisse.
+const TEMPO = 84;
 
-// Le thème d'HYPERNOVA, cinq notes. Quarte juste ascendante (l'élan), ♭6 (le doute),
-// retour, chute sur la tierce. Tout le reste du jeu en est une déclinaison.
-const THEME = [36, 41, 42, 41, 37]; // ré4 la4 si♭4 la4 fa4
-// Variante boss : une octave plus bas, quinte ABAISSÉE. Même mélodie, monde pourri.
-const THEME_BOSS = [24, 28, 30, 28, 25];
-// Deux demi-phrases : la mélodie ne se répète jamais deux mesures de suite.
-const THEME_L1 = [
-  { step: 0, i: 0, dur: 6 },
-  { step: 6, i: 1, dur: 4 },
-  { step: 10, i: 2, dur: 2 },
-  { step: 12, i: 1, dur: 4 },
+// ---- LA MÉLODIE ----
+//
+// Ce qui précédait était un motif de cinq notes : un jingle, pas un thème. Une
+// mélodie, ça n'est pas une suite de notes justes — il lui faut quatre choses, et
+// aucune n'est facultative :
+//
+//  1. UNE PHRASE ET SA RÉPONSE. Quatre mesures qui posent une question et
+//     s'arrêtent en suspens, quatre mesures qui répondent et se posent.
+//  2. UN SOMMET, UN SEUL. Ici le fa5 de la mesure 5. La note la plus haute de tout
+//     le morceau ne se joue qu'une fois : c'est ce qui en fait un sommet.
+//  3. DES DURÉES INÉGALES. Des notes longues, des notes brèves. Une mélodie en
+//     valeurs égales est un exercice de solfège.
+//  4. DES DEGRÉS CONJOINTS, ET DEUX SAUTS. On monte et on descend par pas, sauf
+//     deux fois : la quarte du début et la quarte du sommet. Un saut n'existe que
+//     s'il est rare.
+//
+// Huit mesures en ré mineur sur la grille Dm–Dm–Bb–Bb–F–F–C–C. La dernière note
+// est un ré tenu par-dessus l'accord de do : il ne se résout pas tout seul, c'est
+// l'accord qui bouge dessous à la reprise. La boucle est donc sans couture.
+//
+// Notation : { b: mesure (0-7), s: pas (0-15), n: demi-tons depuis ré1, d: durée }.
+const MELODY = [
+  // — Question. On entre sur le contretemps, ce qui donne l'élan.
+  { b: 0, s: 4, n: 43, d: 4 }, // la4
+  { b: 0, s: 8, n: 48, d: 6 }, // ré5   ← premier saut : la quarte
+  { b: 0, s: 14, n: 46, d: 2 }, // do5
+  { b: 1, s: 0, n: 44, d: 6 }, // si♭4  ← le doute
+  { b: 1, s: 6, n: 43, d: 6 }, // la4
+  { b: 1, s: 12, n: 39, d: 4 }, // fa4
+  { b: 2, s: 0, n: 41, d: 4 }, // sol4
+  { b: 2, s: 4, n: 43, d: 4 }, // la4
+  { b: 2, s: 8, n: 44, d: 8 }, // si♭4  ← on remonte
+  { b: 3, s: 0, n: 43, d: 8 }, // la4
+  { b: 3, s: 8, n: 41, d: 8 }, // sol4  ← en suspens : la question reste ouverte
+
+  // — Réponse. Même contour, mais elle va plus haut et elle se pose.
+  { b: 4, s: 4, n: 46, d: 4 }, // do5
+  { b: 4, s: 8, n: 51, d: 6 }, // fa5   ← LE SOMMET, une seule fois dans tout le morceau
+  { b: 4, s: 14, n: 50, d: 2 }, // mi5
+  { b: 5, s: 0, n: 48, d: 6 }, // ré5
+  { b: 5, s: 6, n: 46, d: 6 }, // do5
+  { b: 5, s: 12, n: 43, d: 4 }, // la4
+  { b: 6, s: 0, n: 44, d: 4 }, // si♭4
+  { b: 6, s: 4, n: 43, d: 4 }, // la4
+  { b: 6, s: 8, n: 41, d: 8 }, // sol4
+  { b: 7, s: 0, n: 38, d: 8 }, // mi4
+  { b: 7, s: 8, n: 36, d: 8 }, // ré4   ← la tonique, tenue par-dessus l'accord de do
 ];
-const THEME_L2 = [
-  { step: 0, i: 4, dur: 8 },
-  { step: 8, i: 1, dur: 4 },
-  { step: 12, i: 0, dur: 4 },
-];
+
+// La signature : les cinq premières notes de la mélodie, rien d'autre. Les
+// indicatifs de NOVA et de VORAX, l'appel de début de vague et l'escalier de combo
+// citent donc littéralement le thème — et le joueur les relie sans y penser.
+const SIGNATURE = [43, 48, 46, 44, 43];
+
+// Le mode du boss. On n'écrit pas une seconde mélodie : on abaisse la QUINTE et la
+// SECONDE de celle du joueur. Ré mineur devient ré phrygien à quinte diminuée —
+// la même ligne, le même contour, un monde qui a tourné. C'est aussi pour ça que
+// le boss se reconnaît en une seconde sans qu'aucun texte ne l'annonce.
+function darken(semi) {
+  const pc = ((semi % 12) + 12) % 12;
+  if (pc === 7 || pc === 2) return semi - 1; // la → la♭, mi → mi♭
+  return semi;
+}
+
+// Compat : plusieurs effets citaient l'ancien motif.
+const THEME = SIGNATURE;
+const THEME_BOSS = SIGNATURE.map((n) => darken(n) - 12);
 
 // Accords : voicings en demi-tons depuis ré1, quatre voix + fondamentale sub.
 const CHORDS = {
@@ -70,19 +123,27 @@ const FORM = [
   { name: 'retour', from: 28, grid: ['F', 'C'] },
 ];
 
-// Rythmique. Le clap sur 2 et 4 était purement et simplement absent — c'est lui
-// qui fait avancer un morceau, pas le kick.
-const KICK = [0, 4, 8, 12];
-const CLAP = [4, 12];
-const TAIKO = [0, 3, 6, 8, 11, 14]; // 3+3+2, la pulsation des grands espaces
-const HAT_VEL = [
-  1, 0.35, 0.6, 0.35, 0.85, 0.35, 0.6, 0.45, 1, 0.35, 0.6, 0.35, 0.9, 0.4, 0.7, 0.55,
-];
+// L'ostinato : le motif d'orgue qui tourne sans fin sous tout le morceau. Ce n'est
+// pas un arpège décoratif, c'est le moteur — il occupe la place qu'avait la grosse
+// caisse. Degrés dans l'accord courant, en croches.
+const OSTINATO = [0, 2, 4, 2, 3, 2, 4, 2];
 
-// Basse, en degrés relatifs à la fondamentale de l'accord. A2 finit sur ♭2 :
-// la note napolitaine qui annonce le mode du boss dix minutes avant qu'il arrive.
-const BASS_A1 = { 0: 0, 3: 0, 6: 0, 8: 0, 11: 3, 12: 0, 14: 10, 15: 0 };
-const BASS_A2 = { 0: 0, 3: 0, 6: 12, 8: 0, 11: 3, 12: 0, 14: 1, 15: 0 };
+// Le tic. Un temps sur quatre, sec, sans réverbération : l'horloge qui continue de
+// tourner pendant qu'on s'éloigne. Un enfant ne saura pas pourquoi ça l'inquiète,
+// mais ça l'inquiétera.
+const TICK = [0, 4, 8, 12];
+
+// Timbales. Jamais sur tous les temps : ce qui fait la gravité d'un orchestre,
+// c'est ce qu'il ne joue PAS.
+const TIMPANI = [0, 6, 8, 14];
+const TIMPANI_HEAVY = [0, 3, 6, 8, 11, 14]; // 3+3+2, réservé au sommet
+
+// Contrebasses. Deux ou trois notes TENUES par mesure au lieu de huit notes
+// piquées : un pupitre de contrebasses ne joue pas une ligne de basse
+// électronique. La dernière note de la mesure impaire descend sur le ♭2
+// napolitain, qui annonce le mode du boss dix minutes avant qu'il arrive.
+const BASS_EVEN = { 0: { d: 0, len: 8 }, 8: { d: 7, len: 8 } };
+const BASS_ODD = { 0: { d: 0, len: 6 }, 6: { d: 3, len: 4 }, 10: { d: 1, len: 6 } };
 
 // Voyelles françaises par triplet de formants (F1, F2, F3). Le morphing entre ces
 // triplets EST l'articulation : c'est lui qui fabrique l'illusion d'une bouche.
@@ -127,13 +188,15 @@ const VOICE = {
 // Volume du bus musique par ambiance. Plus de tempo par mode : un seul morceau.
 const MODES = {
   off: { gain: 0 },
-  title: { gain: 0.22 },
-  play: { gain: 0.26 },
-  shop: { gain: 0.18 },
-  paused: { gain: 0.07 }, // en sourdine, pas coupée : la grille doit continuer d'avancer
-  boss: { gain: 0.3 },
+  title: { gain: 0.23 },
+  play: { gain: 0.19 },
+  shop: { gain: 0.15 },
+  paused: { gain: 0.06 }, // en sourdine, pas coupée : la grille doit continuer d'avancer
+  boss: { gain: 0.21 },
   cinematic: { gain: 0 }, // la cinématique joue ses propres nappes sur cineBus
 };
+
+const boss = (mode) => mode === 'boss';
 
 export class AudioEngine {
   constructor() {
@@ -190,18 +253,19 @@ export class AudioEngine {
     this.musicVol = this.ctx.createGain();
     this.musicVol.gain.value = MODES[this.mode]?.gain ?? 0;
 
-    // Compression de bus : sans elle, le kick culminait 17 dB au-dessus du reste.
-    // Les percussions s'entendaient, la MUSIQUE non. Le compresseur retient les
-    // transitoires et laisse remonter tout ce qui tient entre deux coups — c'est
-    // exactement la différence entre « des bips synthétisés » et « un morceau ».
+    // Compression de bus, réglage ORCHESTRAL. Le réglage précédent (seuil −17,
+    // rapport 3,5) servait à faire tenir ensemble une batterie et une basse
+    // électroniques ; appliqué à un orchestre, il écrasait exactement ce qu'on
+    // cherche à obtenir — mesuré, il ne restait que 2 dB entre la respiration et
+    // le sommet. Un orchestre ne se comprime pas : on retient les crêtes, un point.
     const glue = this.ctx.createDynamicsCompressor();
-    glue.threshold.value = -17;
-    glue.knee.value = 10;
-    glue.ratio.value = 3.5;
-    glue.attack.value = 0.004; // assez lent pour laisser passer le claquement du kick
-    glue.release.value = 0.15; // assez rapide pour que le pompage reste audible
+    glue.threshold.value = -11;
+    glue.knee.value = 14; // genou très doux : la compression ne doit pas s'entendre
+    glue.ratio.value = 1.8;
+    glue.attack.value = 0.02; // laisse passer l'attaque des timbales et du piano
+    glue.release.value = 0.32;
     const makeup = this.ctx.createGain();
-    makeup.gain.value = 2.1;
+    makeup.gain.value = 1.35;
 
     const musicFilter = this.ctx.createBiquadFilter();
     musicFilter.type = 'lowpass';
@@ -337,10 +401,21 @@ export class AudioEngine {
     for (let n = 1; n <= 40; n++) vox[n] = 1 / Math.pow(n, 1.15);
     const growl = [0];
     for (let n = 1; n <= 32; n++) growl[n] = (1 / Math.pow(n, 0.85)) * (n >= 6 && n <= 9 ? 1.9 : 1);
+    // Orgue d'église. Les jeux d'orgue ne sont PAS des harmoniques successives :
+    // ce sont des tuyaux de 16, 8, 5⅓, 4, 2⅔ et 2 pieds, soit des rapports 1, 2,
+    // 3, 4, 6 et 8 par rapport au 16 pieds. En prenant le 16 pieds comme
+    // fondamentale, tout redevient entier et tient dans une seule onde — c'est
+    // cette quinte du 5⅓ qui donne le grain d'orgue, et rien d'autre.
+    const organ = [0, 1, 0.88, 0.42, 0.62, 0.1, 0.3, 0.07, 0.34];
+    // Cuivres doux : plus de fondamentale, moins d'aigu que le brass existant. Le
+    // caractère de cuivre vient du FILTRE qui s'ouvre avec la nuance, pas du spectre.
+    const horn = [0, 1, 0.6, 0.36, 0.22, 0.13, 0.08, 0.05, 0.03];
     this.W = {
       strings: mk(strings),
       vox: mk(vox),
       growl: mk(growl),
+      organ: mk(organ),
+      horn: mk(horn),
       hollow: mk([0, 1, 0, 0.5, 0, 0.3, 0, 0.18, 0, 0.1]),
       brass: mk([0, 1, 0.82, 0.72, 0.6, 0.45, 0.32, 0.22, 0.15, 0.1, 0.06, 0.04]),
     };
@@ -666,12 +741,15 @@ export class AudioEngine {
     return this._speak(text, 'vorax');
   }
 
+  // Appel de cors : les trois premières notes du thème, en fanfare. Chaque vague
+  // s'ouvre sur le motif que le joueur connaît déjà par l'écran-titre.
   waveStart() {
-    // Les quatre notes montantes du thème, pas une gamme quelconque : chaque vague
-    // s'ouvre sur le motif que le joueur connaît déjà par l'écran-titre.
-    [THEME[0], THEME[1], THEME[2], THEME[1] + 12].forEach((s, i) =>
-      this._tone({ type: 'triangle', freq: hz(s), dur: 0.15, gain: 0.11, when: i * 0.09 })
+    const t0 = this.ctx?.currentTime;
+    if (t0 == null) return;
+    [THEME[0], THEME[1], THEME[1] + 12].forEach((semi, i) =>
+      this._horn(t0 + i * 0.16, semi - 12, 3, 0.9)
     );
+    this._timpani(t0, 14, 0.55);
   }
 
   // Montée en régime du saut lumière : un accord qui s'ouvre pendant que le bruit
@@ -698,9 +776,13 @@ export class AudioEngine {
 
   // Le départ : une chute d'octave sur la tonique, et un souffle qui s'éloigne.
   jumpGo() {
-    this._tone({ type: 'sine', freq: hz(38), freqEnd: hz(14), dur: 0.75, gain: 0.3 });
-    this._noise({ dur: 0.9, gain: 0.26, filterFreq: 9000, filterEnd: 200 });
-    this._tone({ type: 'triangle', freq: hz(50), freqEnd: hz(26), dur: 0.5, gain: 0.12 });
+    const t0 = this.ctx?.currentTime;
+    if (t0 == null) return;
+    // Coup de timbale, cymbale, et le souffle qui s'éloigne.
+    this._timpani(t0, 14, 1.3);
+    this._cymbal(t0, 1.5, 2.6);
+    this._horn(t0, THEME[0] - 24, 5, 1.2);
+    this._noise({ dur: 1.1, gain: 0.2, filterFreq: 8000, filterEnd: 150 });
   }
 
   // Réflexe Chrono : la dilatation du temps s'entend par une CHUTE de hauteur,
@@ -723,17 +805,19 @@ export class AudioEngine {
     this._tone({ type: 'sine', freq: hz(31), freqEnd: hz(50), dur: 0.2, gain: 0.11 });
   }
 
+  // Cuivres graves en cluster : la tierce du thème contre sa quinte ABAISSÉE,
+  // jouées ensemble. Deux notes qui ne devraient pas cohabiter, et l'oreille sait
+  // immédiatement que quelque chose ne va pas — sans qu'aucun texte l'annonce.
   bossAlarm() {
+    const t0 = this.ctx?.currentTime;
+    if (t0 == null) return;
     for (let i = 0; i < 3; i++) {
-      this._tone({
-        type: 'sawtooth',
-        freq: 440,
-        freqEnd: 220,
-        dur: 0.32,
-        gain: 0.18,
-        when: i * 0.38,
-      });
+      const w = t0 + i * 0.5;
+      this._horn(w, THEME_BOSS[0] - 12, 7, 1.1);
+      this._horn(w, THEME_BOSS[2] - 13, 7, 0.85);
+      this._timpani(w, 12, 0.9);
     }
+    this._cymbal(t0, 1.3, 3);
   }
 
   gameOver() {
@@ -794,47 +878,102 @@ export class AudioEngine {
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
   }
 
-  // Voix de nappe persistantes : on rampe les fréquences (portamento) au lieu de
-  // créer et détruire quatre oscillateurs toutes les 3,2 secondes.
+  // ---- L'orchestre ----
   //
-  // La nappe et le sub sont les seules sources CONTINUES du morceau. Une source
-  // continue gagne toujours contre une source percussive à énergie égale : à 0,045
-  // par voix elle rendait le kick inaudible, et le morceau ne « poussait » pas.
-  // D'où le gain de section piloté plus bas : elle s'efface quand la batterie entre.
+  // Rien de ce qui suit n'est un « son de synthé » : chaque instrument est fabriqué
+  // à partir de ce qui le caractérise physiquement. C'est la seule façon d'obtenir
+  // un orchestre sans un seul fichier son.
+
+  // Nappe persistante : orgue d'église + chœur, en portamento. On rampe les
+  // fréquences au lieu de créer et détruire des oscillateurs à chaque accord —
+  // un orgue ne réattaque pas quand l'harmonie change, il glisse.
   _ensurePad() {
     if (this.padVoices) return;
     this.padVoices = [];
     this.padGain = this.ctx.createGain();
     this.padGain.gain.value = 1;
     this.padGain.connect(this.musicBus);
+
     this.padFilter = this.ctx.createBiquadFilter();
     this.padFilter.type = 'lowpass';
     this.padFilter.frequency.value = 900;
-    this.padFilter.Q.value = 1.2;
+    this.padFilter.Q.value = 0.9;
     this.padFilter.connect(this.padGain);
+
+    // L'orgue vit dans une grande pièce, c'est ce qui le fait exister. On lui donne
+    // beaucoup plus de réverbération qu'à n'importe quoi d'autre dans le jeu.
     const padRev = this.ctx.createGain();
-    padRev.gain.value = 0.28;
+    padRev.gain.value = 0.75;
     this.padFilter.connect(padRev);
     if (this.revSend) padRev.connect(this.revSend);
+
     for (let i = 0; i < 4; i++) {
-      // Deux oscillateurs par voix, désaccordés de ±11 cents : à 4 cents un unisson
-      // est inaudible, il en faut 8 à 20 pour qu'il respire.
       const g = this.ctx.createGain();
-      g.gain.value = 0.016;
+      g.gain.value = 0.02;
       g.connect(this.padFilter);
-      const pair = [-11, 11].map((det) => {
+      // Deux tuyaux par voix, désaccordés de ±7 cents. Un orgue réel n'est jamais
+      // parfaitement accordé d'un tuyau à l'autre, et c'est ce battement lent qui
+      // le rend vivant plutôt que mathématique.
+      const pair = [-7, 7].map((det) => {
         const o = this.ctx.createOscillator();
-        o.setPeriodicWave(this.W.strings);
+        o.setPeriodicWave(this.W.organ);
         o.detune.value = det;
-        o.frequency.value = 220;
+        o.frequency.value = 110;
         o.connect(g);
         o.start();
         return o;
       });
       this.padVoices.push({ oscs: pair, gain: g });
     }
-    // Sub : la fondamentale que seul un casque restitue, mais qui porte tout.
-    // Il doit être senti et non entendu — au-delà, il mange le kick.
+
+    // Chœur : quatre voix à formants sur la même harmonie. Le formant est ce qui
+    // distingue une voix humaine d'une onde — et la machinerie existe déjà pour
+    // NOVA et VORAX, on la réutilise telle quelle.
+    this.choirVoices = [];
+    this.choirGain = this.ctx.createGain();
+    this.choirGain.gain.value = 0;
+    this.choirGain.connect(this.musicBus);
+    const choirRev = this.ctx.createGain();
+    choirRev.gain.value = 0.9;
+    this.choirGain.connect(choirRev);
+    if (this.revSend) choirRev.connect(this.revSend);
+
+    for (let i = 0; i < 4; i++) {
+      const osc = this.ctx.createOscillator();
+      osc.setPeriodicWave(this.W.vox);
+      osc.frequency.value = 220;
+      osc.detune.value = (i - 1.5) * 9; // le pupitre n'est jamais à l'unisson exact
+      // Vibrato lent et faible : un chœur qui ne vibre pas est un synthé.
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 4.6 + i * 0.25;
+      const lfoAmt = this.ctx.createGain();
+      lfoAmt.gain.value = 4.5;
+      lfo.connect(lfoAmt);
+      lfoAmt.connect(osc.detune);
+      lfo.start();
+
+      const sum = this.ctx.createGain();
+      sum.gain.value = 0.33;
+      // Trois formants pour la voyelle « a » : c'est ce triplet, et lui seul, qui
+      // fait entendre une bouche ouverte.
+      for (const [fi, f] of VOWEL.a.entries()) {
+        const bp = this.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = f;
+        bp.Q.value = [8, 9, 7][fi];
+        const amp = this.ctx.createGain();
+        amp.gain.value = [1, 0.5, 0.22][fi];
+        osc.connect(bp);
+        bp.connect(amp);
+        amp.connect(sum);
+      }
+      sum.connect(this.choirGain);
+      osc.start();
+      this.choirVoices.push(osc);
+    }
+
+    // Pédale d'orgue : le 32 pieds. On ne l'entend pas vraiment, on le sent — et
+    // c'est lui qui donne l'impression que la pièce est immense.
     this.subOsc = this.ctx.createOscillator();
     this.subOsc.type = 'sine';
     this.subOsc.frequency.value = ROOT;
@@ -845,12 +984,18 @@ export class AudioEngine {
     this.subOsc.start();
   }
 
-  // Gain de nappe par section : c'est le RETRAIT de la nappe qui laisse entrer la
-  // batterie, et son retour qui fait la respiration. Sans ça, tout le morceau se
-  // joue au même niveau du début à la fin, quelles que soient les notes.
+  // Niveau de la nappe par section. C'est le RETRAIT des couches qui fabrique la
+  // forme : sans dynamique, un orchestre n'est qu'un mur.
   _padLevel(sec, quiet) {
-    if (quiet) return 1;
-    return { intro: 1, A: 0.45, lift: 0.5, drop: 0.6, breakdown: 0.8, retour: 0.55 }[sec] ?? 0.5;
+    if (quiet) return 0.85;
+    return { intro: 0.8, A: 0.42, lift: 0.55, drop: 1, breakdown: 0.16, retour: 0.5 }[sec] ?? 0.42;
+  }
+
+  _choirLevel(sec, quiet) {
+    if (quiet) return 0.05;
+    return (
+      { intro: 0, A: 0.03, lift: 0.08, drop: 0.3, breakdown: 0.035, retour: 0.09 }[sec] ?? 0.03
+    );
   }
 
   _setChord(chord, when) {
@@ -858,239 +1003,378 @@ export class AudioEngine {
     chord.pad.forEach((semi, i) => {
       const v = this.padVoices[i];
       if (!v) return;
-      for (const o of v.oscs) o.frequency.linearRampToValueAtTime(hz(semi), when + 0.025);
+      // L'orgue sonne une octave sous la voix écrite : le jeu de 16 pieds sert de
+      // fondamentale au spectre (voir _buildWaves).
+      for (const o of v.oscs) o.frequency.linearRampToValueAtTime(hz(semi - 12), when + 0.35);
+      const c = this.choirVoices?.[i];
+      if (c) c.frequency.linearRampToValueAtTime(hz(semi + 12), when + 0.5);
     });
-    this.subOsc.frequency.linearRampToValueAtTime(hz(chord.sub), when + 0.025);
+    this.subOsc.frequency.linearRampToValueAtTime(hz(chord.sub), when + 0.35);
   }
 
-  // Sidechain : le kick creuse tout le mix et le laisse remonter. C'est le marqueur
-  // n°1 de « musique moderne » pour une oreille de douze ans, et il manquait.
-  _duck(when, depth = 0.5, release = 0.26) {
+  // Le sidechain d'origine était un pompage de musique électronique. Il n'a plus
+  // lieu d'être : un orchestre ne se creuse pas sous ses propres timbales. On garde
+  // un très léger retrait, uniquement pour que le coup de timbale respire.
+  _duck(when, depth = 0.16, release = 0.5) {
     const g = this.musicDuck.gain;
     g.cancelScheduledValues(when);
     g.setValueAtTime(1 - depth, when);
     g.linearRampToValueAtTime(1, when + release);
   }
 
-  // --- Percussions, en couches : un seul sinus n'est pas un kick, c'est un bip ---
+  // --- Percussions ---
 
-  _kick(when, gain = 0.9) {
+  // Timbale : une PEAU TENDUE, donc une hauteur définie qui descend légèrement à
+  // l'attaque, et une longue résonance. C'est ce glissando court qui fait la
+  // différence entre une timbale et une grosse caisse.
+  _timpani(when, semi, gain = 1) {
     const t = when - this.ctx.currentTime;
+    const f = hz(semi);
     this._tone({
       type: 'sine',
-      freq: 150,
-      freqEnd: 42,
-      dur: 0.16,
-      gain: 0.5 * gain,
+      freq: f * 1.18,
+      freqEnd: f,
+      dur: 1.5,
+      gain: 0.55 * gain,
       when: t,
-      dest: this.musicBus,
+      dest: this.kickBus,
     });
     this._tone({
       type: 'triangle',
-      freq: 74,
-      freqEnd: 36,
-      dur: 0.3,
-      gain: 0.34 * gain,
-      when: t,
-      dest: this.musicBus,
-    });
-    this._noise({
-      dur: 0.02,
+      freq: f * 2.02,
+      freqEnd: f * 1.98,
+      dur: 0.7,
       gain: 0.16 * gain,
-      filterFreq: 5200,
-      filterEnd: 1800,
       when: t,
-      dest: this.musicBus,
+      dest: this.kickBus,
+    });
+    // Le mailletage : le bruit feutré du feutre sur la peau, très court.
+    this._noise({
+      dur: 0.05,
+      gain: 0.1 * gain,
+      filterFreq: 2600,
+      filterEnd: 500,
+      when: t,
+      dest: this.kickBus,
     });
     this._duck(when);
   }
 
-  _clap(when, gain = 1) {
+  // Le tic. Très court, très sec, et SANS réverbération : c'est ce qui le place
+  // dans le cockpit plutôt que dans la nef.
+  _tick(when, gain = 1) {
     const t = when - this.ctx.currentTime;
-    // Trois éclats très rapprochés puis une queue : c'est ce qui fait un clap et
-    // non un « pshh ». Le backbeat sur 2 et 4 est ce qui pousse le corps.
-    for (let i = 0; i < 3; i++) {
-      this._noise({
-        dur: 0.02,
-        gain: 0.2 * gain,
-        filterFreq: 2400,
-        filterEnd: 1400,
-        when: t + i * 0.009,
-        dest: this.musicBus,
-      });
-    }
     this._noise({
-      dur: 0.16,
+      dur: 0.012,
       gain: 0.13 * gain,
-      filterFreq: 2000,
-      filterEnd: 900,
-      when: t + 0.026,
+      filterFreq: 5200,
+      filterEnd: 3000,
+      when: t,
+      dest: this.musicBus,
+    });
+    this._tone({
+      type: 'square',
+      freq: 2100,
+      freqEnd: 1500,
+      dur: 0.014,
+      gain: 0.05 * gain,
+      when: t,
       dest: this.musicBus,
     });
   }
 
-  _hat(when, vel, open = false) {
+  // Cymbale suspendue frottée : un souffle qui monte puis s'éteint. Sert de
+  // charnière entre les sections, à la place de la cymbale crash.
+  _cymbal(when, gain = 1, dur = 2.2) {
     const t = when - this.ctx.currentTime;
     this._noise({
-      dur: open ? 0.16 : 0.035,
-      gain: 0.17 * vel,
-      filterFreq: 11000,
-      filterEnd: open ? 5000 : 7000,
+      dur,
+      gain: 0.075 * gain,
+      filterFreq: 7000,
+      filterEnd: 2000,
       when: t,
       dest: this.musicBus,
     });
   }
 
-  _taiko(when, gain = 1) {
-    const t = when - this.ctx.currentTime;
-    this._tone({
-      type: 'sine',
-      freq: 96,
-      freqEnd: 52,
-      dur: 0.34,
-      gain: 0.32 * gain,
-      when: t,
-      dest: this.musicBus,
-    });
-    this._noise({
-      dur: 0.09,
-      gain: 0.14 * gain,
-      filterFreq: 900,
-      filterEnd: 300,
-      when: t,
-      dest: this.musicBus,
-    });
+  // --- Instruments à hauteur ---
+
+  // Orgue percussif : la note de l'ostinato. Attaque quasi instantanée, coupure
+  // franche — un tuyau s'ouvre et se ferme, il ne se fond pas.
+  _organ(when, semi, dur = 0.3, gain = 0.06) {
+    if (!this.ctx) return;
+    const t0 = when;
+    const o = this.ctx.createOscillator();
+    o.setPeriodicWave(this.W.organ);
+    o.frequency.value = hz(semi - 12);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + 0.012);
+    g.gain.setValueAtTime(gain, t0 + dur * 0.8);
+    g.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
+    o.connect(g);
+    g.connect(this.musicBus);
+    if (this.revSend) {
+      const s = this.ctx.createGain();
+      s.gain.value = 0.35;
+      g.connect(s);
+      s.connect(this.revSend);
+    }
+    o.start(t0);
+    o.stop(t0 + dur + 0.05);
   }
 
-  // --- Voix mélodiques ---
-
-  _bass(when, semi, dur = 0.16) {
-    const t = when - this.ctx.currentTime;
-    this._tone({ type: 'sawtooth', freq: hz(semi), dur, gain: 0.3, when: t, dest: this.musicBus });
-    this._tone({
-      type: 'sine',
-      freq: hz(semi - 12),
-      dur: dur * 1.2,
-      gain: 0.12,
-      when: t,
-      dest: this.musicBus,
-    });
-  }
-
-  _lead(when, semi, steps) {
-    const t = when - this.ctx.currentTime;
+  // Cuivres. Le caractère de cuivre ne vient PAS du spectre mais du filtre : plus
+  // la note est forte, plus elle est brillante. Une enveloppe de filtre qui suit
+  // l'enveloppe d'amplitude, et un sawtooth devient un cor.
+  _horn(when, semi, steps, gain = 1) {
+    if (!this.ctx) return;
     const dur = (steps * 60) / TEMPO / 4;
-    // Supersaw : trois voix légèrement désaccordées, c'est ce qui donne l'ampleur.
-    for (const det of [-14, 0, 14]) {
-      const t0 = this.ctx.currentTime + t;
+    const t0 = when;
+    for (const det of [-6, 6]) {
       const o = this.ctx.createOscillator();
-      o.setPeriodicWave(this.W.brass);
+      o.setPeriodicWave(this.W.horn);
       o.detune.value = det;
       o.frequency.setValueAtTime(hz(semi), t0);
+
       const f = this.ctx.createBiquadFilter();
       f.type = 'lowpass';
-      f.Q.value = 4;
-      f.frequency.setValueAtTime(1200, t0);
-      f.frequency.linearRampToValueAtTime(4200, t0 + 0.06);
-      f.frequency.exponentialRampToValueAtTime(1600, t0 + dur);
+      f.Q.value = 1.4;
+      f.frequency.setValueAtTime(420, t0);
+      f.frequency.linearRampToValueAtTime(2600, t0 + dur * 0.35);
+      f.frequency.linearRampToValueAtTime(900, t0 + dur);
+
       const g = this.ctx.createGain();
+      // Attaque lente : c'est le souffle qui met le tuyau en vibration. Une attaque
+      // sèche donnerait un orgue, pas un cuivre.
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.linearRampToValueAtTime(0.05, t0 + 0.02);
-      g.gain.setValueAtTime(0.05, t0 + dur * 0.7);
+      g.gain.linearRampToValueAtTime(0.075 * gain, t0 + dur * 0.28);
+      g.gain.setValueAtTime(0.075 * gain, t0 + dur * 0.72);
       g.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
+
+      // Vibrato tardif : un cuivre ne vibre pas dès la première seconde.
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 5.2;
+      const amt = this.ctx.createGain();
+      amt.gain.setValueAtTime(0, t0);
+      amt.gain.linearRampToValueAtTime(6, t0 + dur * 0.6);
+      lfo.connect(amt);
+      amt.connect(o.detune);
+      lfo.start(t0);
+      lfo.stop(t0 + dur + 0.05);
+
       o.connect(f);
       f.connect(g);
       g.connect(this.musicBus);
-      if (this.dlySend) {
+      if (this.revSend) {
         const s = this.ctx.createGain();
-        s.gain.value = 0.22;
+        s.gain.value = 0.5;
         g.connect(s);
-        s.connect(this.dlySend);
+        s.connect(this.revSend);
       }
       o.start(t0);
       o.stop(t0 + dur + 0.06);
     }
   }
 
-  _arp(when, semi) {
-    const t = when - this.ctx.currentTime;
-    this._tone({
-      type: 'triangle',
-      freq: hz(semi),
-      dur: 0.09,
-      gain: 0.05,
-      when: t,
-      dest: this.musicBus,
-    });
-  }
-
-  // Montée : le bruit filtré qui s'ouvre pendant quatre mesures et arrive PILE sur
-  // le drop. C'est cette anticipation — pas le drop lui-même — qui fait l'effet.
-  _riser(when, dur) {
-    if (!this.ctx || this.riserUntil > when) return;
-    this.riserUntil = when + dur;
+  // Contrebasses : archet, donc attaque molle et note tenue. Aucune percussion.
+  _bass(when, semi, steps = 8) {
+    if (!this.ctx) return;
+    const dur = (steps * 60) / TEMPO / 4;
     const t0 = when;
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.noiseBuffer;
-    src.loop = true;
+    const o = this.ctx.createOscillator();
+    o.setPeriodicWave(this.W.strings);
+    o.frequency.value = hz(semi);
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.value = hz(semi - 12);
+
     const f = this.ctx.createBiquadFilter();
-    f.type = 'bandpass';
-    f.Q.value = 3.5;
-    f.frequency.setValueAtTime(300, t0);
-    f.frequency.exponentialRampToValueAtTime(7000, t0 + dur);
+    f.type = 'lowpass';
+    f.frequency.value = 700;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(0.1, t0 + dur * 0.92);
+    g.gain.linearRampToValueAtTime(0.14, t0 + 0.14);
+    g.gain.setValueAtTime(0.14, t0 + dur * 0.78);
     g.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
-    src.connect(f);
+    o.connect(f);
+    sub.connect(f);
     f.connect(g);
     g.connect(this.musicBus);
-    src.start(t0);
-    src.stop(t0 + dur + 0.05);
+    o.start(t0);
+    sub.start(t0);
+    o.stop(t0 + dur + 0.06);
+    sub.stop(t0 + dur + 0.06);
   }
 
-  _crash(when, gain = 1) {
-    const t = when - this.ctx.currentTime;
-    this._noise({
-      dur: 1.4,
-      gain: 0.12 * gain,
-      filterFreq: 9000,
-      filterEnd: 2600,
-      when: t,
-      dest: this.musicBus,
-    });
-    this._noise({
-      dur: 0.08,
-      gain: 0.1 * gain,
-      filterFreq: 12000,
-      filterEnd: 6000,
-      when: t,
-      dest: this.musicBus,
-    });
-  }
-
-  // Cloche : le thème sur les écrans calmes. C'est là que le joueur l'APPREND,
-  // pour le reconnaître plus tard quand il arrive au lead sur le drop.
-  _bell(when, semi, dur = 0.9) {
+  // Cordes tenues. C'est le pupitre le plus nombreux d'un orchestre et celui qui
+  // fait le VOLUME d'un tutti : sans lui, le sommet du morceau sortait plus bas que
+  // la montée qui l'annonçait — mesuré, −20 dB contre −17. Attaque lente à
+  // l'archet, aucune percussion, et un léger désaccord entre pupitres.
+  _strings(when, semis, steps, gain = 1) {
+    if (!this.ctx) return;
+    const dur = (steps * 60) / TEMPO / 4;
     const t0 = when;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.linearRampToValueAtTime(0.055, t0 + 0.012);
+    g.gain.linearRampToValueAtTime(0.036 * gain, t0 + dur * 0.22);
+    g.gain.setValueAtTime(0.036 * gain, t0 + dur * 0.8);
+    g.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
+    g.connect(this.musicBus);
+    if (this.revSend) {
+      const sfx = this.ctx.createGain();
+      sfx.gain.value = 0.55;
+      g.connect(sfx);
+      sfx.connect(this.revSend);
+    }
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(1600, t0);
+    f.frequency.linearRampToValueAtTime(3400, t0 + dur * 0.3);
+    f.connect(g);
+    for (const semi of semis) {
+      for (const det of [-8, 8]) {
+        const o = this.ctx.createOscillator();
+        o.setPeriodicWave(this.W.strings);
+        o.detune.value = det + (Math.random() - 0.5) * 6;
+        o.frequency.value = hz(semi);
+        o.connect(f);
+        o.start(t0);
+        o.stop(t0 + dur + 0.06);
+      }
+    }
+  }
+
+  // Cordes en trémolo : l'archet qui va et vient très vite sur la corde. C'est la
+  // signature universelle de la tension qui monte.
+  //
+  // Piège à éviter, et je suis tombé dedans : la modulation d'un AudioParam est
+  // ADDITIVE. Brancher un LFO d'amplitude 0,45 sur un gain dont l'enveloppe vaut
+  // 0,02 ne donne pas un trémolo de 45 %, ça donne un signal qui bat entre −0,43 et
+  // +0,47 — vingt fois trop fort. Mesuré, la montée sortait 3 dB AU-DESSUS du
+  // sommet qu'elle était censée annoncer. D'où deux étages séparés : un gain de
+  // trémolo qui oscille autour de sa propre valeur, puis l'enveloppe.
+  _tremolo(when, semis, dur, gain = 1) {
+    if (!this.ctx) return;
+    const t0 = when;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.linearRampToValueAtTime(0.05 * gain, t0 + dur * 0.7);
+    env.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
+    env.connect(this.musicBus);
+    if (this.revSend) {
+      const s = this.ctx.createGain();
+      s.gain.value = 0.4;
+      env.connect(s);
+      s.connect(this.revSend);
+    }
+
+    // Étage de trémolo : oscille entre 0,3 et 1,0 de son propre niveau.
+    const trem = this.ctx.createGain();
+    trem.gain.value = 0.65;
+    trem.connect(env);
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.setValueAtTime(7, t0);
+    lfo.frequency.linearRampToValueAtTime(13, t0 + dur); // l'archet s'affole
+    const depth = this.ctx.createGain();
+    depth.gain.value = 0.35;
+    lfo.connect(depth);
+    depth.connect(trem.gain);
+    lfo.start(t0);
+    lfo.stop(t0 + dur + 0.05);
+
+    for (const semi of semis) {
+      const o = this.ctx.createOscillator();
+      o.setPeriodicWave(this.W.strings);
+      o.frequency.value = hz(semi);
+      o.detune.value = (Math.random() - 0.5) * 12;
+      o.connect(trem);
+      o.start(t0);
+      o.stop(t0 + dur + 0.05);
+    }
+  }
+
+  // Piano. C'est la voix intime de l'orchestre, et celle qui porte la mélodie chez
+  // Horner. Trois détails, et sans eux on n'obtient qu'une cloche :
+  //
+  //  1. L'INHARMONICITÉ. Une corde de piano est raide : ses partiels ne sont pas à
+  //     n×f mais à n×f×√(1+Bn²). Cet écart minuscule est exactement ce que l'oreille
+  //     reconnaît comme « piano » — un spectre parfaitement harmonique sonne synthé.
+  //  2. LA DÉCROISSANCE DIFFÉRENTIELLE. Les partiels aigus meurent bien plus vite
+  //     que la fondamentale : le son s'assombrit en tenant. Une décroissance unique
+  //     donne un orgue qu'on aurait coupé.
+  //  3. LE MARTEAU. Un bruit très court à l'attaque, le feutre sur la corde. Deux
+  //     millisecondes qui font la moitié du réalisme.
+  _piano(when, semi, dur = 2.4, gain = 1) {
+    if (!this.ctx) return;
+    const t0 = when;
+    const f0 = hz(semi);
+    const B = 0.0004; // coefficient de raideur, valeur usuelle du registre médium
+
+    const out = this.ctx.createGain();
+    out.gain.value = gain;
+    out.connect(this.musicBus);
+    if (this.revSend) {
+      const sfx = this.ctx.createGain();
+      sfx.gain.value = 0.3;
+      out.connect(sfx);
+      sfx.connect(this.revSend);
+    }
+
+    const partials = [1, 0.42, 0.28, 0.17, 0.1, 0.07, 0.045, 0.03];
+    partials.forEach((amp, i) => {
+      const n = i + 1;
+      const f = f0 * n * Math.sqrt(1 + B * n * n);
+      if (f > 16000) return;
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const g = this.ctx.createGain();
+      // Le partiel n vit dur / (1 + n/2,2) : l'aigu s'éteint en premier.
+      const life = Math.max(0.12, dur / (1 + n / 2.2));
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(amp * 0.09, t0 + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + life);
+      o.connect(g);
+      g.connect(out);
+      o.start(t0);
+      o.stop(t0 + life + 0.03);
+    });
+
+    // Le marteau.
+    this._noise({
+      dur: 0.022,
+      gain: 0.05 * gain,
+      filterFreq: Math.min(9000, f0 * 9),
+      filterEnd: f0 * 2,
+      when: t0 - this.ctx.currentTime,
+      dest: this.musicBus,
+    });
+  }
+
+  // Célesta : le thème nu, cristallin. Deux partiels inharmoniques au-dessus de la
+  // fondamentale — c'est ce petit écart au spectre harmonique qui fait entendre du
+  // métal frappé plutôt qu'une flûte.
+  _bell(when, semi, dur = 1.6) {
+    if (!this.ctx) return;
+    const t0 = when;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.055, t0 + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
     g.connect(this.musicBus);
     if (this.dlySend) {
       const s = this.ctx.createGain();
-      s.gain.value = 0.4;
+      s.gain.value = 0.45;
       g.connect(s);
       s.connect(this.dlySend);
     }
-    // Deux partiels inharmoniques au-dessus de la fondamentale : c'est ce petit
-    // écart au spectre harmonique qui fait entendre « métal » et non « flûte ».
-    [
+    for (const [mul, amp] of [
       [1, 1],
-      [2.76, 0.4],
-      [5.4, 0.16],
-    ].forEach(([mul, amp]) => {
+      [2.76, 0.36],
+      [5.4, 0.13],
+    ]) {
       const o = this.ctx.createOscillator();
       o.type = 'sine';
       o.frequency.value = hz(semi) * mul;
@@ -1100,117 +1384,181 @@ export class AudioEngine {
       vg.connect(g);
       o.start(t0);
       o.stop(t0 + dur + 0.05);
-    });
+    }
+  }
+
+  // Montée : au lieu du bruit filtré des musiques électroniques, un roulement de
+  // timbale qui accélère. C'est le seul crescendo qu'un orchestre connaisse.
+  _roll(when, dur) {
+    if (!this.ctx || this.rollUntil > when) return;
+    this.rollUntil = when + dur;
+    const semi = 14;
+    let t = 0;
+    while (t < dur) {
+      const k = t / dur;
+      this._timpani(when + t, semi, 0.1 + k * 0.28);
+      t += 0.13 - k * 0.085; // les coups se resserrent
+    }
+    this._cymbal(when + dur * 0.55, 1.1, dur * 0.5);
   }
 
   _playStep(step, bar, when) {
     const section = this._form(bar).name;
-    const boss = this.mode === 'boss';
-    // Le boss ne respire pas : sa mesure calme redevient un drop.
-    const sec = boss && section === 'breakdown' ? 'drop' : section;
+    // Le boss ne respire pas : sa mesure calme redevient un sommet.
+    const sec = boss(this.mode) && section === 'breakdown' ? 'drop' : section;
     const quiet = this.mode === 'title' || this.mode === 'shop';
     const chord = this._chordAt(bar);
+    const isBoss = boss(this.mode);
 
     if (step === 0) this._setChord(chord, when);
 
-    // Couches actives. C'est l'arrivée et le RETRAIT des couches qui fabriquent une
-    // forme — pas le volume, qu'on ne perçoit presque pas.
+    // Couches actives. Dans un orchestre, l'intensité n'est PAS le volume : c'est
+    // le nombre de pupitres qui jouent. Un tutti à mi-nuance écrase un solo forte.
     const full = !quiet && sec !== 'intro' && sec !== 'breakdown';
-    const halfKick = sec === 'intro' && bar >= 2;
+    const peak = sec === 'drop' || (isBoss && sec !== 'intro');
 
-    // Le balayage du filtre de nappe EST la sensation de forme : c'est lui qui dit
-    // « ça monte » sans qu'aucune note ne change.
+    // Registre de la nappe et niveau des pupitres tenus.
     if (step === 0 && this.padFilter) {
       const cut = quiet
-        ? 1100
-        : sec === 'intro'
-          ? 600 + (bar / 4) * 700
-          : sec === 'A'
-            ? 1500
-            : sec === 'lift'
-              ? 1500 + ((bar - 12) / 4) * 4500
-              : sec === 'drop'
-                ? 6500
-                : sec === 'breakdown'
-                  ? 900
-                  : 3400;
-      this.padFilter.frequency.linearRampToValueAtTime(cut, when + 1.5);
-      this.padGain.gain.linearRampToValueAtTime(this._padLevel(sec, quiet), when + 1.2);
-      // Le sub se retire aussi quand la basse entre : deux fondamentales au même
-      // endroit du spectre ne s'additionnent pas, elles s'annulent en bouillie.
-      this.subGain.gain.linearRampToValueAtTime(full ? 0.03 : 0.07, when + 1.2);
+        ? 1300
+        : ({ intro: 620, A: 1500, lift: 2600, drop: 5200, breakdown: 800, retour: 2400 }[sec] ??
+          1400);
+      this.padFilter.frequency.linearRampToValueAtTime(cut, when + 2.2);
+      this.padGain.gain.linearRampToValueAtTime(this._padLevel(sec, quiet), when + 1.8);
+      this.choirGain.gain.linearRampToValueAtTime(this._choirLevel(sec, quiet), when + 2);
+      // La pédale de 32 pieds s'efface quand les contrebasses entrent : deux
+      // fondamentales au même endroit du spectre ne s'additionnent pas, elles
+      // se transforment en bouillie.
+      this.subGain.gain.linearRampToValueAtTime(full ? 0.028 : 0.06, when + 1.5);
     }
 
-    if (full && KICK.includes(step)) this._kick(when, boss ? 1.05 : 1);
-    else if ((halfKick || quiet) && (step === 0 || step === 8))
-      this._kick(when, quiet ? 0.55 : 0.8);
-    // Contretemps du boss : la seizième avant le temps, celle qui empêche de respirer.
-    if (full && boss && sec === 'drop' && step === 14) this._kick(when, 0.7);
-
-    // Le contretemps sur 2 et 4. Son absence était la raison n°1 pour laquelle
-    // rien ne poussait : sans lui, un morceau reste posé sur place.
-    if (full && CLAP.includes(step)) this._clap(when);
-    if (sec === 'breakdown' && !quiet && step === 12) this._clap(when, 0.6);
-
-    if (full || (!quiet && sec === 'intro' && bar === 3)) {
-      const vel = HAT_VEL[step] * (0.85 + this._rnd(bar, step, 3) * 0.3);
-      const jitter = (this._rnd(bar, step, 7) - 0.5) * 0.012; // le micro-décalage : le swing
-      this._hat(when + jitter, vel, sec === 'drop' && (step === 2 || step === 10));
-    } else if (quiet && step % 4 === 2) {
-      this._hat(when, 0.3);
+    // --- L'HORLOGE. Un temps sur quatre, du début à la fin, y compris sur les
+    // écrans calmes. C'est le seul élément qui ne s'arrête jamais : le voyage
+    // continue même quand le joueur regarde un menu.
+    if (TICK.includes(step)) {
+      const vel = quiet ? 0.45 : sec === 'intro' ? 0.6 : sec === 'breakdown' ? 0.38 : 1;
+      this._tick(when, vel);
     }
 
-    // Taiko en 3+3+2 : la pulsation des grands espaces, réservée au drop et au boss.
-    if (full && (sec === 'drop' || boss) && TAIKO.includes(step)) this._taiko(when, 0.9);
-
-    // Cymbale sur les arrivées de section — le marqueur de coupe.
-    if (step === 0 && !quiet && (bar === 4 || bar === 16 || bar === 28)) {
-      this._crash(when, bar === 16 ? 1.2 : 0.8);
+    // --- OSTINATO d'orgue. Le moteur du morceau. Il entre à la section A et ne
+    // s'arrête qu'à la respiration.
+    if (!quiet && sec !== 'intro' && sec !== 'breakdown' && step % 2 === 0) {
+      const deg = OSTINATO[(step / 2) % OSTINATO.length];
+      const semi = chord.pad[deg % chord.pad.length] + (deg >= chord.pad.length ? 12 : 0);
+      this._organ(when, semi + 12, 0.34, peak ? 0.075 : 0.05);
+      // Au sommet, l'ostinato est doublé à l'octave : c'est ce qui le fait passer
+      // de motif à déferlante, sans changer une seule note.
+      if (peak) this._organ(when, semi + 24, 0.3, 0.035);
+    }
+    // Sur les écrans calmes, l'ostinato tourne au ralenti, une note par temps.
+    if (quiet && step % 4 === 0) {
+      this._organ(when, chord.pad[(step / 4) % chord.pad.length] + 12, 0.6, 0.04);
     }
 
-    // Montée sur les quatre mesures de « lift », calée pour atteindre le drop.
-    if (sec === 'lift' && bar === 12 && step === 0 && !quiet) this._riser(when, 6.4);
-
-    // --- Basse. La note de passage de A2 est un ♭2 napolitain : dix minutes avant
-    // le boss, elle annonce déjà son mode. Personne ne le remarque, tout le monde l'entend.
+    // --- TIMBALES.
     if (full) {
-      const note = (bar % 2 === 0 ? BASS_A1 : BASS_A2)[step];
-      if (note != null) this._bass(when, chord.root + note - 12);
-    } else if (sec === 'breakdown' && !quiet && step === 0) {
-      this._bass(when, chord.root - 12, 1.4);
-      // Le thème nu, à la cloche, pendant la respiration : c'est le seul endroit
-      // du morceau où on l'entend seul. Quatre mesures de vide n'auraient pas fait
-      // une respiration, seulement une panne de son.
-      this._bell(when, THEME[(bar - 24) % THEME.length], 1.6);
+      const pattern = peak ? TIMPANI_HEAVY : TIMPANI;
+      if (pattern.includes(step)) {
+        this._timpani(when, chord.sub + 14, step === 0 ? 1 : 0.62);
+      }
+    } else if (sec === 'intro' && bar >= 2 && step === 0) {
+      this._timpani(when, chord.sub + 14, 0.4);
     }
 
-    // --- Arpège : les notes de l'accord, doublé en doubles-croches sur le drop.
-    if (!quiet && sec !== 'intro' && sec !== 'breakdown') {
-      if (sec === 'drop' || step % 2 === 0) {
-        const seq = [0, 3, 7, 12, 7, 3];
-        this._arp(when, chord.pad[0] + seq[(step + bar) % seq.length] + 12);
+    // --- CONTREBASSES, en notes tenues.
+    if (full) {
+      const note = (bar % 2 === 0 ? BASS_EVEN : BASS_ODD)[step];
+      if (note) this._bass(when, chord.root + note.d - 12, note.len);
+    } else if (sec === 'breakdown' && !quiet && step === 0 && bar % 2 === 0) {
+      // Une seule contrebasse, tous les deux temps de mesure : la respiration doit
+      // se VIDER, sinon le sommet suivant ne fait plus rien.
+      this._bass(when, chord.root - 24, 32);
+    }
+
+    // --- LA MÉLODIE AU PIANO, dès la section A. Sans ça, la phrase n'était jouée
+    // qu'une fois, au sommet, et arrivait de nulle part. Elle est ici intime, sous
+    // l'ostinato — c'est la même mélodie que reprendront les cuivres, et c'est
+    // précisément parce qu'on l'a déjà entendue que leur reprise fait de l'effet.
+    if (!quiet && sec === 'A') {
+      const local = bar - 4; // 0..7 : la phrase entière, une fois
+      for (const ev of MELODY) {
+        if (ev.b === local && ev.s === step) this._piano(when, ev.n, 2.2, 0.72);
       }
     }
 
-    // --- LE THÈME. Cinq notes, six habits.
-    // Sur le drop, au lead supersaw : la version héroïque.
-    // En mode boss, la MÊME mélodie une octave plus bas et la quinte abaissée — la
-    // quinte juste du joueur devient diminuée. Aucun texte ne dit « il te dévore »
-    // aussi bien que ça.
-    if (sec === 'drop' && !quiet) {
-      const line = (bar - 16) % 2 === 0 ? THEME_L1 : THEME_L2;
-      const notes = boss ? THEME_BOSS : THEME;
-      for (const ev of line) if (ev.step === step) this._lead(when, notes[ev.i], ev.dur);
+    // Cordes tenues sur chaque accord du sommet et du retour : c'est le corps du
+    // tutti. Deux mesures par accord, exactement la durée de l'harmonie.
+    if (!quiet && (sec === 'drop' || sec === 'retour') && step === 0 && bar % 2 === 0) {
+      const voicing = [chord.pad[1], chord.pad[2], chord.pad[3], chord.pad[3] + 12];
+      this._strings(when, voicing, 32, sec === 'drop' ? 1.5 : 0.8);
     }
 
-    // Sur les écrans calmes, à la cloche, une note par mesure : le joueur apprend
-    // le thème pendant qu'il choisit ses améliorations, et le reconnaît au combat.
-    if (quiet && step === 0) {
-      this._bell(when, THEME[bar % 5] + (this.mode === 'shop' ? -12 : 0), 1.5);
+    // --- CORDES EN TRÉMOLO : la montée, et rien d'autre. Les employer partout
+    // les userait ; elles ne servent qu'à annoncer.
+    if (!quiet && sec === 'lift' && step === 0) {
+      const dur = (16 * 60) / TEMPO / 4;
+      this._tremolo(
+        when,
+        [chord.pad[1] + 12, chord.pad[2] + 12, chord.pad[3] + 12],
+        dur,
+        0.55 + (bar - 12) * 0.28
+      );
     }
-    // Appel-réponse pendant le « lift » : la mélodie s'annonce avant d'arriver.
+    // Roulement de timbale sur les deux dernières mesures avant le sommet.
+    if (!quiet && sec === 'lift' && bar === 14 && step === 0) {
+      this._roll(when, (32 * 60) / TEMPO / 4);
+    }
+
+    // --- CYMBALE aux charnières : elle marque la coupe, elle ne rythme rien.
+    if (step === 0 && !quiet && (bar === 4 || bar === 16 || bar === 28)) {
+      this._cymbal(when, bar === 16 ? 1.4 : 0.8, bar === 16 ? 3.2 : 2);
+    }
+
+    // --- LA MÉLODIE, AUX CUIVRES. C'est le sommet du morceau, et c'est le seul
+    // endroit où elle est jouée en entier. En mode boss, elle passe par darken() :
+    // même contour, quinte et seconde abaissées.
+    if (sec === 'drop' && !quiet) {
+      const local = bar - 16; // 0..7, les huit mesures de la phrase
+      for (const ev of MELODY) {
+        if (ev.b !== local || ev.s !== step) continue;
+        const n = isBoss ? darken(ev.n) - 12 : ev.n;
+        this._horn(when, n - 12, ev.d, 1.9);
+        // La seconde moitié de la phrase — la réponse — est doublée à l'octave :
+        // le pupitre s'ouvre pile au moment où la mélodie va chercher son sommet.
+        if (local >= 4) this._horn(when, n, ev.d, 1.05);
+      }
+      // Contre-chant : les cuivres graves tiennent la fondamentale sous la mélodie,
+      // deux mesures d'affilée. C'est ce socle qui distingue un tutti d'un solo.
+      if (step === 0 && local % 2 === 0) this._horn(when, chord.root - 24, 30, 1.3);
+    }
+
+    // Appel de cor pendant la montée : la mélodie s'annonce avant d'arriver, par
+    // ses trois premières notes seulement. Citer la phrase entière ici gâcherait
+    // l'arrivée — on n'a le droit de la jouer en entier qu'une fois.
     if (!quiet && sec === 'lift' && step === 0 && bar % 2 === 0) {
-      this._bell(when, THEME[((bar - 12) / 2) % THEME.length] + 12, 1.2);
+      this._horn(when, SIGNATURE[((bar - 12) / 2) % 3] - 12, 6, 0.6);
+    }
+
+    // --- LA MÉLODIE NUE, AU PIANO. C'est la seule fois du morceau où on l'entend
+    // sans orchestre, et c'est là qu'elle devient émouvante plutôt qu'héroïque.
+    // Quatre mesures de respiration pour les quatre premières mesures de la phrase,
+    // jouées telles quelles.
+    if (sec === 'breakdown' && !quiet) {
+      const local = bar - 24; // 0..3 : la question, sans sa réponse
+      for (const ev of MELODY) {
+        if (ev.b === local && ev.s === step) this._piano(when, ev.n, 2.6, 1);
+      }
+    }
+
+    // Sur les écrans calmes, la même chose en deux fois plus lent : une note toutes
+    // les deux positions. Le joueur apprend la mélodie pendant qu'il choisit ses
+    // améliorations, et la reconnaît plus tard quand les cuivres la reprennent.
+    if (quiet) {
+      const local = Math.floor((bar % 8) / 1);
+      for (const ev of MELODY) {
+        if (ev.b !== local || ev.s !== step) continue;
+        this._piano(when, ev.n + (this.mode === 'shop' ? -12 : 0), 3, 0.9);
+      }
     }
   }
 
@@ -1218,22 +1566,20 @@ export class AudioEngine {
   // discrètes : c'est un indicatif, pas un jingle. Chacune est un extrait littéral
   // du thème — le joueur associe le motif à la personne sans jamais le remarquer.
 
-  // NOVA : la quarte ascendante, les deux premières notes du thème.
+  // NOVA : la quarte ascendante, les deux premières notes du thème, à la célesta.
   novaSting() {
-    this._tone({ type: 'sine', freq: hz(THEME[0]), dur: 0.22, gain: 0.055 });
-    this._tone({ type: 'sine', freq: hz(THEME[1]), dur: 0.5, gain: 0.045, when: 0.11 });
+    const t0 = this.ctx?.currentTime;
+    if (t0 == null) return;
+    this._bell(t0, THEME[0] + 12, 0.9);
+    this._bell(t0 + 0.11, THEME[1] + 12, 1.4);
   }
 
   // VORAX : la même quarte, mais DIMINUÉE, et deux octaves plus bas. Le thème du
   // joueur passé de l'autre côté.
   voraxSting() {
-    this._tone({ type: 'sawtooth', freq: hz(THEME_BOSS[0] - 12), dur: 0.35, gain: 0.09 });
-    this._tone({
-      type: 'sawtooth',
-      freq: hz(THEME_BOSS[1] - 13),
-      dur: 0.7,
-      gain: 0.07,
-      when: 0.13,
-    });
+    const t0 = this.ctx?.currentTime;
+    if (t0 == null) return;
+    this._horn(t0, THEME_BOSS[0] - 24, 3, 0.9);
+    this._horn(t0 + 0.13, THEME_BOSS[1] - 25, 5, 0.7);
   }
 }
