@@ -105,6 +105,65 @@ beaucoup plus inquiétant que n'importe quelle menace.
 
 ---
 
+## L'essaim — ce que le joueur abat
+
+Le scénario expliquait les boss et oubliait le reste, c'est-à-dire quatre-vingt-quinze
+pour cent de ce qu'on tire. Voici la réponse, et elle fait tenir plusieurs choses
+ensemble.
+
+**KORN n'a pas de flotte. Il a une PEAU.**
+
+Une arche de dix mille ans ne se maintient pas toute seule : elle est couverte de
+petites unités qui la soudent, la réparent, remplacent les plaques et découpent ce
+qui doit l'être. Des ouvriers, en somme, et c'est bien le mot — les Élides les ont
+construits pour bâtir ANDEL, puis les ont laissés dessus.
+
+Quand quelque chose approche, elles s'en détachent et vont à sa rencontre. Pas par
+haine : parce que c'est ce qu'elles font de tout corps étranger depuis dix millénaires.
+
+**Elles ne cherchent pas à te tuer. Elles cherchent à te démonter.**
+
+C'est le renversement qui rend l'essaim intéressant plutôt que décoratif :
+
+- Elles **visent où tu seras** — non pour te toucher, mais pour t'encadrer et
+  t'immobiliser. Un chantier ne détruit pas une pièce, il l'arrête d'abord.
+- Elles arrivent en **réseau régulier** parce que c'est une grille d'accostage, pas
+  une formation de combat.
+- Elles **plongent** en courbe parce que c'est une manœuvre d'approche de dock,
+  appliquée à quelque chose qui n'a rien demandé.
+- Et elles **lâchent des pièces quand on les casse** : elles transportent ce
+  qu'elles ont déjà récupéré ailleurs. Les crédits ne sont pas de l'argent, ce sont
+  des morceaux d'ANDEL — ce qui referme la boucle avec la boutique, où l'on
+  rachète précisément ce que l'essaim vient de nous apporter.
+
+**Elles sont faites du système précédent.** KORN se ressert dans la matière qu'il
+traverse : les unités qui attaquent au-dessus de Mars sont bâties avec ce qu'il
+reste de Jupiter. Elles changent donc de couleur et de matière à mesure qu'on
+s'éloigne — ce qui donne au décor de secteur une raison narrative d'exister, et non
+seulement une raison esthétique.
+
+### Les trois modèles
+
+| Dans le jeu | Ce que c'est | Pourquoi il tire comme ça |
+|---|---|---|
+| **drone** | une plaque de coque détachée | un tir sec, court : c'est un rivet, pas une arme |
+| **guêpe** | un découpeur | deux coups rapprochés — c'est une cisaille qui referme sa mâchoire |
+| **brute** | un remorqueur | nappe large et lente : il ne vise pas, il barre le passage pour amener la pièce |
+| **boss** | un corps que KORN assemble | quand les ouvriers échouent, le chantier envoie la grue |
+
+### Ce que ça permet d'écrire
+
+> NOVA — « Ils ne te tirent pas dessus, {PILOTE}. Ils t'encadrent. Ils veulent te
+> ramener entier. »
+
+> NOVA — « Regarde ce qu'ils lâchent en tombant. Des pièces. Ils ne t'attaquent
+> pas, ils font leur tournée — et tu es sur le trajet. »
+
+> KORN — « Ne leur en voulez pas. Ils ne savent pas ce qu'ils démontent. Ils ne
+> l'ont jamais su. C'est pour ça que je les ai gardés. »
+
+---
+
 ## Pourquoi il vient chez nous
 
 La seconde arche est arrivée jusqu'ici. Elle s'est disloquée en approche du Soleil,
