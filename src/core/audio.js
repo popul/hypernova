@@ -96,14 +96,31 @@ function darken(semi) {
 const THEME = SIGNATURE;
 const THEME_BOSS = SIGNATURE.map((n) => darken(n) - 12);
 
-// Accords : voicings en demi-tons depuis ré1, quatre voix + fondamentale sub.
+// Accords, en demi-tons depuis ré1 — donc le degré 0 est un RÉ.
+//
+// C'est ici que se logeait le défaut le plus grave de toute la partition. La table
+// avait été écrite en prenant le DO comme degré 0, par réflexe : chaque accord
+// sonnait donc un ton au-dessus de son nom. « Dm » jouait mi mineur, « C » jouait
+// ré MAJEUR — avec un fa# qui n'existe pas en ré mineur et qui heurtait au demi-ton
+// le fa naturel de la mélodie. Comme la mélodie, elle, était juste, le morceau était
+// bitonal d'un bout à l'autre : mélodie en ré mineur, harmonie en mi mineur.
+// C'est ce décalage d'un ton, et rien d'autre, qui rendait la musique désagréable.
+//
+// Trois champs, trois registres, et ils ne sont pas interchangeables :
+//   pad  — les quatre voix tenues (orgue et chœur), enchaînées en conduite serrée :
+//          d'un accord au suivant, une ou deux voix bougent, jamais les quatre.
+//   bass — les notes de contrebasse DE CET ACCORD, dans l'ordre fondamentale,
+//          quinte, tierce. Les motifs pointent dessus par leur indice : un
+//          intervalle fixe donnerait une tierce mineure sur un accord majeur.
+//   sub  — la pédale de 32 pieds, et la hauteur des timbales (sub + 14).
 const CHORDS = {
-  Dm: { root: 26, sub: 2, pad: [26, 29, 33, 38] },
-  Bb: { root: 22, sub: 10, pad: [22, 26, 29, 34] },
-  F: { root: 29, sub: 5, pad: [24, 29, 33, 36] },
-  C: { root: 24, sub: 0, pad: [24, 28, 31, 36] },
-  Gm: { root: 31, sub: 7, pad: [22, 26, 31, 34] },
+  Dm: { sub: 0, pad: [24, 27, 31, 36], bass: [12, 19, 15] },
+  Bb: { sub: 8, pad: [24, 27, 32, 36], bass: [8, 15, 12] },
+  F: { sub: 3, pad: [22, 27, 31, 34], bass: [15, 22, 19] },
+  C: { sub: 10, pad: [22, 26, 29, 34], bass: [10, 17, 14] },
+  Gm: { sub: 5, pad: [24, 29, 32, 36], bass: [17, 24, 20] },
 };
+
 // La forme, en mesures. 32 mesures = 51,2 s, et la boucle repart à la mesure 4 :
 // l'intro ne se réentend jamais. Chaque section porte sa propre grille d'accords,
 // à raison d'un accord toutes les deux mesures — c'est ce qui fait qu'on entend
@@ -139,11 +156,12 @@ const TIMPANI = [0, 6, 8, 14];
 const TIMPANI_HEAVY = [0, 3, 6, 8, 11, 14]; // 3+3+2, réservé au sommet
 
 // Contrebasses. Deux ou trois notes TENUES par mesure au lieu de huit notes
-// piquées : un pupitre de contrebasses ne joue pas une ligne de basse
-// électronique. La dernière note de la mesure impaire descend sur le ♭2
-// napolitain, qui annonce le mode du boss dix minutes avant qu'il arrive.
-const BASS_EVEN = { 0: { d: 0, len: 8 }, 8: { d: 7, len: 8 } };
-const BASS_ODD = { 0: { d: 0, len: 6 }, 6: { d: 3, len: 4 }, 10: { d: 1, len: 6 } };
+// piquées : un pupitre de contrebasses ne joue pas une ligne de basse électronique.
+// Les valeurs sont des INDICES dans chord.bass (0 fondamentale, 1 quinte, 2 tierce)
+// et non des intervalles : un intervalle fixe plaquerait une tierce mineure sur un
+// accord majeur, ce qui était l'autre moitié du problème.
+const BASS_EVEN = { 0: { i: 0, len: 8 }, 8: { i: 1, len: 8 } };
+const BASS_ODD = { 0: { i: 0, len: 6 }, 6: { i: 2, len: 4 }, 10: { i: 1, len: 6 } };
 
 // Voyelles françaises par triplet de formants (F1, F2, F3). Le morphing entre ces
 // triplets EST l'articulation : c'est lui qui fabrique l'illusion d'une bouche.
@@ -1006,8 +1024,13 @@ export class AudioEngine {
       // L'orgue sonne une octave sous la voix écrite : le jeu de 16 pieds sert de
       // fondamentale au spectre (voir _buildWaves).
       for (const o of v.oscs) o.frequency.linearRampToValueAtTime(hz(semi - 12), when + 0.35);
+      // Le chœur chante le voicing écrit, PAS une octave au-dessus. Placé plus
+      // haut, il occupait exactement le registre de la mélodie : un si♭ de mélodie
+      // contre un la de chœur tenu donne une seconde mineure soutenue, ce qui est
+      // le frottement le plus dur qui existe. Règle d'orchestration élémentaire :
+      // une nappe tenue ne se met jamais dans l'octave du chant.
       const c = this.choirVoices?.[i];
-      if (c) c.frequency.linearRampToValueAtTime(hz(semi + 12), when + 0.5);
+      if (c) c.frequency.linearRampToValueAtTime(hz(semi), when + 0.5);
     });
     this.subOsc.frequency.linearRampToValueAtTime(hz(chord.sub), when + 0.35);
   }
@@ -1295,60 +1318,94 @@ export class AudioEngine {
     }
   }
 
-  // Piano. C'est la voix intime de l'orchestre, et celle qui porte la mélodie chez
-  // Horner. Trois détails, et sans eux on n'obtient qu'une cloche :
+  // Piano. La première version n'en était pas un : huit sinus à décroissance
+  // exponentielle simple, ce qui donne un piano électrique — une tine, pas une
+  // corde. Cinq choses manquaient, et chacune est audible séparément.
   //
-  //  1. L'INHARMONICITÉ. Une corde de piano est raide : ses partiels ne sont pas à
-  //     n×f mais à n×f×√(1+Bn²). Cet écart minuscule est exactement ce que l'oreille
-  //     reconnaît comme « piano » — un spectre parfaitement harmonique sonne synthé.
-  //  2. LA DÉCROISSANCE DIFFÉRENTIELLE. Les partiels aigus meurent bien plus vite
-  //     que la fondamentale : le son s'assombrit en tenant. Une décroissance unique
-  //     donne un orgue qu'on aurait coupé.
-  //  3. LE MARTEAU. Un bruit très court à l'attaque, le feutre sur la corde. Deux
-  //     millisecondes qui font la moitié du réalisme.
+  //  1. LE BATTEMENT. Une note de piano n'a pas une corde mais deux ou trois,
+  //     accordées à un ou deux centièmes de demi-ton près. Leur lente interférence
+  //     est ce que l'oreille reconnaît en premier comme « piano » ; sans elle, on
+  //     entend un synthétiseur, quelle que soit la qualité du reste.
+  //  2. LA DOUBLE DÉCROISSANCE. Le son chute vite pendant un tiers de seconde
+  //     (la corde cède son énergie à la table), puis tient longtemps beaucoup plus
+  //     bas. Une seule exponentielle donne un son qui « s'éteint », pas qui résonne.
+  //  3. LE POINT DE FRAPPE. Le marteau touche la corde au huitième de sa longueur :
+  //     l'harmonique 8 est donc ANNULÉE, et les voisines atténuées. Ce trou dans le
+  //     spectre est une signature — un spectre plein sonne orgue.
+  //  4. LA RAIDEUR. Les partiels ne sont pas à n·f mais à n·f·√(1+Bn²). L'écart est
+  //     minuscule et pourtant c'est lui qui fait la couleur du grave.
+  //  5. LA TABLE D'HARMONIE. Un coup de bruit filtré très bref, qui donne le corps
+  //     de l'instrument — sans lui, la note démarre dans le vide.
   _piano(when, semi, dur = 2.4, gain = 1) {
     if (!this.ctx) return;
     const t0 = when;
     const f0 = hz(semi);
-    const B = 0.0004; // coefficient de raideur, valeur usuelle du registre médium
+    const B = 0.00045; // raideur de corde, registre médium
+    const STRIKE = 1 / 8; // point de frappe du marteau, en fraction de corde
 
     const out = this.ctx.createGain();
-    out.gain.value = gain;
+    out.gain.value = 0.85 * gain;
     out.connect(this.musicBus);
     if (this.revSend) {
       const sfx = this.ctx.createGain();
-      sfx.gain.value = 0.3;
+      sfx.gain.value = 0.26;
       out.connect(sfx);
       sfx.connect(this.revSend);
     }
 
-    const partials = [1, 0.42, 0.28, 0.17, 0.1, 0.07, 0.045, 0.03];
-    partials.forEach((amp, i) => {
-      const n = i + 1;
-      const f = f0 * n * Math.sqrt(1 + B * n * n);
-      if (f > 16000) return;
-      const o = this.ctx.createOscillator();
-      o.type = 'sine';
-      o.frequency.value = f;
-      const g = this.ctx.createGain();
-      // Le partiel n vit dur / (1 + n/2,2) : l'aigu s'éteint en premier.
-      const life = Math.max(0.12, dur / (1 + n / 2.2));
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.linearRampToValueAtTime(amp * 0.09, t0 + 0.004);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + life);
-      o.connect(g);
-      g.connect(out);
-      o.start(t0);
-      o.stop(t0 + life + 0.03);
-    });
+    // Les aigus meurent bien plus vite que les graves : c'est vrai de la note
+    // entière comme de chaque partiel à l'intérieur d'elle.
+    const bright = Math.max(0.35, 1 - (semi - 24) / 60);
 
-    // Le marteau.
+    for (let n = 1; n <= 12; n++) {
+      // Peigne du point de frappe : sin(nπ/8) s'annule exactement à n = 8.
+      const comb = Math.abs(Math.sin(n * Math.PI * STRIKE));
+      const amp = (comb / Math.pow(n, 1.35)) * (n === 1 ? 1.15 : 1);
+      if (amp < 0.012) continue;
+      const f = f0 * n * Math.sqrt(1 + B * n * n);
+      if (f > 15000) break;
+
+      const life = Math.max(0.14, dur * bright * (0.42 + 0.58 / Math.pow(n, 0.75)));
+
+      // Deux cordes par partiel, désaccordées de ±1,2 centième : le battement.
+      for (const cents of [-1.2, 1.2]) {
+        const o = this.ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = f;
+        o.detune.value = cents;
+
+        const g = this.ctx.createGain();
+        const peak = amp * 0.05;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(peak, t0 + 0.0025);
+        // Double décroissance : chute rapide vers 22 % en un tiers de seconde,
+        // puis longue traîne. C'est ce coude qui fait résonner plutôt qu'éteindre.
+        g.gain.exponentialRampToValueAtTime(peak * 0.22, t0 + Math.min(0.33, life * 0.3));
+        g.gain.exponentialRampToValueAtTime(0.00008, t0 + life);
+
+        o.connect(g);
+        g.connect(out);
+        o.start(t0);
+        o.stop(t0 + life + 0.04);
+      }
+    }
+
+    // Le marteau et la table d'harmonie, en un seul geste très court.
+    const t = t0 - this.ctx.currentTime;
     this._noise({
-      dur: 0.022,
-      gain: 0.05 * gain,
-      filterFreq: Math.min(9000, f0 * 9),
-      filterEnd: f0 * 2,
-      when: t0 - this.ctx.currentTime,
+      dur: 0.02,
+      gain: 0.045 * gain,
+      filterFreq: Math.min(6500, f0 * 7),
+      filterEnd: f0 * 1.6,
+      when: t,
+      dest: this.musicBus,
+    });
+    this._tone({
+      type: 'triangle',
+      freq: f0 * 0.5,
+      dur: 0.1,
+      gain: 0.02 * gain,
+      when: t,
       dest: this.musicBus,
     });
   }
@@ -1468,11 +1525,11 @@ export class AudioEngine {
     // --- CONTREBASSES, en notes tenues.
     if (full) {
       const note = (bar % 2 === 0 ? BASS_EVEN : BASS_ODD)[step];
-      if (note) this._bass(when, chord.root + note.d - 12, note.len);
+      if (note) this._bass(when, chord.bass[note.i], note.len);
     } else if (sec === 'breakdown' && !quiet && step === 0 && bar % 2 === 0) {
       // Une seule contrebasse, tous les deux temps de mesure : la respiration doit
       // se VIDER, sinon le sommet suivant ne fait plus rien.
-      this._bass(when, chord.root - 24, 32);
+      this._bass(when, chord.bass[0] - 12, 32);
     }
 
     // --- LA MÉLODIE AU PIANO, dès la section A. Sans ça, la phrase n'était jouée
@@ -1529,7 +1586,7 @@ export class AudioEngine {
       }
       // Contre-chant : les cuivres graves tiennent la fondamentale sous la mélodie,
       // deux mesures d'affilée. C'est ce socle qui distingue un tutti d'un solo.
-      if (step === 0 && local % 2 === 0) this._horn(when, chord.root - 24, 30, 1.3);
+      if (step === 0 && local % 2 === 0) this._horn(when, chord.bass[0] - 12, 30, 1.3);
     }
 
     // Appel de cor pendant la montée : la mélodie s'annonce avant d'arriver, par
