@@ -6,7 +6,7 @@
 // PENDANT le saut lumière — donc à couvert du flash, sans aucun raccord visible.
 
 import * as THREE from 'three';
-import { createLandmark, disposeLandmark } from './landmarks.js';
+import { createLandmark, createSun, disposeLandmark } from './landmarks.js';
 
 const FIELD = { xSpread: 90, yMin: -40, yMax: 10, zNear: 30, zFar: -120 };
 const LAYERS = [
@@ -79,7 +79,15 @@ export class Space {
     this.renderer = renderer;
     this.layers = [];
     this.nebulas = [];
-    this.landmark = null;
+    // Un palier porte PLUSIEURS décors : la Terre et sa Lune dans le même plan, une
+    // épave élide devant une géante gazeuse. Un seul objet par secteur interdisait
+    // par construction toute composition de profondeur.
+    this.landmarks = [];
+    // Le Soleil, lui, est persistant : il ne change pas d'un palier à l'autre, il
+    // RÉTRÉCIT. Le détruire et le reconstruire donnerait un objet qui change, pas
+    // un astre dont on s'éloigne — et c'est tout le sujet du voyage.
+    this.sun = createSun();
+    scene.add(this.sun.group);
     this.warp = 0;
 
     const tex = starTexture();
@@ -160,7 +168,8 @@ export class Space {
     this.starOpacity = biome.star.opacity;
 
     this._buildNebulas(biome.nebulas);
-    this._buildLandmark(biome.landmark);
+    this._buildLandmarks(biome.landmark);
+    if (biome.sun != null) this.sun.setSize(biome.sun);
 
     if (instant) {
       copyPalette(this.from, this.to);
@@ -223,17 +232,21 @@ export class Space {
     }
   }
 
-  _buildLandmark(spec) {
-    if (this.landmark) {
-      this.scene.remove(this.landmark.group);
-      disposeLandmark(this.landmark);
+  _buildLandmarks(specs) {
+    for (const l of this.landmarks) {
+      this.scene.remove(l.group);
+      disposeLandmark(l);
     }
-    this.landmark = createLandmark(spec);
-    this.landmark.group.traverse((o) => {
-      o.frustumCulled = false;
-      if (o.renderOrder === 0) o.renderOrder = -15;
-    });
-    this.scene.add(this.landmark.group);
+    this.landmarks = [];
+    for (const spec of specs || []) {
+      const l = createLandmark(spec);
+      l.group.traverse((o) => {
+        o.frustumCulled = false;
+        if (o.renderOrder === 0) o.renderOrder = -15;
+      });
+      this.scene.add(l.group);
+      this.landmarks.push(l);
+    }
   }
 
   // 0 = vol normal, 1 = passage en lumière. Les points s'effacent au profit des
@@ -256,7 +269,8 @@ export class Space {
       o.opacity += (n.target - o.opacity) * Math.min(1, dt * 1.6);
     }
 
-    this.landmark?.update(dt);
+    this.sun.update(dt);
+    for (const l of this.landmarks) l.update(dt);
 
     // Défilement. Pendant le saut, les étoiles filent bien plus vite : c'est la
     // seule chose qui donne une sensation de vitesse, le vaisseau étant immobile
