@@ -1977,3 +1977,156 @@ body.touch .key-hint {
     right: max(12px, env(safe-area-inset-right));
   }
 }
+
+/* ---------- Choix de trajectoire ---------- */
+
+.route-pick {
+  /* Un voile, comme la boutique : sans lui, les explosions de la vague qu'on vient
+     de finir continuent de traverser le texte, et le pied de page devient illisible
+     au pire moment — celui où l'on demande une décision. */
+  background: radial-gradient(ellipse at center, rgba(5, 4, 15, 0.6), rgba(5, 4, 15, 0.9));
+  backdrop-filter: blur(3px);
+  gap: 20px;
+  padding: 4vh 4vw;
+}
+
+.route-head {
+  text-align: center;
+}
+
+.route-title {
+  font-family: var(--display);
+  font-size: clamp(24px, 3.6vw, 36px);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--cyan);
+  text-shadow: 0 0 22px var(--cyan-dim);
+  font-weight: 400;
+  margin: 0;
+}
+
+.route-dest {
+  margin-top: 6px;
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.route-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 340px));
+  justify-content: center;
+  gap: 18px;
+  width: min(760px, 94vw);
+}
+
+/* Les deux cartes sont volontairement de MÊME taille : aucune n'est présentée
+   comme le bon choix, et c'est tout l'intérêt d'un dilemme. */
+.route {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px 20px 18px;
+  background: var(--panel);
+  border: 1px solid var(--cyan-dim);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 18px) 0,
+    100% 18px,
+    100% 100%,
+    18px 100%,
+    0 calc(100% - 18px)
+  );
+  color: var(--text);
+  font-family: var(--body);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.route:hover {
+  transform: translateY(-3px);
+  border-color: var(--cyan);
+  box-shadow: 0 0 26px rgba(79, 242, 255, 0.28);
+}
+
+.route[data-type='longue'] {
+  border-color: rgba(255, 200, 87, 0.4);
+}
+
+.route[data-type='longue']:hover {
+  border-color: var(--gold);
+  box-shadow: 0 0 26px rgba(255, 200, 87, 0.3);
+}
+
+.route-kind {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.route-name {
+  font-family: var(--display);
+  font-size: 19px;
+  letter-spacing: 0.05em;
+}
+
+.route-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  min-height: 3.2em;
+}
+
+.route-gain {
+  font-family: var(--display);
+  font-size: 16px;
+  color: var(--gold);
+  margin-top: 2px;
+}
+
+.route-side {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.route-risk {
+  font-size: 12px;
+  color: #ff8f6b;
+  letter-spacing: 0.06em;
+}
+
+.route-foot {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.route-foot b {
+  color: var(--gold);
+  font-family: var(--display);
+  font-size: 15px;
+}
+
+@media (max-width: 760px) {
+  .route-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .route {
+    padding: 15px;
+  }
+
+  .route-desc {
+    min-height: 0;
+    font-size: 12px;
+  }
+}

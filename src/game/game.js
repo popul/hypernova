@@ -14,7 +14,8 @@ import { makeWave, dailySeed } from './waves.js';
 import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
 import { COMBO, PLAYER, STORAGE_KEYS, GRAZE, OVERDRIVE, PICKUPS, REFLEX } from './constants.js';
 import { Jump } from './jump.js';
-import { biomeForWave } from './space/biomes.js';
+import { biomeForWave, stageForWave, STAGES } from './space/biomes.js';
+import { routesForStage, palierDeCoque, fragmentsAvantPalierSuivant } from './routes.js';
 import { loadScores, saveScore, challengeText } from './leaderboard.js';
 import {
   loadCampaigns,
@@ -686,6 +687,8 @@ export class Game {
     this.odTimer = 0;
     this.reflexCooldown = 0;
     this.bombFront = null;
+    this.fragments = 0; // morceaux du Registre récupérés sur les routes longues
+    this.routeMods = null; // risque choisi, appliqué à la vague suivante seulement
     this.bombCooldown = 0;
     this.waveDeath = false;
     this.waveBestTier = 1;
@@ -754,7 +757,10 @@ export class Game {
       }
     } else {
       def = makeWave(n, { seed: this.seed });
-      this.enemies.startWave(def, n, DEFAULT_MODS, this.director.heat);
+      // Le risque choisi sur la route ne vaut que pour UNE vague : on le consomme.
+      const mods = this.routeMods ? { ...DEFAULT_MODS, ...this.routeMods } : DEFAULT_MODS;
+      this.routeMods = null;
+      this.enemies.startWave(def, n, mods, this.director.heat);
       this.hud.setWave(n);
       this.hud.announce(`Vague ${n}`, def.boss ? '⚠ KORN en approche ⚠' : '');
     }
@@ -791,8 +797,77 @@ export class Game {
         this.stage.space?.setBiome(nextBiome);
         this.hud.announce(nextBiome.name, nextBiome.sub, 2400);
       },
-      onDone: () => this.openShop(),
+      onDone: () => {
+        // On ne choisit une trajectoire qu'aux CHANGEMENTS DE PALIER. En proposer
+        // un à chaque vague userait la décision en trois minutes : ce qui donne du
+        // poids à un choix, c'est sa rareté, pas sa fréquence.
+        const ici = stageForWave(this.wave);
+        const apres = stageForWave(nextWave);
+        if (ici !== apres && this.mode !== 'campaign') this._showRouteChoice();
+        else this.openShop();
+      },
     });
+  }
+
+  // Deux routes, deux récompenses, et un vrai dilemme : s'équiper ou comprendre.
+  _showRouteChoice() {
+    this.state = 'route';
+    this.audio.setMode('shop');
+    const idx = STAGES.indexOf(stageForWave(this.wave));
+    const r = routesForStage(idx, this.seed);
+    const reste = fragmentsAvantPalierSuivant(this.fragments);
+
+    const carte = (o) => `
+      <button class="route" data-type="${o.type}">
+        <span class="route-kind">${o.type === 'longue' ? 'Détour' : 'Direct'}</span>
+        <span class="route-name">${esc(o.nom)}</span>
+        <span class="route-desc">${esc(o.desc)}</span>
+        <span class="route-gain">${esc(o.gain)}</span>
+        ${o.credits && o.fragment ? `<span class="route-side">+${o.credits} cr</span>` : ''}
+        ${o.risque ? `<span class="route-risk">⚠ ${esc(o.risque.label)}</span>` : ''}
+      </button>`;
+
+    const el = this._screen(`
+      <div class="screen route-pick">
+        <div class="route-head">
+          <h2 class="route-title">Choix de trajectoire</h2>
+          <div class="route-dest">Cap sur ${esc(r.destination.name)}</div>
+        </div>
+        <div class="route-grid">${carte(r.courte)}${carte(r.longue)}</div>
+        <div class="route-foot">
+          Fragments du Registre : <b>${this.fragments}</b>${
+            reste != null ? ` · ${reste} avant le palier de coque suivant` : ' · coque au maximum'
+          }
+        </div>
+      </div>
+    `);
+    for (const b of el.querySelectorAll('.route')) {
+      b.addEventListener('click', () => this._takeRoute(b.dataset.type === 'longue' ? r.longue : r.courte, idx));
+    }
+  }
+
+  _takeRoute(choix, stageIdx) {
+    this.credits += choix.credits;
+    this.hud.setCredits(this.credits);
+    this.routeMods = choix.risque ? choix.risque.mods : null;
+    this.audio.buy();
+
+    if (!choix.fragment) {
+      this.openShop();
+      return;
+    }
+
+    // Le fragment fait DEUX choses : il ouvre un souvenir, et il compte pour la
+    // coque. C'est ce qui empêche l'histoire d'être une récompense décorative.
+    const avant = palierDeCoque(this.fragments);
+    this.fragments++;
+    const apres = palierDeCoque(this.fragments);
+    if (apres > avant) this.hud.announce('COQUE — PALIER ' + 'I'.repeat(apres + 1), 'Fragment intégré', 2600);
+
+    this.overlayRoot.innerHTML = '';
+    this.state = 'cinematic';
+    const suite = () => this.openShop();
+    if (!this.cinematic.playSouvenir(stageIdx, suite)) suite();
   }
 
   _biomeFor(wave) {
