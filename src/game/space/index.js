@@ -87,6 +87,11 @@ export class Space {
     // RÉTRÉCIT. Le détruire et le reconstruire donnerait un objet qui change, pas
     // un astre dont on s'éloigne — et c'est tout le sujet du voyage.
     this.sun = createSun();
+    this.sun.group.traverse((o) => {
+      for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+        m.fog = false;
+      }
+    });
     scene.add(this.sun.group);
     this.warp = 0;
 
@@ -243,6 +248,19 @@ export class Space {
       l.group.traverse((o) => {
         o.frustumCulled = false;
         if (o.renderOrder === 0) o.renderOrder = -15;
+        // Le brouillard NE S'APPLIQUE PAS aux décors lointains. Il existe pour
+        // fondre les éléments de jeu à quelques dizaines d'unités ; appliqué à une
+        // planète placée à quatre cents, il l'effaçait complètement — mesuré,
+        // 99,94 % d'opacité de brouillard. Une planète n'est pas dans la brume :
+        // elle est dans le vide, et le vide est parfaitement transparent.
+        for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+          m.fog = false;
+          // Le décor est ASSOMBRI d'un tiers. Règle non négociable du jeu : les
+          // projectiles ennemis sont roses et vifs, et doivent le rester seuls.
+          // Une planète qui remplit le fond à pleine luminosité les noie, et le
+          // joueur perd la seule information dont il a vraiment besoin.
+          if (m.color && !m.userData?.garderVif) m.color.multiplyScalar(0.66);
+        }
       });
       this.scene.add(l.group);
       this.landmarks.push(l);

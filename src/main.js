@@ -36,7 +36,7 @@ scene.fog = new THREE.FogExp2(0x05040f, 0.0075);
 // dès l'initialisation, avant que la scène ne soit peuplée.
 let arenaEdges = null;
 
-const camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerHeight, 0.1, 300);
+const camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerHeight, 0.1, 900);
 const CAMERA_HOME = new THREE.Vector3(0, 21, 27);
 const CAMERA_TARGET = new THREE.Vector3(0, 0, -3);
 const CAMERA_BASE = CAMERA_HOME.clone();

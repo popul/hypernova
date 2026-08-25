@@ -35,7 +35,7 @@ export const STAGES = [
     rim: 0x6fd8ff,
     exposure: 1.2,
     nebulas: [['rgba(40,90,170,0.28)', [-30, -18, -95], 90]],
-    landmark: [{ id: 'planet', kind: 'earth', radius: 46, pos: [-26, -40, -96] }],
+    landmark: [{ id: 'planet', kind: 'earth', radius: 233, pos: [-94, -144, -346] }],
   },
   {
     id: 'lagrange',
@@ -50,8 +50,8 @@ export const STAGES = [
     exposure: 1.18,
     nebulas: [['rgba(35,80,150,0.22)', [34, -22, -100], 80]],
     landmark: [
-      { id: 'planet', kind: 'earth', radius: 13, pos: [-40, -26, -104] },
-      { id: 'moon', radius: 5, pos: [22, -18, -78] },
+      { id: 'planet', kind: 'earth', radius: 20, pos: [-120, -70, -300] },
+      { id: 'moon', radius: 7, pos: [-86, -58, -250] },
     ],
   },
   {
@@ -83,8 +83,8 @@ export const STAGES = [
     exposure: 1.08,
     nebulas: [['rgba(170,70,25,0.3)', [-28, -26, -92], 95]],
     landmark: [
-      { id: 'planet', kind: 'mars', radius: 40, pos: [34, -42, -100] },
-      { id: 'hulk', variant: 'nozzle', pos: [-30, -20, -76], scale: 0.85 },
+      { id: 'planet', kind: 'mars', radius: 246, pos: [122, -151, -360] },
+      { id: 'hulk', variant: 'nozzle', pos: [-30, -20, -76], scale: 0.56 },
     ],
   },
   {
@@ -101,7 +101,7 @@ export const STAGES = [
     nebulas: [['rgba(110,80,40,0.26)', [0, -30, -95], 105]],
     landmark: [
       { id: 'asteroids', tint: 0x6b5a48 },
-      { id: 'hulk', variant: 'torn', pos: [26, -24, -88], scale: 1.35 },
+      { id: 'hulk', variant: 'torn', pos: [26, -24, -88], scale: 0.57 },
     ],
   },
   {
@@ -117,9 +117,9 @@ export const STAGES = [
     exposure: 1.02,
     nebulas: [['rgba(150,110,60,0.24)', [-34, -20, -98], 100]],
     landmark: [
-      { id: 'planet', kind: 'jupiter', radius: 52, pos: [-34, -46, -104] },
-      { id: 'moon', radius: 4, pos: [30, -14, -70], tint: 0xd8c07a },
-      { id: 'hulk', variant: 'habitat', pos: [22, -26, -84], scale: 0.9 },
+      { id: 'planet', kind: 'jupiter', radius: 256, pos: [-122, -166, -374] },
+      { id: 'moon', radius: 9, pos: [70, -44, -240], tint: 0xd8c07a },
+      { id: 'hulk', variant: 'habitat', pos: [22, -26, -84], scale: 0.62 },
     ],
   },
   {
@@ -142,7 +142,7 @@ export const STAGES = [
         pos: [-32, -36, -104],
         rings: { inner: 1.4, outer: 2.3, tilt: 0.3, color: 0xe0d6b8 },
       },
-      { id: 'hulk', variant: 'hold', pos: [28, -22, -82], scale: 1 },
+      { id: 'hulk', variant: 'hold', pos: [28, -22, -82], scale: 0.5 },
     ],
   },
   {
@@ -158,8 +158,8 @@ export const STAGES = [
     exposure: 1.0,
     nebulas: [['rgba(30,60,130,0.24)', [-26, -24, -98], 85]],
     landmark: [
-      { id: 'planet', kind: 'neptune', radius: 30, pos: [32, -38, -102] },
-      { id: 'hulk', variant: 'relay', pos: [-26, -18, -74], scale: 0.6 },
+      { id: 'planet', kind: 'neptune', radius: 246, pos: [115, -137, -367] },
+      { id: 'hulk', variant: 'relay', pos: [-26, -18, -74], scale: 1.0 },
     ],
   },
   {
@@ -176,7 +176,7 @@ export const STAGES = [
     nebulas: [],
     landmark: [
       { id: 'asteroids', tint: 0x7d90a4, count: 70 },
-      { id: 'hulk', variant: 'relay', pos: [18, -16, -66], scale: 0.4 },
+      { id: 'hulk', variant: 'relay', pos: [18, -16, -66], scale: 0.92 },
     ],
   },
   {
@@ -205,7 +205,7 @@ export const STAGES = [
     rim: 0xb888ff,
     exposure: 0.95,
     nebulas: [['rgba(50,25,95,0.3)', [-20, -26, -100], 110]],
-    landmark: [{ id: 'hulk', variant: 'head', pos: [0, -30, -96], scale: 1.6 }],
+    landmark: [{ id: 'hulk', variant: 'head', pos: [0, -30, -96], scale: 0.52 }],
   },
 ];
 

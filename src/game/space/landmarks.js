@@ -670,6 +670,7 @@ const HULKS = {
     );
     lamp.position.set(2.6, -10, 2.6);
     lamp.userData.clignote = true;
+    lamp.material.userData.garderVif = true; // une lampe assombrie n'est plus une lampe
     g.add(lamp);
     greeble(g, dark, { count: 14, spread: [7, 22, 7], seed: 77, scale: 0.5 });
   },
@@ -800,6 +801,7 @@ export function createKorn() {
       color: 0xffc98a,
       transparent: true,
       opacity: 0.85,
+      userData: { garderVif: true },
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
