@@ -31,7 +31,7 @@ import {
   prochainPalier,
   PALIERS,
 } from './routes.js';
-import { loadScores, saveScore, challengeText } from './leaderboard.js';
+import { classement, enregistrePartie, partieParId, challengeText } from './parties.js';
 import {
   loadCampaigns,
   unseenCampaigns,
@@ -54,12 +54,26 @@ import {
 import { CARENES, LIVREES } from './ships.js';
 import { Characters } from './characters.js';
 import { Director, romanTier } from './director.js';
+import { alea, semer } from '../core/rng.js';
+import { commandeVide, lireEntrees, EV, quantifieDt, dtDepuis } from './rejeu/commandes.js';
+import { Enregistreur, ouvreReplay } from './rejeu/index.js';
 import { isTouchDevice } from '../core/input.js';
 
 const IS_TOUCH = isTouchDevice();
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+// Date d'une partie, en heure LOCALE. La date stockée est en temps universel — la
+// tronquer donnerait « hier » à toute partie jouée après vingt-deux heures.
+// « 12 s », « 3 min 04 s » — jamais « 0 min 12 s ».
+function duree(s) {
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`;
+}
+
+function dateCourte(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-FR');
 }
 
 export class Game {
@@ -119,6 +133,13 @@ export class Game {
     this.timeScale = 1; // échelle de temps courante, lue par le vaisseau
     this.reflexCooldown = 0;
 
+    // La commande de la frame : ce que le joueur demande, exprimé dans le monde.
+    // Le vaisseau ne lit plus que ça — en partie comme en relecture.
+    this.cmd = commandeVide();
+    this._demandes = []; // pirouettes, bombes, appels : un par frame, dans l'ordre
+    this.enregistreur = new Enregistreur();
+    this.rejeu = null; // { lecteur, vitesse, fini } quand on regarde une partie
+
     this.state = 'title';
     this.mode = 'arcade';
     this.mission = null; // { campaign, systemIdx, system } en mode campagne
@@ -174,7 +195,7 @@ export class Game {
       const cle = dir < 0 ? 'left' : 'right';
       if (now - this._lastTap[cle] < ROLL.doubleTapWindow) {
         this._lastTap[cle] = 0;
-        this._tryRoll(dir);
+        this._demande(dir < 0 ? EV.PIROUETTE_GAUCHE : EV.PIROUETTE_DROITE);
       } else {
         this._lastTap[cle] = now;
       }
@@ -205,11 +226,11 @@ export class Game {
     // leurs boutons ferait de la collecte un choix de survie.
     input.on('KeyC', (e) => {
       if (typing(e)) return;
-      this._tryCall();
+      this._demande(EV.APPEL);
     });
     input.on('ShiftLeft', (e) => {
       if (typing(e)) return;
-      this._tryCall();
+      this._demande(EV.APPEL);
     });
     input.on('KeyP', () => this.togglePause());
     input.on('Escape', () => {
@@ -247,7 +268,7 @@ export class Game {
     if (callBtn) {
       const appel = (e) => {
         e.preventDefault();
-        this._tryCall();
+        this._demande(EV.APPEL);
       };
       callBtn.addEventListener('touchstart', appel, { passive: false });
       callBtn.addEventListener('mousedown', appel);
@@ -319,6 +340,41 @@ export class Game {
     );
   }
 
+  // Une action ponctuelle n'est pas exécutée au moment où la touche est pressée
+  // mais mise en FILE, puis consommée par la boucle — une par frame, dans l'ordre.
+  //
+  // Ce détour n'est pas de la cérémonie : c'est ce qui rend une partie
+  // enregistrable. Un événement déclenché depuis un écouteur arrive « entre » deux
+  // frames, à un instant que rien ne date ; le même événement consommé par la
+  // boucle appartient à une frame précise, et cette frame se rejoue.
+  _demande(ev) {
+    if (this.rejeu) return; // pendant une relecture, seul le flux commande
+    if (this.state !== 'playing' || this.paused) return;
+    if (this._demandes.length < 4) this._demandes.push(ev);
+  }
+
+  _executeEvenement(ev) {
+    switch (ev) {
+      case EV.PIROUETTE_GAUCHE:
+        this._tryRoll(-1);
+        break;
+      case EV.PIROUETTE_DROITE:
+        this._tryRoll(1);
+        break;
+      case EV.BOMBE:
+        this._tryBomb();
+        break;
+      case EV.OVERDRIVE:
+        this._tryOverdrive();
+        break;
+      case EV.APPEL:
+        this._tryCall();
+        break;
+      default:
+        break;
+    }
+  }
+
   _toggleSound() {
     const muted = this.audio.toggleMute();
     this.hud.announce(muted ? 'Son coupé' : 'Son activé', '', 900);
@@ -331,8 +387,7 @@ export class Game {
     const held = (performance.now() - this._energyPressStart) / 1000;
     this._energyPressStart = 0;
     if (this.state !== 'playing' || this.paused || !this.player.alive) return;
-    if (held >= OVERDRIVE.holdTime) this._tryOverdrive();
-    else this._tryBomb();
+    this._demande(held >= OVERDRIVE.holdTime ? EV.OVERDRIVE : EV.BOMBE);
   }
 
   // La pirouette se paie sur la jauge de furie, un peu. C'est ce qui la relie au
@@ -473,21 +528,116 @@ export class Game {
     return el;
   }
 
+  // Une ligne de classement n'est plus un affichage : c'est une porte. Quand la
+  // partie a été enregistrée, on peut la revoir — et c'est la seule façon de
+  // répondre à « comment il a fait ce score ? » autrement qu'en le croyant.
   _leaderboardHtml(scores, highlightRank = -1) {
     if (!scores.length) {
       return '<div class="lb-empty">Aucun pilote au panthéon — soyez le premier !</div>';
     }
     return `<ol class="lb-list">${scores
-      .map(
-        (s, i) => `
+      .map((s, i) => {
+        const revoyable = !!s.flux;
+        const balise = revoyable ? 'button' : 'div';
+        return `
         <li class="lb-row${i + 1 === highlightRank ? ' me' : ''}${i === 0 ? ' first' : ''}">
-          <span class="lb-rank">${i + 1}</span>
-          <span class="lb-name">${esc(s.name)}</span>
-          <span class="lb-wave">v.${s.wave}</span>
-          <span class="lb-score">${s.score}</span>
-        </li>`
-      )
+          <${balise} class="lb-ligne${revoyable ? ' revoyable' : ''}"${
+            revoyable ? ` data-rejeu="${esc(s.id)}" title="Revoir la partie de ${esc(s.name)}"` : ''
+          }>
+            <span class="lb-rank">${i + 1}</span>
+            <span class="lb-name">${esc(s.name)}</span>
+            <span class="lb-wave">v.${s.wave}</span>
+            <span class="lb-score">${s.score}</span>
+            <span class="lb-play">${revoyable ? '▶' : ''}</span>
+          </${balise}>
+        </li>`;
+      })
       .join('')}</ol>`;
+  }
+
+  // Branche les lignes revoyables d'un tableau déjà inséré dans le document.
+  _brancheRejeux(racine) {
+    for (const b of racine.querySelectorAll('[data-rejeu]')) {
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._lanceRejeu(b.dataset.rejeu);
+      });
+    }
+  }
+
+  async _lanceRejeu(id) {
+    const partie = partieParId(id);
+    if (!partie || !partie.flux) return;
+    const ok = await this.regarde(partie);
+    if (!ok) {
+      this.hud.announce('Enregistrement illisible', '', 1800);
+      return;
+    }
+    this._montreBandeauRejeu(partie);
+  }
+
+  // Le bandeau de relecture : qui, quand, où l'on en est, et de quoi contrôler.
+  // Il vit dans l'overlay et non dans le HUD, pour que le HUD de la partie reste
+  // exactement celui qu'on regarde.
+  _montreBandeauRejeu(partie) {
+    const el = this._screen(`
+      <div class="rejeu-barre">
+        <div class="rejeu-qui">
+          <span class="rejeu-pastille">REPLAY</span>
+          <b>${esc(partie.name)}</b>
+          <span class="rejeu-detail">${partie.score} pts · vague ${partie.wave}${
+            partie.duree ? ` · ${duree(partie.duree)}` : ''
+          }${partie.date ? ` · ${esc(dateCourte(partie.date))}` : ''}</span>
+        </div>
+        <div class="rejeu-piste"><i id="rejeu-avance"></i></div>
+        <div class="rejeu-boutons">
+          <button id="rejeu-pause" aria-label="Pause">⏸</button>
+          <button id="rejeu-vitesse">×1</button>
+          <button id="rejeu-quitter">Quitter</button>
+        </div>
+      </div>
+    `);
+    // L'overlay est transparent aux clics par défaut : ce bandeau, lui, doit les
+    // recevoir sans jamais avaler ceux destinés au jeu qu'il surplombe.
+    el.classList.add('rejeu-cadre');
+    const pause = el.querySelector('#rejeu-pause');
+    const vitesse = el.querySelector('#rejeu-vitesse');
+    pause.addEventListener('click', () => {
+      if (!this.rejeu) return;
+      this.rejeu.pause = !this.rejeu.pause;
+      pause.textContent = this.rejeu.pause ? '▶' : '⏸';
+    });
+    vitesse.addEventListener('click', () => {
+      if (!this.rejeu) return;
+      const paliers = [1, 2, 4, 0.5];
+      const i = paliers.indexOf(this.rejeu.vitesse);
+      this.rejeu.vitesse = paliers[(i + 1) % paliers.length];
+      vitesse.textContent = `×${this.rejeu.vitesse}`;
+    });
+    el.querySelector('#rejeu-quitter').addEventListener('click', () => this.quitteRejeu());
+    this._rejeuAvance = el.querySelector('#rejeu-avance');
+  }
+
+  _finDeRejeu() {
+    if (!this.rejeu) return;
+    const p = this.rejeu.partie;
+    const el = this._screen(`
+      <div class="screen gameover">
+        <div class="go-title">Fin du replay</div>
+        <div class="go-stats">
+          <div><span class="hud-label">Pilote</span><b>${esc(p.name)}</b></div>
+          <div><span class="hud-label">Score</span><b class="gold">${p.score}</b></div>
+          <div><span class="hud-label">Vague</span><b>${p.wave}</b></div>
+        </div>
+        <div class="title-menu">
+          <button class="btn-secondary" id="btn-revoir">↺ Revoir</button>
+          <button class="btn-launch" id="btn-retour">Retour au menu</button>
+        </div>
+      </div>
+    `);
+    el.querySelector('#btn-revoir').addEventListener('click', () => this._lanceRejeu(p.id));
+    el.querySelector('#btn-retour').addEventListener('click', () => this.quitteRejeu());
   }
 
   showTitle() {
@@ -495,7 +645,7 @@ export class Game {
     this.mission = null;
     this.audio.setMode('title');
     this.hud.root.classList.add('hidden');
-    const scores = loadScores().slice(0, 5);
+    const scores = classement(5);
     const hasNew = this.unseenIds.length > 0;
     const pilot = activePilot();
     const el = this._screen(`
@@ -530,6 +680,7 @@ export class Game {
         }
       </div>
     `);
+    this._brancheRejeux(el); // le panthéon du menu est cliquable, comme celui de fin
     el.querySelector('#btn-arcade').addEventListener('click', () => this.startRun('arcade'));
     el.querySelector('#btn-campaign').addEventListener('click', () => this.showGalaxy());
     el.querySelector('#btn-story').addEventListener('click', () => this.playCinematic());
@@ -702,6 +853,7 @@ export class Game {
   }
 
   showGameOver() {
+    if (this.rejeu) return; // on regarde une partie : elle est déjà finie
     this.state = 'gameover';
     this.audio.setMode('title');
     this.audio.gameOver();
@@ -737,19 +889,13 @@ export class Game {
       localStorage.setItem(STORAGE_KEYS.bestWave, String(this.bestWave));
     }
     // Inscription automatique au panthéon sous le pilote actif : zéro friction.
+    // L'enregistrement de la partie, lui, se compresse — donc il s'écrit APRÈS
+    // l'affichage. On ne fait pas attendre un écran de fin pour un gzip.
     const pilot = activePilot();
-    let rank = -1;
-    let scores;
-    if (this.score > 0 && pilot) {
-      ({ rank, scores } = saveScore(pilot.name, this.score, this.wave));
-    } else {
-      scores = loadScores();
-    }
+    const scores = classement(10);
     const pilotLine =
       this.score > 0 && pilot
-        ? rank > 0
-          ? `<div class="go-pilot">${esc(pilot.name)} — inscrit au panthéon <b class="gold">n°${rank}</b></div>`
-          : `<div class="go-pilot">${esc(pilot.name)} — pas encore dans le top 10, retente !</div>`
+        ? `<div class="go-pilot" id="go-pilot">${esc(pilot.name)} — inscription au panthéon…</div>`
         : '';
     const el = this._screen(`
       <div class="screen gameover">
@@ -763,7 +909,7 @@ export class Game {
         ${pilotLine}
         <div class="title-lb">
           <div class="lb-title">— Panthéon —</div>
-          ${this._leaderboardHtml(scores, rank)}
+          <div id="go-lb">${this._leaderboardHtml(scores)}</div>
         </div>
         <div class="title-menu">
           <button class="btn-secondary" id="btn-share">📣 Défier les copains</button>
@@ -776,9 +922,50 @@ export class Game {
       this._share(challengeText(pilot?.name || 'Un pilote', this.score, this.wave));
     });
     el.querySelector('#btn-replay').addEventListener('click', () => this._replay());
+    if (this.score > 0 && pilot) this._archive(el, pilot);
+  }
+
+  // Écrit la partie — score, nom, et l'enregistrement qui permettra de la revoir.
+  async _archive(el, pilot) {
+    let replay;
+    try {
+      replay = await this.enregistreur.termine({
+        mode: this.mode,
+        seed: this.seed,
+        pilote: pilot.name,
+      });
+    } catch {
+      replay = null; // un enregistrement raté ne doit jamais coûter le score
+    }
+    const {
+      id,
+      rang,
+      classement: table,
+    } = enregistrePartie({
+      name: pilot.name,
+      score: this.score,
+      wave: this.wave,
+      duree: replay?.duree || 0,
+      replay,
+    });
+    if (!el.isConnected) return;
+    const ligne = el.querySelector('#go-pilot');
+    if (ligne) {
+      ligne.innerHTML =
+        rang > 0
+          ? `${esc(pilot.name)} — inscrit au panthéon <b class="gold">n°${rang}</b>`
+          : `${esc(pilot.name)} — pas encore dans le top 10, retente !`;
+    }
+    const lb = el.querySelector('#go-lb');
+    if (lb) {
+      lb.innerHTML = this._leaderboardHtml(table, rang);
+      this._brancheRejeux(lb);
+    }
+    void id;
   }
 
   showMissionComplete() {
+    if (this.rejeu) return;
     this.state = 'mission-complete';
     this.audio.setMode('shop');
     this.audio.waveStart();
@@ -919,12 +1106,39 @@ export class Game {
       pilote: activePilot()?.name || 'pilote',
       systeme: this.mission?.system?.name || 'Ce secteur',
     });
+    // On n'enregistre que l'arcade. Une partie de campagne dépend d'un fichier de
+    // mission chargé à distance : la rejouer supposerait de le retrouver identique
+    // des semaines plus tard, ce que rien ne garantit. Mieux vaut ne pas proposer un
+    // bouton qui échouerait une fois sur deux.
+    if (this.mode === 'arcade') {
+      this.enregistreur.demarre({
+        mode: 'arcade',
+        seed: this.seed,
+        pilote: activePilot()?.name || null,
+      });
+    } else {
+      this.enregistreur.actif = false;
+      this.enregistreur.vagues = [];
+      this.enregistreur.courante = null;
+    }
     this.startWave(1);
     this.characters.onRunStart(this.mode === 'campaign');
   }
 
   startWave(n) {
     this.wave = n;
+    // Le hasard de la simulation est semé À CHAQUE VAGUE, à partir de la graine de
+    // la partie. Une vague qui repart du même état rejoue donc exactement le même
+    // hasard, et une erreur d'arrondi ne peut pas se propager d'une vague à l'autre.
+    semer(this.seed * 1000003 + n * 7919 + 17);
+    // Une vague commence PROPRE. Le chemin normal passe par la boutique, qui purge
+    // déjà ; le garantir ici ferme le dernier écart possible entre l'état enregistré
+    // et l'état restauré — et accessoirement, hériter des balles de la vague morte
+    // n'a jamais eu de sens.
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.missiles.clear();
+    if (!this.rejeu) this.enregistreur.ouvreVague(this._instantane());
     this.state = 'playing';
     this.audio.setMode('play');
     this.waveEndTimer = 0;
@@ -978,6 +1192,7 @@ export class Game {
   // secteur — donc le joueur choisit ses améliorations en regardant déjà l'endroit
   // où il va se battre, et non l'arène vide qu'il vient de nettoyer.
   _startJump() {
+    if (this.rejeu) return;
     const nextWave = this.wave + 1;
     const nextBiome = this._biomeFor(nextWave);
     this.characters.setContext({ secteur: nextBiome.name });
@@ -1030,6 +1245,7 @@ export class Game {
 
   // Deux routes, deux récompenses, et un vrai dilemme : s'équiper ou comprendre.
   _showRouteChoice() {
+    if (this.rejeu) return;
     this.state = 'route';
     this.audio.setMode('shop');
     const idx = STAGES.indexOf(stageForWave(this.wave));
@@ -1144,6 +1360,7 @@ export class Game {
   }
 
   openShop() {
+    if (this.rejeu) return;
     this.state = 'shop';
     this.audio.setMode('shop');
     // Purge les projectiles en vol : sinon ils restent gelés pendant la boutique
@@ -1221,10 +1438,175 @@ export class Game {
     }
   }
 
+  // ---- Commandes, instantanés, enregistrement ----
+
+  // Le point visé par un doigt, converti dans le monde. C'est la seule fonction du
+  // pipeline de commande qui connaisse encore l'écran.
+  _viser(ndc) {
+    return this.player.aimPoint(ndc, this.camera);
+  }
+
+  // La commande de cette frame, depuis les entrées réelles. On consomme au plus une
+  // demande : deux actions dans la même frame sont indiscernables à l'œil, et la
+  // seconde attendra seize millisecondes.
+  _construitCommande(dt) {
+    const ev = this._demandes.length ? this._demandes.shift() : EV.RIEN;
+    return lireEntrees(this.cmd, this.input, (ndc) => this._viser(ndc), dt, this.fx.timeScale, ev);
+  }
+
+  // Tout ce dont une vague a besoin pour recommencer exactement pareil. Un replay
+  // repart de cet état à CHAQUE vague : c'est ce qui empêche un écart minuscule de
+  // s'accumuler sur dix minutes de jeu.
+  _instantane() {
+    return {
+      w: this.wave,
+      seed: this.seed,
+      mode: this.mode,
+      niveaux: { ...this.levels },
+      score: this.score,
+      // L'enchaînement en cours fait partie de l'état : il ne s'arrête pas à la
+      // frontière d'une vague, il expire tout seul quelques secondes plus tard.
+      combo: [this.combo.chain, this.combo.mult, this.combo.timer],
+      credits: this.credits,
+      vies: this.lives,
+      fragments: this.fragments,
+      energie: this.energy,
+      mods: this.routeMods ? { ...this.routeMods } : null,
+      heat: this.director.heat,
+      vaisseau: this.player.instantane(),
+      fiche: this._fiche(),
+      systemIdx: this.mission?.systemIdx ?? null,
+      gemmes: this.pickups.instantane(),
+    };
+  }
+
+  // Un point de contrôle : de quoi VÉRIFIER, à la relecture, que la simulation
+  // raconte toujours la même partie. Sans mesure, « c'est fidèle » n'est qu'une
+  // opinion.
+  _controle() {
+    return [this.score, Math.round(this.player.position.x * 16), this.enemies.list.length];
+  }
+
+  // ---- Relecture ----
+
+  // Restaure l'état complet d'une vague, puis la relance. On ne « rembobine » pas :
+  // on repose la simulation exactement telle qu'elle était, et on la laisse
+  // repartir. C'est plus court à écrire et bien plus sûr à vérifier.
+  _restaure(etat) {
+    this.mode = etat.mode || 'arcade';
+    this.seed = etat.seed;
+    this.levels = { ...etat.niveaux };
+    this.stats = computeStats(this.levels);
+    this.score = etat.score || 0;
+    this.combo = etat.combo
+      ? { chain: etat.combo[0], mult: etat.combo[1], timer: etat.combo[2] }
+      : { chain: 0, mult: 1, timer: 0 };
+    this.credits = etat.credits;
+    this.lives = etat.vies;
+    this.fragments = etat.fragments;
+    this.energy = etat.energie;
+    this.routeMods = etat.mods ? { ...etat.mods } : null;
+    this.director.reset();
+    this.director.heat = etat.heat || 0;
+
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.missiles.clear();
+    this.pickups.restaure(etat.gemmes);
+    this.enemies.clear();
+    this.bombFront = null;
+    this.callWave = null;
+    this.odTimer = 0;
+    this.bombCooldown = 0;
+    this.reflexCooldown = 0;
+
+    this._refreshShip();
+    this.player.restaure(etat.vaisseau);
+
+    this.hud.setCredits(this.credits);
+    this.hud.setLives(this.lives);
+    this.hud.setScore(this.score);
+    this.hud.setEnergy(this.energy / OVERDRIVE.max);
+    this.startWave(etat.w);
+  }
+
+  // Lance la relecture d'une partie enregistrée.
+  async regarde(partie) {
+    const lecteur = await ouvreReplay(partie);
+    if (!lecteur || !lecteur.nbVagues) return false;
+    this.overlayRoot.innerHTML = '';
+    this.hud.root.classList.remove('hidden');
+    this.shop.close();
+    this.galaxyMap.close();
+    this.characters.hide();
+    this.enregistreur.actif = false;
+    this.rejeu = { lecteur, vitesse: 1, fini: false, acc: 0, ecarts: 0, partie };
+    this.hud.setHiscore(this.hiscore);
+    this.cmd = lecteur.cmd;
+    this._restaure(lecteur.vaVersVague(0));
+    this.audio.setMode('play');
+    return true;
+  }
+
+  quitteRejeu() {
+    if (!this.rejeu) return;
+    this.rejeu = null;
+    this.cmd = commandeVide();
+    this.state = 'title';
+    this.enemies.clear();
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.missiles.clear();
+    this.pickups.clear();
+    this.showTitle();
+  }
+
+  // Une frame de relecture. On consomme autant de commandes que le temps réel
+  // écoulé en réclame — donc la lecture garde la vitesse de la partie d'origine,
+  // que l'écran affiche soixante ou cent vingt images par seconde.
+  _updateRejeu(dtReel) {
+    const r = this.rejeu;
+    if (r.fini || r.pause) return;
+    r.acc += dtReel * r.vitesse;
+    let garde = 0;
+    while (r.acc > 0 && garde++ < 12) {
+      const cmd = r.lecteur.suivante();
+      if (!cmd) {
+        const suite = r.lecteur.vaVersVague(r.lecteur.index + 1);
+        if (!suite) {
+          r.fini = true;
+          this._finDeRejeu();
+          return;
+        }
+        this._restaure(suite);
+        continue;
+      }
+      this.cmd = cmd;
+      r.acc -= cmd.dt;
+      this._updatePlaying(cmd.dt);
+      const attendu = r.lecteur.controleAttendu();
+      if (attendu && Math.abs(attendu[0] - this.score) > 0) r.ecarts++;
+    }
+    if (this._rejeuAvance) {
+      const total = r.lecteur.nbVagues || 1;
+      const part = (r.lecteur.index + r.lecteur.progression) / total;
+      this._rejeuAvance.style.transform = `scaleX(${Math.max(0, Math.min(1, part))})`;
+    }
+  }
+
   // ---- Boucle ----
 
   update(dt) {
     if (this.paused) return;
+    // Le pas de temps est arrondi dès l'entrée, en partie comme en relecture. Deux
+    // simulations qui ne partagent pas exactement leurs pas de temps divergent en
+    // quelques secondes, et le replay finirait par raconter une autre partie.
+    dt = dtDepuis(quantifieDt(dt));
+
+    if (this.rejeu) {
+      this._updateRejeu(dt);
+      return;
+    }
 
     if (this.state === 'cinematic') {
       this.cameraOverride = this.cinematic.update(dt, this.camera);
@@ -1254,6 +1636,15 @@ export class Game {
   }
 
   _updatePlaying(dt) {
+    // En partie : on lit les entrées, on les arrondit, on les note. En relecture :
+    // la commande est déjà posée par le lecteur, on n'y touche pas.
+    if (!this.rejeu) {
+      this._construitCommande(dt);
+      this.enregistreur.frame(this.cmd, this._controle());
+      dt = this.cmd.dt;
+    }
+    if (this.cmd.ev) this._executeEvenement(this.cmd.ev);
+
     // Overdrive : cadence accrue, balles perforantes, tirs ennemis au ralenti.
     if (this.odTimer > 0) {
       this.odTimer -= dt;
@@ -1270,7 +1661,7 @@ export class Game {
       this.enemies.setHeat(this.director.heat);
     }
 
-    this.timeScale = this.fx.timeScale;
+    this.timeScale = this.cmd.echelle;
     this._updateCall(dt);
     this._updateReflex(dt);
     this._updateBombFront(dt);
@@ -1617,7 +2008,7 @@ export class Game {
     const mult = this.combo.mult;
     if (mult < 2) return;
     const chance = Math.min(PICKUPS.bigChanceMax, PICKUPS.bigChancePerTier * (mult - 1));
-    if (Math.random() < chance) this.pickups.dropBig(e.group.position);
+    if (alea() < chance) this.pickups.dropBig(e.group.position);
   }
 
   _collectCredit(value, pos3d, big = false) {

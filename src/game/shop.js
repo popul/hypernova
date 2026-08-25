@@ -15,6 +15,7 @@
 // destin une fois, deux à la rigueur, jamais indéfiniment.
 
 import { UPGRADES, priceOf } from './upgrades.js';
+import { alea } from '../core/rng.js';
 
 // Le prix de la relance est MULTIPLIÉ par 1,5 à chaque clic dans la même visite,
 // et non augmenté d'un palier fixe. La différence n'est pas cosmétique : une
@@ -73,7 +74,7 @@ export class Shop {
         return 0.06;
       });
       const total = poids.reduce((a, b) => a + b, 0);
-      let r = Math.random() * total;
+      let r = alea() * total;
       let i = 0;
       while (i < pool.length - 1 && (r -= poids[i]) > 0) i++;
       choisis.push(pool[i]);

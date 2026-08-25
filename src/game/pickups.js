@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { createGem } from './ships.js';
 import { PICKUPS, ARENA } from './constants.js';
+import { entre, ecart } from '../core/rng.js';
 
 const POOL_SIZE = 60;
 
@@ -40,7 +41,7 @@ export class Pickups {
       entry.mesh.visible = true;
       entry.called = false;
       entry.mesh.position.copy(pos);
-      entry.vel.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 2, 2 + Math.random() * 5);
+      entry.vel.set(ecart(4), ecart(1), entre(2, 7));
     }
   }
 
@@ -58,7 +59,7 @@ export class Pickups {
     entry.mesh.visible = true;
     entry.called = false;
     entry.mesh.position.copy(pos);
-    entry.vel.set((Math.random() - 0.5) * 3, 0, 1.5 + Math.random() * 2);
+    entry.vel.set(ecart(1.5), 0, entre(1.5, 3.5));
     return true;
   }
 
@@ -109,6 +110,48 @@ export class Pickups {
         e.mesh.visible = false;
         onCollect(e.value, e.mesh.position, e.big);
       }
+    }
+  }
+
+  // Instantané des gemmes en vol. Une vague peut commencer alors que l'argent de la
+  // précédente tombe encore : sans ces quelques lignes, un replay repartirait d'un
+  // ciel vide là où le joueur avait de la monnaie en approche.
+  instantane() {
+    const out = [];
+    for (const e of this.entries) {
+      if (!e.active) continue;
+      out.push([
+        e.mesh.position.x,
+        e.mesh.position.y,
+        e.mesh.position.z,
+        e.vel.x,
+        e.vel.y,
+        e.vel.z,
+        e.value,
+        e.age,
+        e.big ? 1 : 0,
+        e.called ? 1 : 0,
+      ]);
+    }
+    return out;
+  }
+
+  restaure(liste) {
+    this.clear();
+    if (!liste) return;
+    for (const g of liste) {
+      const entry = this.entries.find((e) => !e.active);
+      if (!entry) return;
+      entry.active = true;
+      entry.mesh.position.set(g[0], g[1], g[2]);
+      entry.vel.set(g[3], g[4], g[5]);
+      entry.value = g[6];
+      entry.age = g[7];
+      entry.big = !!g[8];
+      entry.called = !!g[9];
+      const k = entry.big ? PICKUPS.bigScale : 1;
+      entry.mesh.scale.set(k, k * 1.5, k);
+      entry.mesh.visible = true;
     }
   }
 

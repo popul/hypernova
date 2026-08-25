@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { ARENA, ENEMY } from './constants.js';
+import { ecart } from '../core/rng.js';
 
 // Halo doux réutilisé par les projectiles ennemis (lisibilité sur fond étoilé).
 function makeGlowTexture(tint = 'rgba(255,61,240,0.55)') {
@@ -182,10 +183,7 @@ export class Missiles extends Pool {
   }
 
   launch(pos, target) {
-    const entry = this.spawn(
-      pos,
-      this._tmp.set((Math.random() - 0.5) * 6, 0, -MISSILE_SPEED * 0.5)
-    );
+    const entry = this.spawn(pos, this._tmp.set(ecart(3), 0, -MISSILE_SPEED * 0.5));
     if (entry) entry.target = target;
     return entry;
   }

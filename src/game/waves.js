@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { WAVES, ENEMY, DIRECTOR } from './constants.js';
+import { alea, mulberry32 } from '../core/rng.js';
 
 // Position de base d'un slot de formation (sans le balancement, appliqué en continu ailleurs).
 export function slotBasePosition(row, col, cols, out) {
@@ -44,18 +45,11 @@ function makeEntryCurve(variant, end) {
 
 const VARIANTS = ['left', 'right', 'top'];
 
-// Générateur pseudo-aléatoire déterministe (mulberry32) : une même graine produit
-// exactement les mêmes vagues. C'est ce qui rend le « défi du jour » comparable
-// entre copains — et ce qui fait qu'aucune vague ne se déroule plus dans l'ordre appris.
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function rng() {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+// Le générateur vit dans core/rng.js — le même que celui de la simulation, pour
+// qu'il n'y ait qu'une seule définition du hasard dans le projet. Une même graine
+// produit exactement les mêmes vagues : c'est ce qui rend le « défi du jour »
+// comparable entre copains.
+export { mulberry32 };
 
 // Graine du jour : tous les joueurs affrontent les mêmes vagues le même jour.
 export function dailySeed(date = new Date()) {
@@ -202,7 +196,7 @@ function volleyWeights(n) {
   return { aimed: 0.45, wall: 0.35, cross: 0.2 };
 }
 
-export function pickWeighted(weights, rand = Math.random()) {
+export function pickWeighted(weights, rand = alea()) {
   const total = Object.values(weights).reduce((s, w) => s + w, 0);
   let acc = rand * total;
   for (const [key, w] of Object.entries(weights)) {
@@ -221,7 +215,7 @@ function diveWeights(n) {
 }
 
 // Tire un style de plongée selon les poids de la vague.
-export function pickDiveStyle(weights, rand = Math.random()) {
+export function pickDiveStyle(weights, rand = alea()) {
   const total = Object.values(weights).reduce((s, w) => s + w, 0);
   let acc = rand * total;
   for (const [style, w] of Object.entries(weights)) {

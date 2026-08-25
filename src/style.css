@@ -1005,14 +1005,44 @@ body.touch .btn-energy-touch {
 }
 
 .lb-row {
-  display: grid;
-  grid-template-columns: 30px 1fr auto auto;
-  gap: 12px;
-  align-items: baseline;
-  padding: 5px 12px;
   background: rgba(8, 12, 30, 0.6);
   border-left: 2px solid rgba(79, 242, 255, 0.25);
   font-size: 14px;
+}
+
+/* La ligne est un BOUTON quand la partie a été enregistrée : un classement dont
+   les lignes s'ouvrent répond à « comment il a fait ce score ? » autrement qu'en
+   demandant de le croire. */
+.lb-ligne {
+  display: grid;
+  grid-template-columns: 30px 1fr auto auto 16px;
+  gap: 12px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 12px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+}
+
+button.lb-ligne {
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.15s;
+}
+
+button.lb-ligne:hover {
+  background: rgba(79, 242, 255, 0.12);
+  transform: translateX(2px);
+}
+
+.lb-play {
+  font-size: 11px;
+  color: var(--cyan);
+  opacity: 0.8;
 }
 
 .lb-row.first {
@@ -2584,5 +2614,111 @@ body.touch .btn-call-touch {
   .route-desc {
     min-height: 0;
     font-size: 12px;
+  }
+}
+
+/* ---------- Bandeau de relecture ---------- */
+
+/* Il surplombe le jeu sans le masquer : la partie qu'on regarde doit rester
+   exactement celle qui a été jouée, HUD compris. */
+.rejeu-barre {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: max(10px, env(safe-area-inset-top));
+  z-index: 38;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  max-width: min(680px, 94vw);
+  background: rgba(6, 9, 22, 0.88);
+  border: 1px solid var(--cyan-dim);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
+  pointer-events: auto;
+  animation: none;
+}
+
+.rejeu-qui {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.rejeu-pastille {
+  font-family: var(--display);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: var(--magenta);
+  border: 1px solid rgba(255, 61, 240, 0.5);
+  padding: 2px 6px;
+}
+
+.rejeu-detail {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rejeu-piste {
+  flex: 1 1 90px;
+  height: 3px;
+  min-width: 60px;
+  background: rgba(79, 242, 255, 0.18);
+}
+
+.rejeu-piste i {
+  display: block;
+  height: 100%;
+  background: var(--cyan);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.rejeu-boutons {
+  display: flex;
+  gap: 6px;
+}
+
+.rejeu-boutons button {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--cyan);
+  background: rgba(10, 16, 34, 0.8);
+  border: 1px solid var(--cyan-dim);
+  padding: 5px 10px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.rejeu-boutons button:hover {
+  border-color: var(--cyan);
+}
+
+/* Sur un téléphone, le bandeau passe sur deux lignes plutôt que de rétrécir le
+   texte jusqu'à l'illisible. */
+@media (max-width: 620px) {
+  .rejeu-barre {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 7px 10px;
+  }
+
+  .rejeu-piste {
+    order: 3;
+    flex: 1 0 100%;
   }
 }

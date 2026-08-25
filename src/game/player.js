@@ -204,10 +204,54 @@ export class Player {
     this.shieldMesh.visible = this.shieldUp;
   }
 
+  // L'état complet du vaisseau, pour qu'une vague puisse repartir d'ici. Position et
+  // vitesse ne suffisent pas : un tir en recharge, une invulnérabilité qui court ou
+  // un tonneau en cours changent la suite de la partie.
+  instantane() {
+    return [
+      this.group.position.x,
+      this.group.position.z,
+      this.vx,
+      this.vz,
+      this.fireCooldown,
+      this.missileTimer,
+      this.invulnTimer,
+      this.shieldUp ? 1 : 0,
+      this.shieldRechargeTimer,
+      this.roll,
+      this.rollDir,
+      this.rollCooldown,
+      this.time,
+      this.alive ? 1 : 0,
+    ];
+  }
+
+  restaure(e) {
+    if (!e) return;
+    this.group.position.x = e[0];
+    this.group.position.z = e[1];
+    this.vx = e[2];
+    this.vz = e[3];
+    this.fireCooldown = e[4];
+    this.missileTimer = e[5];
+    this.invulnTimer = e[6];
+    this.shieldUp = !!e[7];
+    this.shieldRechargeTimer = e[8];
+    this.roll = e[9];
+    this.rollDir = e[10];
+    this.rollCooldown = e[11];
+    this.time = e[12];
+    this.alive = !!e[13];
+    this.group.visible = this.alive;
+    this.shieldMesh.visible = this.shieldUp;
+    this.group.rotation.set(0, 0, 0);
+    this._updateSeam();
+  }
+
   update(dt, game) {
     if (!this.alive) return;
     this.time += dt;
-    const { input, stats, bullets, missiles, enemies, audio, fx } = game;
+    const { stats, bullets, missiles, enemies, audio, fx } = game;
 
     // Pendant le ralenti d'esquive, le MONDE ralentit et le vaisseau non : son
     // déplacement est intégré avec le temps réel, pas avec le temps de jeu.
@@ -227,20 +271,22 @@ export class Player {
     // Déplacement avec accélération/friction pour un feeling précis mais vivant.
     // Tactile : le vaisseau rejoint la position du doigt (vitesse plafonnée par les stats,
     // pour que l'amélioration Propulseurs garde son intérêt sur mobile).
+    // Le vaisseau ne lit plus les entrées : il lit une COMMANDE, déjà exprimée dans
+    // le monde et arrondie. C'est ce qui permet de rejouer une partie — et ce qui
+    // fait qu'une partie jouée au doigt sur un téléphone se rejoue à l'identique
+    // sur un écran large, où les mêmes pixels désigneraient un autre point.
+    const cmd = game.cmd;
     let targetVx;
     let targetVz;
-    if (input.touchActive) {
-      const aim = this.aimPoint(input.touchNdc, game.camera);
-      targetVx = THREE.MathUtils.clamp((aim.x - this.group.position.x) * 8, -maxSpeed, maxSpeed);
+    if (cmd.vise) {
+      targetVx = THREE.MathUtils.clamp((cmd.ax - this.group.position.x) * 8, -maxSpeed, maxSpeed);
       // Le doigt pilote aussi la profondeur : le geste est une position dans le
       // plan, pas une abscisse. Un pouce qui glisse vers le haut avance.
       const zSpeed = maxSpeed * ARENA.playerZSpeedMul;
-      targetVz = THREE.MathUtils.clamp((aim.z - this.group.position.z) * 8, -zSpeed, zSpeed);
+      targetVz = THREE.MathUtils.clamp((cmd.az - this.group.position.z) * 8, -zSpeed, zSpeed);
     } else {
-      const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      targetVx = dir * maxSpeed;
-      const dirZ = (input.back ? 1 : 0) - (input.forward ? 1 : 0);
-      targetVz = dirZ * maxSpeed * ARENA.playerZSpeedMul;
+      targetVx = cmd.dx * maxSpeed;
+      targetVz = cmd.dz * maxSpeed * ARENA.playerZSpeedMul;
     }
     // La pirouette prend la main sur le pilotage : on est engagé, on ne corrige
     // plus. C'est ce qui en fait une décision et non un bouton d'invulnérabilité.
@@ -305,7 +351,7 @@ export class Player {
 
     // Tir principal (accéléré pendant l'Overdrive).
     this.fireCooldown -= dt;
-    if (input.fire && this.fireCooldown <= 0) {
+    if (cmd.tir && this.fireCooldown <= 0) {
       const rate = stats.fireRate * (game.odTimer > 0 ? OVERDRIVE.odFireMul : 1);
       this.fireCooldown = 1 / rate;
       this._shoot(stats, bullets, audio, fx);

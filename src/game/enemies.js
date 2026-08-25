@@ -6,12 +6,13 @@ import * as THREE from 'three';
 import { createEnemyShip } from './ships.js';
 import { ENEMY_TYPES, ENEMY, BOSS, WAVES, DIVES, ARENA } from './constants.js';
 import { slotBasePosition, difficulty, pickDiveStyle, pickWeighted } from './waves.js';
+import { alea, entre, ecart } from '../core/rng.js';
 
 // États depuis lesquels un ennemi peut tirer ou plonger. Se limiter à 'formation'
 // éteignait toute la menace : la formation ne se remplit jamais assez vite.
 const ARMED_STATES = ['formation', 'settling', 'returning'];
 
-const between = ([lo, hi]) => lo + Math.random() * (hi - lo);
+const between = ([lo, hi]) => entre(lo, hi);
 
 let nextEnemyId = 1; // identifiant unique : les balles perforantes ne frappent pas deux fois
 
@@ -40,10 +41,10 @@ class Enemy {
     this.cols = spawn.cols;
     this.curve = spawn.curve;
     this.t = 0;
-    this.fireTimer = 0.5 + Math.random() * 1.5;
+    this.fireTimer = entre(0.5, 2);
     this.diveShots = 0;
     this.flashTime = 0;
-    this.time = Math.random() * 10;
+    this.time = alea() * 10;
 
     this.group = createEnemyShip(this.type);
     this.group.position.copy(this.curve.getPoint(0));
@@ -81,6 +82,11 @@ export class Enemies {
     this.diff = difficulty(waveNumber, mods, heat);
     this.pending = [...waveDef.spawns];
     this.waveClock = 0;
+    // Le balancement de la formation repartait du temps écoulé depuis le CHARGEMENT
+    // de la page : deux vagues identiques ne se balançaient donc jamais pareil, et
+    // une partie n'était pas rejouable — c'était le dernier état caché du combat.
+    // Remis à zéro, la formation démarre toujours au centre de son oscillation.
+    this.formationTime = 0;
     this.diveTimer = this.diff.diveInterval + 2; // répit le temps de l'entrée
     this.fireTimer = 2;
     this.bossDefeatedThisWave = false;
@@ -116,7 +122,7 @@ export class Enemies {
     // Priorité aux plongeurs (menace immédiate), puis au boss, puis aléatoire.
     alive.sort((a, b) => {
       const rank = (e) => (e.state === 'diving' ? 0 : e.type === 'boss' ? 1 : 2);
-      return rank(a) - rank(b) + (Math.random() - 0.5) * 0.5;
+      return rank(a) - rank(b) + ecart(0.25);
     });
     return alive.slice(0, n);
   }
@@ -330,7 +336,7 @@ export class Enemies {
     if (shooters.length === 0) return null;
     let total = 0;
     for (const e of shooters) total += e.def.fireChance || 0.01;
-    let acc = Math.random() * total;
+    let acc = alea() * total;
     for (const e of shooters) {
       acc -= e.def.fireChance || 0.01;
       if (acc <= 0) return e;
@@ -352,7 +358,7 @@ export class Enemies {
     if (candidates.length === 0) return;
     // Les guêpes plongent plus volontiers.
     candidates.sort((a, b) => {
-      const w = (x) => (x.type === 'wasp' ? 0 : 1) + Math.random();
+      const w = (x) => (x.type === 'wasp' ? 0 : 1) + alea();
       return w(a) - w(b);
     });
     const lead = candidates[0];
@@ -393,9 +399,9 @@ export class Enemies {
     } else {
       e.curve = new THREE.CubicBezierCurve3(
         start,
-        new THREE.Vector3(start.x + (Math.random() - 0.5) * 10, 0, start.z + 7),
-        new THREE.Vector3(px + (Math.random() - 0.5) * 4, 0, 6),
-        new THREE.Vector3(px + (Math.random() - 0.5) * 3, 0, 24)
+        new THREE.Vector3(start.x + ecart(5), 0, start.z + 7),
+        new THREE.Vector3(px + ecart(2), 0, 6),
+        new THREE.Vector3(px + ecart(1.5), 0, 24)
       );
     }
 
@@ -423,7 +429,7 @@ export class Enemies {
     // avancer et reculer, viser le plan de départ manquerait systématiquement.
     const tof = Math.abs(game.player.position.z - fromZ) / this.diff.bulletSpeed;
     const lead = this.diff.lead ?? ENEMY.leadBase;
-    const jitter = (Math.random() - 0.5) * 2 * ENEMY.leadJitter;
+    const jitter = ecart(ENEMY.leadJitter);
     const x = game.player.position.x + game.player.vx * tof * lead * roleMul + jitter;
     return THREE.MathUtils.clamp(x, -ARENA.playerXMax, ARENA.playerXMax);
   }
@@ -447,7 +453,7 @@ export class Enemies {
     const dir = this._tmp2.set(aimX - from.x, 0, game.player.position.z - from.z);
     dir.normalize();
     if (spread) {
-      dir.x += (Math.random() - 0.5) * 2 * spread;
+      dir.x += ecart(spread);
       dir.normalize();
     }
     dir.multiplyScalar(this.diff.bulletSpeed * speedMul);
