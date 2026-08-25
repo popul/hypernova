@@ -163,8 +163,7 @@ export class Game {
     // gauche-droite rapide déclencherait un tonneau, ce qui est exactement le
     // geste d'un joueur qui slalome.
     this._lastTap = { left: 0, right: 0 };
-    const tap = (dir) => (e) => {
-      if (typing(e)) return;
+    const tap = (dir) => {
       const now = performance.now() / 1000;
       const cle = dir < 0 ? 'left' : 'right';
       if (now - this._lastTap[cle] < ROLL.doubleTapWindow) {
@@ -174,8 +173,26 @@ export class Game {
         this._lastTap[cle] = now;
       }
     };
-    for (const code of ['ArrowLeft', 'KeyA', 'KeyQ']) input.on(code, tap(-1));
-    for (const code of ['ArrowRight', 'KeyD']) input.on(code, tap(1));
+    for (const code of ['ArrowLeft', 'KeyA', 'KeyQ'])
+      input.on(code, (e) => {
+        if (!typing(e)) tap(-1);
+      });
+    for (const code of ['ArrowRight', 'KeyD'])
+      input.on(code, (e) => {
+        if (!typing(e)) tap(1);
+      });
+    // Au tactile il n'y a pas de touche « gauche » à répéter : on pilote en
+    // DÉSIGNANT un point. Le même geste devient donc « deux appuis rapprochés du
+    // même côté du vaisseau » — et ce côté se lit sur le point visé, pas sur la
+    // moitié d'écran, sinon un vaisseau déjà à droite ne pourrait plus rouler à
+    // droite. Le second appui peut venir d'un second doigt : le pouce qui pilote
+    // n'a pas besoin de quitter l'écran.
+    input.onTap((ndc) => {
+      if (this.state !== 'playing' || this.paused || !this.player.alive) return;
+      const ecart = this.player.aimPoint(ndc, this.camera).x - this.player.position.x;
+      if (Math.abs(ecart) < ROLL.tapDeadzone) return;
+      tap(ecart < 0 ? -1 : 1);
+    });
 
     // L'Appel : rabat l'argent vers le vaisseau. Touche dédiée, jamais mélangée
     // avec la touche d'énergie — ce sont deux économies distinctes, et confondre
@@ -384,6 +401,7 @@ export class Game {
     // NOVA explique la bombe et l'Overdrive à la première occasion réelle de s'en servir.
     if (this.energy >= OVERDRIVE.odCost) this.characters.teachOnce('odReady', IS_TOUCH);
     else if (this.energy >= OVERDRIVE.bombCost) this.characters.teachOnce('bombReady', IS_TOUCH);
+    else if (this.energy >= ROLL.cost) this.characters.teachOnce('rollFirst', IS_TOUCH);
   }
 
   // Bouton panique, pas bouton « annuler la mort » : coûteuse, en recharge, à portée

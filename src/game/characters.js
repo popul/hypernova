@@ -68,6 +68,12 @@ const LINES = {
   callFirstTouch: [
     'Il te reste de l’argent dans le champ. Le bouton ◉ : j’envoie une onde qui te le rabat. Une seule par vague.',
   ],
+  rollFirst: [
+    'Assez de jus pour un tonneau. Deux fois la même flèche : tu passes à travers les tirs. Pas à travers eux.',
+  ],
+  rollFirstTouch: [
+    'Assez de jus pour un tonneau. Tape deux fois du côté où tu veux te jeter : les tirs te traversent. Pas les carcasses.',
+  ],
   reflexFirst: [
     'Le temps vient de se plier. Pas toi. Sers-t’en : tu as une seconde qui n’existe pas.',
   ],
@@ -166,6 +172,8 @@ const EMOTION_BY_KEY = {
   kornJump: 'neutre',
   novaAnswer: 'alerte',
   grazeFirst: 'neutre',
+  rollFirst: 'determine',
+  rollFirstTouch: 'determine',
   reflexFirst: 'alerte',
   callFirst: 'neutre',
   callFirstTouch: 'neutre',

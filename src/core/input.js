@@ -15,6 +15,7 @@ export class Input {
     this.touchActive = false;
     this.touchNdc = { x: 0, y: 0 }; // position du doigt en coordonnées NDC (-1..1)
     this._touchId = null; // identifier du doigt qui pilote (robuste au multi-touch)
+    this._tapListeners = new Set(); // appui posé sur l'aire de jeu (pas sur l'UI)
 
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -53,6 +54,10 @@ export class Input {
         this._touchId = touch.identifier;
         this.touchActive = true;
         updateTouch(touch);
+        // Un appui EST un événement, pas seulement une position : la pirouette se
+        // déclenche sur deux appuis rapprochés, et il n'y a pas de touche « gauche »
+        // à répéter au tactile.
+        this._tapListeners.forEach((fn) => fn({ x: this.touchNdc.x, y: this.touchNdc.y }));
         e.preventDefault(); // bloque scroll/zoom et les événements souris synthétiques
       },
       { passive: false }
@@ -70,13 +75,28 @@ export class Input {
     );
     const endTouch = (e) => {
       const lifted = Array.from(e.changedTouches).some((t) => t.identifier === this._touchId);
-      if (lifted) {
-        this.touchActive = false;
-        this._touchId = null;
+      if (!lifted) return;
+      // Un doigt encore posé reprend le pilotage. Sans ça, taper du second pouce
+      // pour faire une pirouette PUIS le lever coupait le pilotage alors que le
+      // pouce d'origine n'avait jamais quitté l'écran.
+      const reste = Array.from(e.touches).find((t) => t.identifier !== this._touchId);
+      if (reste) {
+        this._touchId = reste.identifier;
+        updateTouch(reste);
+        return;
       }
+      this.touchActive = false;
+      this._touchId = null;
     };
     window.addEventListener('touchend', endTouch);
     window.addEventListener('touchcancel', endTouch);
+  }
+
+  // Appui sur l'aire de jeu, avec sa position en NDC. Le tir et le pilotage n'en
+  // ont pas besoin (ils lisent l'état), la pirouette si.
+  onTap(fn) {
+    this._tapListeners.add(fn);
+    return () => this._tapListeners.delete(fn);
   }
 
   on(code, fn) {

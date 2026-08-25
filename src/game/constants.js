@@ -322,6 +322,10 @@ export const FX = {
 // tonneau est une bombe qu'on n'aura pas.
 export const ROLL = {
   doubleTapWindow: 0.28, // secondes entre les deux appuis
+  // Tactile : appuyer trop près du vaisseau ne désigne aucun côté. Sous cet écart
+  // (en unités de jeu, l'arène en fait 29 de large) l'appui ne compte pas — mieux
+  // vaut ne rien déclencher qu'un tonneau dans le mauvais sens.
+  tapDeadzone: 1.8,
   duration: 0.42,
   cost: 9, // sur cent : environ un neuvième de bombe
   push: 13, // dérive latérale pendant la manœuvre

@@ -230,7 +230,7 @@ export class Player {
     let targetVx;
     let targetVz;
     if (input.touchActive) {
-      const aim = this._touchWorldPoint(input.touchNdc, game.camera);
+      const aim = this.aimPoint(input.touchNdc, game.camera);
       targetVx = THREE.MathUtils.clamp((aim.x - this.group.position.x) * 8, -maxSpeed, maxSpeed);
       // Le doigt pilote aussi la profondeur : le geste est une position dans le
       // plan, pas une abscisse. Un pouce qui glisse vers le haut avance.
@@ -348,7 +348,9 @@ export class Player {
   // Projette la position du doigt (NDC) sur le PLAN de jeu (y = 0) et renvoie le
   // point visé en x ET en z. L'ancienne version ne rendait que x : la profondeur
   // était jetée à la frontière de l'entrée tactile.
-  _touchWorldPoint(ndc, camera) {
+  // Point du plan de jeu visé par un doigt. Public : la pirouette tactile a besoin
+  // de savoir de quel côté du vaisseau on vient d'appuyer.
+  aimPoint(ndc, camera) {
     this._tmp.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position);
     const t = -camera.position.y / this._tmp.y; // intersection avec le plan y = 0
     this._aim.set(
