@@ -23,15 +23,57 @@ function glow(color) {
   return new THREE.MeshBasicMaterial({ color, toneMapped: false });
 }
 
-export function createPlayerShip() {
+// Livrées : la coque du joueur est peinte, pas texturée. Une teinte de coque, une
+// teinte d'accent pour tout ce qui brille, et c'est suffisant pour que deux pilotes
+// se reconnaissent d'un coup d'œil dans un classement.
+export const LIVREES = [
+  { id: 'flotte', nom: 'Flotte', hull: 0xc8d6e8, dark: 0x2a3550, accent: 0x4ff2ff },
+  { id: 'braise', nom: 'Braise', hull: 0xe8d0b8, dark: 0x4a2418, accent: 0xff9a3c },
+  { id: 'menthe', nom: 'Menthe', hull: 0xd6f0e0, dark: 0x1c4038, accent: 0x5cffc0 },
+  { id: 'orage', nom: 'Orage', hull: 0x9aa8c8, dark: 0x1e2238, accent: 0xb46cff },
+  { id: 'or', nom: 'Or blanc', hull: 0xf0e6c8, dark: 0x3a3020, accent: 0xffc857 },
+  { id: 'sang', nom: 'Corsaire', hull: 0xd8c0c0, dark: 0x40161c, accent: 0xff4d6d },
+];
+
+// Trois carènes. Elles ne changent pas les statistiques — c'est la classe qui le
+// fera plus tard — mais elles changent la silhouette, et c'est ce qu'on voit.
+export const CARENES = [
+  { id: 'dague', nom: 'Dague', nez: [0.42, 3.0], aile: [1.7, 1.1], angle: -0.42 },
+  { id: 'faucon', nom: 'Faucon', nez: [0.55, 2.4], aile: [2.1, 0.9], angle: -0.62 },
+  { id: 'enclume', nom: 'Enclume', nez: [0.62, 2.2], aile: [1.5, 1.5], angle: -0.2 },
+];
+
+export function livree(id) {
+  return LIVREES.find((l) => l.id === id) || LIVREES[0];
+}
+
+export function carene(id) {
+  return CARENES.find((c) => c.id === id) || CARENES[0];
+}
+
+// Construit le vaisseau à partir d'une FICHE, et non plus en dur.
+//
+//   { livree, carene, tier, levels }
+//
+// C'est ce qui permet trois choses d'un seul coup : la personnalisation choisie à
+// la création du pseudo, les paliers de coque gagnés avec les fragments, et — le
+// plus important pour le joueur — le fait que CE QU'ON ACHÈTE SE VOIE. Un canon
+// jumelé qui n'ajoute rien à la silhouette n'a pas été acheté, il a été coché.
+export function createPlayerShip(fiche = {}) {
+  const L = livree(fiche.livree);
+  const C = carene(fiche.carene);
+  const tier = Math.max(0, Math.min(2, fiche.tier ?? 0));
+  const lv = fiche.levels || {};
+
   const g = new THREE.Group();
   const shell = new THREE.Group(); // la carène : mise à l'échelle sans toucher au repère
   g.add(shell);
 
-  const hull = mat(0xc8d6e8, { metalness: 0.75, roughness: 0.3 });
-  const dark = mat(0x2a3550, { metalness: 0.8, roughness: 0.4 });
+  const hull = mat(L.hull, { metalness: 0.75, roughness: 0.3 });
+  const dark = mat(L.dark, { metalness: 0.8, roughness: 0.4 });
+  const accent = glow(L.accent);
 
-  const fuselage = new THREE.Mesh(new THREE.ConeGeometry(0.5, 2.6, 6), hull);
+  const fuselage = new THREE.Mesh(new THREE.ConeGeometry(C.nez[0], C.nez[1], 6), hull);
   fuselage.rotation.x = -Math.PI / 2;
   shell.add(fuselage);
 
@@ -41,25 +83,82 @@ export function createPlayerShip() {
   shell.add(cockpit);
 
   for (const side of [-1, 1]) {
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.1, 1.1), hull);
-    wing.position.set(side * 1.05, -0.05, 0.55);
-    wing.rotation.y = side * -0.42;
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(C.aile[0], 0.1, C.aile[1]), hull);
+    wing.position.set(side * (C.aile[0] * 0.62), -0.05, 0.55);
+    wing.rotation.y = side * C.angle;
     shell.add(wing);
 
-    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.9), glow(0x4ff2ff));
-    tip.position.set(side * 1.78, -0.05, 0.95);
-    tip.rotation.y = side * -0.42;
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.9), accent);
+    tip.position.set(side * (C.aile[0] * 1.05), -0.05, 0.95);
+    tip.rotation.y = side * C.angle;
     shell.add(tip);
 
-    const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.7, 6), dark);
+    // PROPULSEURS : la tuyère grossit avec le niveau acheté. Le plus visible de
+    // tous les modules, parce qu'on le regarde en permanence — il est derrière.
+    const boost = 1 + (lv.engine || 0) * 0.13;
+    const engine = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.2 * boost, 0.26 * boost, 0.7 * boost, 6),
+      dark
+    );
     engine.rotation.x = Math.PI / 2;
     engine.position.set(side * 0.45, -0.08, 1.15);
     shell.add(engine);
 
-    const exhaust = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 6), glow(0x4ff2ff));
+    const exhaust = new THREE.Mesh(new THREE.SphereGeometry(0.16 * boost, 6, 6), accent);
     exhaust.position.set(side * 0.45, -0.08, 1.55);
     exhaust.name = 'exhaust';
     shell.add(exhaust);
+
+    // CANONS JUMELÉS : un tube de plus par niveau, sur l'aile. On voit d'où sortent
+    // les nouveaux tirs, ce qui rend l'achat lisible sans une ligne de texte.
+    for (let n = 0; n < (lv.cannons || 0); n++) {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.1, 6), dark);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(side * (0.7 + n * 0.34), -0.12, -0.35);
+      shell.add(barrel);
+    }
+
+    // MISSILES : une nacelle sous l'aile par niveau.
+    for (let n = 0; n < (lv.missiles || 0); n++) {
+      const pod = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.6), dark);
+      pod.position.set(side * (0.9 + n * 0.3), -0.2, 0.5);
+      shell.add(pod);
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 5), accent);
+      head.rotation.x = -Math.PI / 2;
+      head.position.set(side * (0.9 + n * 0.3), -0.2, 0.14);
+      shell.add(head);
+    }
+
+    // PALIERS DE COQUE : le blindage gagné avec les fragments. Palier II boulonne
+    // une plaque sur chaque aile, palier III ajoute une dérive avant.
+    if (tier >= 1) {
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.14, 0.7), dark);
+      plate.position.set(side * 0.85, 0.06, 0.5);
+      plate.rotation.y = side * C.angle;
+      shell.add(plate);
+    }
+    if (tier >= 2) {
+      const canard = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.4), hull);
+      canard.position.set(side * 0.6, 0.14, -0.6);
+      canard.rotation.y = side * 0.5;
+      canard.rotation.z = side * -0.25;
+      shell.add(canard);
+    }
+  }
+
+  // BOUCLIER : un anneau émetteur autour du fuselage, visible dès le premier niveau.
+  if (lv.shield) {
+    const emitter = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 5, 14), accent);
+    emitter.rotation.x = Math.PI / 2;
+    emitter.position.z = 0.35;
+    shell.add(emitter);
+  }
+
+  // RÉFLEXE CHRONO : un petit cadran sur le dos. Discret, mais on le cherche.
+  if (lv.reflex) {
+    const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.06, 10), accent);
+    dial.position.set(0, 0.3, 0.7);
+    shell.add(dial);
   }
 
   const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 0.8), dark);

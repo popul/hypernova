@@ -23,8 +23,14 @@
 import { STAGES } from './space/biomes.js';
 
 const DIRECTE = [
-  { nom: 'Couloir balisé', desc: 'La route que tout le monde emprunte. Rien à voir, rien à craindre.' },
-  { nom: 'Transfert court', desc: 'Poussée minimale, cap direct. On économise le carburant et le reste.' },
+  {
+    nom: 'Couloir balisé',
+    desc: 'La route que tout le monde emprunte. Rien à voir, rien à craindre.',
+  },
+  {
+    nom: 'Transfert court',
+    desc: 'Poussée minimale, cap direct. On économise le carburant et le reste.',
+  },
   { nom: 'Sillage dégagé', desc: 'Le passage a déjà été nettoyé. Par qui, on ne sait pas.' },
   { nom: 'Approche basse', desc: 'On rase le plan de l’écliptique. Personne ne regarde par là.' },
 ];

@@ -2130,3 +2130,87 @@ body.touch .key-hint {
     font-size: 12px;
   }
 }
+
+/* ---------- Personnalisation du vaisseau, à la création du pilote ---------- */
+
+.pimp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin: 4px 0 2px;
+}
+
+.pimp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pimp-label {
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  min-width: 62px;
+}
+
+.pimp-opts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pimp-opt {
+  font-family: var(--body);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  color: var(--text-dim);
+  background: rgba(10, 16, 34, 0.7);
+  border: 1px solid var(--cyan-dim);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.pimp-opt:hover {
+  color: var(--text);
+  border-color: var(--cyan);
+}
+
+.pimp-opt.on {
+  color: var(--bg);
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+/* La pastille montre la teinte de coque ET l'accent : c'est ce couple qu'on
+   choisit, pas une couleur isolée. */
+.pimp-opt.swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pimp-opt.swatch i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--h);
+  box-shadow: inset 0 0 0 3px var(--a);
+}
+
+@media (max-width: 760px) {
+  .pimp-label {
+    min-width: 0;
+  }
+
+  .pimp-opt {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+}

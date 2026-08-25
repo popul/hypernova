@@ -36,6 +36,7 @@ import {
   verifyPin,
   sanitizeName,
 } from './pilots.js';
+import { CARENES, LIVREES } from './ships.js';
 import { Characters } from './characters.js';
 import { Director, romanTier } from './director.js';
 import { isTouchDevice } from '../core/input.js';
@@ -56,7 +57,10 @@ export class Game {
     this.fx = fx;
     this.stage = stage; // composer, bloom, lampes, réglage de qualité, cadrage
 
-    this.player = new Player(scene);
+    this.player = new Player(scene, {
+      livree: activePilot()?.livree,
+      carene: activePilot()?.carene,
+    });
     this.enemies = new Enemies(scene);
     this.bullets = new PlayerBullets(scene);
     this.enemyBullets = new EnemyBullets(scene);
@@ -456,9 +460,35 @@ export class Game {
     );
 
     el.querySelector('#pilot-new').addEventListener('click', () => {
+      // On choisit son nom ET son vaisseau du même geste. Faire le tour du hangar
+      // avant de décoller fait partie du plaisir, et un vaisseau qu'on a choisi
+      // soi-même n'est plus le vaisseau du jeu : c'est le sien.
+      const choix = { livree: 'flotte', carene: 'dague' };
       zone.innerHTML = `
         <form class="lb-form pilot-create" id="create-form">
           <input id="new-name" type="text" maxlength="10" placeholder="TON NOM" autocomplete="off" aria-label="Nom du pilote" />
+          <div class="pimp">
+            <div class="pimp-row">
+              <span class="pimp-label">Carène</span>
+              <div class="pimp-opts" id="pimp-carene">
+                ${CARENES.map(
+                  (c) =>
+                    `<button type="button" class="pimp-opt${c.id === choix.carene ? ' on' : ''}" data-v="${c.id}">${esc(c.nom)}</button>`
+                ).join('')}
+              </div>
+            </div>
+            <div class="pimp-row">
+              <span class="pimp-label">Livrée</span>
+              <div class="pimp-opts" id="pimp-livree">
+                ${LIVREES.map(
+                  (l) =>
+                    `<button type="button" class="pimp-opt swatch${l.id === choix.livree ? ' on' : ''}" data-v="${l.id}"
+                       style="--h:#${l.hull.toString(16).padStart(6, '0')};--a:#${l.accent.toString(16).padStart(6, '0')}"
+                       title="${esc(l.nom)}"><i></i>${esc(l.nom)}</button>`
+                ).join('')}
+              </div>
+            </div>
+          </div>
           <input id="new-pin" type="password" inputmode="numeric" maxlength="4"
                  placeholder="Code secret (option)" autocomplete="off" aria-label="Code secret optionnel" />
           <button class="btn-launch" type="submit">C'est moi !</button>
@@ -466,9 +496,24 @@ export class Game {
         </form>`;
       const nameInput = zone.querySelector('#new-name');
       nameInput.focus();
+      // Le vaisseau se reconstruit à chaque clic : on voit ce qu'on choisit.
+      for (const [cle, id] of [['carene', '#pimp-carene'], ['livree', '#pimp-livree']]) {
+        zone.querySelectorAll(`${id} .pimp-opt`).forEach((b) =>
+          b.addEventListener('click', () => {
+            choix[cle] = b.dataset.v;
+            zone.querySelectorAll(`${id} .pimp-opt`).forEach((o) => o.classList.remove('on'));
+            b.classList.add('on');
+            this.player.rebuild(choix);
+            this.player.group.visible = true;
+            this.audio.uiTick();
+          })
+        );
+      }
+      this.player.rebuild(choix);
+      this.player.group.visible = true;
       zone.querySelector('#create-form').addEventListener('submit', (e) => {
         e.preventDefault();
-        const result = createPilot(nameInput.value, zone.querySelector('#new-pin').value);
+        const result = createPilot(nameInput.value, zone.querySelector('#new-pin').value, choix);
         if (result.ok) {
           this.audio.buy();
           done();
@@ -677,6 +722,8 @@ export class Game {
       this.lives = PLAYER.baseLives;
     }
     this.stats = computeStats(this.levels);
+    this.fragments = 0;
+    this._refreshShip(); // la coque repart de la livrée et de la carène du pilote
     this.combo = { chain: 0, mult: 1, timer: 0 };
     this.respawnTimer = 0;
     this.gameOverTimer = 0;
@@ -809,6 +856,22 @@ export class Game {
     });
   }
 
+  // La fiche du vaisseau : tout ce qui décide de sa SILHOUETTE. Livrée et carène
+  // viennent du pilote, le palier des fragments, les modules des achats.
+  _fiche() {
+    const p = activePilot();
+    return {
+      livree: p?.livree,
+      carene: p?.carene,
+      tier: palierDeCoque(this.fragments),
+      levels: this.levels,
+    };
+  }
+
+  _refreshShip() {
+    this.player.rebuild(this._fiche());
+  }
+
   // Deux routes, deux récompenses, et un vrai dilemme : s'équiper ou comprendre.
   _showRouteChoice() {
     this.state = 'route';
@@ -842,7 +905,9 @@ export class Game {
       </div>
     `);
     for (const b of el.querySelectorAll('.route')) {
-      b.addEventListener('click', () => this._takeRoute(b.dataset.type === 'longue' ? r.longue : r.courte, idx));
+      b.addEventListener('click', () =>
+        this._takeRoute(b.dataset.type === 'longue' ? r.longue : r.courte, idx)
+      );
     }
   }
 
@@ -862,7 +927,10 @@ export class Game {
     const avant = palierDeCoque(this.fragments);
     this.fragments++;
     const apres = palierDeCoque(this.fragments);
-    if (apres > avant) this.hud.announce('COQUE — PALIER ' + 'I'.repeat(apres + 1), 'Fragment intégré', 2600);
+    if (apres > avant) {
+      this.hud.announce('COQUE — PALIER ' + 'I'.repeat(apres + 1), 'Fragment intégré', 2600);
+      this._refreshShip();
+    }
 
     this.overlayRoot.innerHTML = '';
     this.state = 'cinematic';
@@ -919,6 +987,9 @@ export class Game {
       this.hud.setLives(this.lives);
     }
     this.stats = computeStats(this.levels);
+    // Ce qu'on achète se voit sur la coque, sinon ce n'est pas un achat : c'est
+    // une case cochée.
+    this._refreshShip();
     this.hud.setCredits(this.credits);
     this.audio.buy();
     this.characters.onBuy();

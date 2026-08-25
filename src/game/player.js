@@ -13,8 +13,10 @@ import { ARENA, PLAYER, OVERDRIVE } from './constants.js';
 const HALF_WIDTH = 1.85 * 0.78 + 0.1;
 
 export class Player {
-  constructor(scene) {
-    this.group = createPlayerShip();
+  constructor(scene, fiche = {}) {
+    this.scene = scene;
+    this.fiche = fiche;
+    this.group = createPlayerShip(fiche);
     this.group.position.set(0, 0, ARENA.playerZ);
     scene.add(this.group);
 
@@ -31,7 +33,7 @@ export class Player {
     // Le prolongement de la coque de l'autre côté de la couture. Ce n'est PAS un
     // second vaisseau : les deux morceaux sont découpés par des demi-plans
     // complémentaires, donc à tout instant on voit exactement une coque, coupée.
-    this.seam = createPlayerShip();
+    this.seam = createPlayerShip(fiche);
     this.seam.traverse((o) => {
       if (o.name === 'hitcore' || o.name === 'hitring') o.visible = false;
     });
@@ -41,22 +43,7 @@ export class Player {
     // Les plans sont posés dès la construction, donc compilés avec le reste : plus
     // aucune recompilation en cours de partie.
     this.planes = makeWrapPlanes();
-    const attach = (root, plane) =>
-      root.traverse((o) => {
-        if (!o.material) return;
-        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-          m.clippingPlanes = [plane];
-        }
-      });
-    attach(this.group, this.planes.hull);
-    attach(this.seam, this.planes.seam);
-
-    this.exhausts = [];
-    this.hitMarkers = [];
-    this.group.traverse((o) => {
-      if (o.name === 'exhaust') this.exhausts.push(o);
-      if (o.name === 'hitcore' || o.name === 'hitring') this.hitMarkers.push(o);
-    });
+    this._collectParts();
 
     this.vx = 0;
     this.vz = 0;
@@ -73,6 +60,67 @@ export class Player {
 
   get position() {
     return this.group.position;
+  }
+
+  // Reconstruit la coque à partir d'une nouvelle fiche : livrée, carène, palier,
+  // modules achetés. Appelé après chaque achat et à chaque palier gagné — c'est
+  // tout l'intérêt, un module qu'on ne voit pas apparaître n'a pas été acheté,
+  // il a été coché.
+  //
+  // On conserve la position et l'orientation : la reconstruction doit être
+  // invisible autrement que par la silhouette qui change.
+  rebuild(fiche) {
+    this.fiche = { ...this.fiche, ...fiche };
+    const pos = this.group.position.clone();
+    const rot = this.group.rotation.clone();
+    const visible = this.group.visible;
+
+    for (const vieux of [this.group, this.seam]) {
+      this.scene.remove(vieux);
+      vieux.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of mats) m.dispose();
+      });
+    }
+
+    this.group = createPlayerShip(this.fiche);
+    this.group.position.copy(pos);
+    this.group.rotation.copy(rot);
+    this.group.visible = visible;
+    this.scene.add(this.group);
+
+    this.seam = createPlayerShip(this.fiche);
+    this.seam.traverse((o) => {
+      if (o.name === 'hitcore' || o.name === 'hitring') o.visible = false;
+    });
+    this.seam.visible = false;
+    this.scene.add(this.seam);
+
+    this.group.add(this.shieldMesh);
+    this.group.add(this.grazeAura);
+    this._collectParts();
+  }
+
+  // Recense les pièces animées et les matières à découper. Rappelé après chaque
+  // reconstruction, sinon les tuyères cessent de pulser et la couture cesse de
+  // trancher — deux pannes silencieuses.
+  _collectParts() {
+    this.exhausts = [];
+    this.hitMarkers = [];
+    this.group.traverse((o) => {
+      if (o.name === 'exhaust') this.exhausts.push(o);
+      if (o.name === 'hitcore' || o.name === 'hitring') this.hitMarkers.push(o);
+    });
+    const attach = (root, plane) =>
+      root.traverse((o) => {
+        if (!o.material) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          m.clippingPlanes = [plane];
+        }
+      });
+    attach(this.group, this.planes.hull);
+    attach(this.seam, this.planes.seam);
   }
 
   // Le repère de collision n'a de sens qu'en jeu : en gros plan cinématique, il

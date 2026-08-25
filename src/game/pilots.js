@@ -57,14 +57,21 @@ export function setActivePilot(name) {
 }
 
 // Renvoie { ok, error } — error: 'exists' | 'invalid' | 'full'.
-export function createPilot(rawName, pin = '') {
+export function createPilot(rawName, pin = '', apparence = {}) {
   const name = sanitizeName(rawName);
   if (!name) return { ok: false, error: 'invalid' };
   const pilots = listPilots();
   if (pilots.some((p) => p.name === name)) return { ok: false, error: 'exists' };
   if (pilots.length >= MAX_PILOTS) return { ok: false, error: 'full' };
   const cleanPin = /^\d{4}$/.test(pin) ? pin : '';
-  pilots.push({ name, pinHash: cleanPin ? hashPin(name, cleanPin) : null });
+  // L'apparence est attachée au PILOTE, pas à la partie : elle survit aux morts,
+  // et c'est elle qu'on reconnaît dans un classement partagé entre copains.
+  pilots.push({
+    name,
+    pinHash: cleanPin ? hashPin(name, cleanPin) : null,
+    livree: apparence.livree || 'flotte',
+    carene: apparence.carene || 'dague',
+  });
   savePilots(pilots);
   setActivePilot(name);
   return { ok: true, name };
