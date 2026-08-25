@@ -497,7 +497,10 @@ export class Game {
       const nameInput = zone.querySelector('#new-name');
       nameInput.focus();
       // Le vaisseau se reconstruit à chaque clic : on voit ce qu'on choisit.
-      for (const [cle, id] of [['carene', '#pimp-carene'], ['livree', '#pimp-livree']]) {
+      for (const [cle, id] of [
+        ['carene', '#pimp-carene'],
+        ['livree', '#pimp-livree'],
+      ]) {
         zone.querySelectorAll(`${id} .pimp-opt`).forEach((b) =>
           b.addEventListener('click', () => {
             choix[cle] = b.dataset.v;
