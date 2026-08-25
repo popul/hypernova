@@ -139,7 +139,7 @@ function surfaceTexture(recipe, seed) {
   return tex;
 }
 
-function createPlanet({
+export function createPlanet({
   kind = 'earth',
   radius = 30,
   pos = [-34, -36, -104],
@@ -218,7 +218,7 @@ function createPlanet({
 // --- Lune --------------------------------------------------------------------
 // Une bille cratérisée. Son seul rôle est de donner une seconde échelle à côté de
 // la planète : deux objets de tailles connues valent mieux qu'un.
-function createMoon({ radius = 5, pos = [22, -18, -78], tint = 0xb8b4ac } = {}) {
+export function createMoon({ radius = 5, pos = [22, -18, -78], tint = 0xb8b4ac } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 128;
@@ -454,7 +454,7 @@ const HULKS = {
   },
 };
 
-function createHulk({ variant = 'torn', pos = [0, -24, -90], scale = 1, spin = 0.02 } = {}) {
+export function createHulk({ variant = 'torn', pos = [0, -24, -90], scale = 1, spin = 0.02 } = {}) {
   const group = new THREE.Group();
   const mat = elideMat(false);
   const dark = elideMat(true);
@@ -495,7 +495,7 @@ function createHulk({ variant = 'torn', pos = [0, -24, -90], scale = 1, spin = 0
 // fente — les gens sont là-dedans — et elle ne s'ouvre pas. Ce n'est pas une
 // gueule, c'est un couvercle. La différence entre un monstre et un drame tient à
 // ce détail-là.
-function createKorn() {
+export function createKorn() {
   const group = new THREE.Group();
   // La coque reste sombre — c'est un couvercle, pas un vaisseau éclairé — mais
   // jamais NOIRE. Mesuré : à 0x1c1a1f, sous l'éclairage mourant de l'héliopause

@@ -1,193 +1,73 @@
-// HYPERNOVA — Prologue : LE DERNIER EN VOL (~42 s, 12 plans).
+// L'introduction : « Ce qu'il n'a jamais pu digérer ».
 //
-// Principes de mise en scène, issus de la critique de la version précédente :
-// — on ouvre EN PLEIN COMBAT, sans texte ni logo, et un ennemi explose à 1,5 s ;
-// — le joueur possède trois choses avant qu'on les lui prenne : son indicatif
-//   (prononcé par ORSO), un ailier qui lui sauve la mise, et une Terre reconnaissable ;
-// — le récit est porté par les personnages, jamais par des sous-titres qui légendent
-//   l'image (l'ancienne version commentait ce qu'on voyait déjà) ;
-// — chaque plan commence par une COUPE FRANCHE : c'est ce qui distingue un film d'un
-//   économiseur d'écran ;
-// — le dernier mouvement va VERS l'ennemi, pas en arrière.
+// Quatre actes, cinquante-deux secondes. L'ancienne version racontait une bataille
+// avec un ailier qui meurt — belle scène, mais sans le moindre rapport avec
+// l'histoire du jeu. Celle-ci ne raconte qu'une chose, et la raconte en images :
+// on a rempli un être d'un peuple entier, on l'a refermé, et on est parti sans lui.
+//
+//   ACTE I   LA TRAHISON      le chargement, la fuite, la couture qui se scelle
+//   ACTE II  LA RECHERCHE     dix mille ans de mondes ouverts, compressés
+//   ACTE III L'ARRIVÉE        notre système, l'épave, et nous qui portons leurs os
+//   ACTE IV  LE HANGAR        les trente-neuf dossiers, la quarantième ligne vide
+//
+// Choix de fond : les décors viennent de space/landmarks.js, ceux du JEU. ANDEL de
+// la cinématique est le KORN que le joueur affrontera, l'épave est celle qu'il
+// remontera. Un prologue qui présente des formes qu'on ne reverra jamais ne
+// présente rien.
 
 import * as THREE from 'three';
-import { ARENA } from './constants.js';
 import { evaluateShot, Veils } from './cine/stagecraft.js';
+import { ARENA } from './constants.js';
+import { createKorn, createHulk, createPlanet, createSun } from './space/landmarks.js';
 import {
-  createEarth,
-  createEclipse,
-  createSwarm,
-  createShuttles,
-  createDebris,
-} from './cine/props.js';
-import { createPlayerShip } from './ships.js';
+  createDyingStar,
+  createRiver,
+  createFleeingFleet,
+  createTornWorlds,
+} from './cine/elide.js';
+import { INTRO, souvenirPourPalier } from './cine/sequences.js';
 
-const EARTH_R = 26;
-const EARTH_POS = new THREE.Vector3(0, -6, -126);
-const ECLIPSE_HOME = new THREE.Vector3(6, 22, -104);
-const END_TIME = 42.0;
+const ANDEL_POS = new THREE.Vector3(0, -4, -150);
+const STAR_POS = new THREE.Vector3(-120, 30, -260);
+const EARTH_POS = new THREE.Vector3(0, -8, -130);
 
-// ------------------------------------------------------------------ Découpage
-
-// hfov = champ HORIZONTAL voulu ; le rig le convertit en champ vertical réel selon
-// le format de l'écran, sans quoi la moitié des plans sortirait du cadre en portrait.
-const SHOTS = [
-  {
-    id: 'S1', // Déjà la bataille. Le kill tient lieu de réplique.
-    t0: 0,
-    t1: 3,
-    pos: [2.6, 1.5, 12.4],
-    posTo: [1.6, 1.2, 9.0],
-    lookTarget: (ctx) => ctx.player.position,
-    roll: -0.32,
-    rollTo: -0.08,
-    hfov: 62,
-    ease: 'linear',
-  },
-  {
-    id: 'S2', // L'escadron. ORSO nomme le pilote et le sauve.
-    t0: 3,
-    t1: 6,
-    pos: [-9.0, -3.4, -2.0],
-    posTo: [-8.4, -3.0, -3.2],
-    look: [1.0, 1.2, -14.0],
-    roll: 0.1,
-    hfov: 70,
-    ease: 'linear',
-  },
-  {
-    id: 'S3', // Le palier lumineux : la Terre, le convoi. Ce qu'on va perdre.
-    t0: 6,
-    t1: 10,
-    pos: [14.0, 2.0, -46.0],
-    posTo: [22.0, 16.0, -30.0],
-    look: [0, -6, -126],
-    lookTo: [2, -2, -96],
-    roll: 0,
-    rollTo: -0.06,
-    hfov: 66,
-    ease: 'inOutSine',
-  },
-  {
-    id: 'S4', // Elle n'arrête pas d'entrer. Plan fixe : l'immobilité fait peur.
-    t0: 10,
-    t1: 14,
-    pos: [0, -7, -26],
-    look: [2, 12, -104],
-    roll: 0,
-    rollTo: 0.04,
-    hfov: 74,
-    ease: 'linear',
-  },
-  {
-    id: 'S5', // La quille au téléobjectif. Ça ne finit pas.
-    t0: 14,
-    t1: 17,
-    // Assez loin pour LIRE une coque : plus près, ce n'est qu'un mur sombre.
-    pos: [52, 14, -56],
-    posTo: [-58, 14, -56],
-    lookFn: (e, ctx) => ctx.tmp.set(52 - 110 * e, 21, -104),
-    roll: 0,
-    rollTo: 0.14,
-    hfov: 46,
-    ease: 'linear',
-  },
-  {
-    id: 'S6', // Le premier coup : le convoi fauché, l'essaim qui sort.
-    t0: 17,
-    t1: 20,
-    pos: [-34, 10, -60],
-    posTo: [-20, 6, -52],
-    look: [-58, 16, -100],
-    lookTo: [6, -8, -112],
-    roll: 0.06,
-    rollTo: 0.26,
-    hfov: 68,
-    ease: 'outCubic',
-  },
-  {
-    id: 'S7', // Il prend le coup. Caméra à l'épaule.
-    t0: 20,
-    t1: 23,
-    pos: [5.0, 2.4, -8.0],
-    posTo: [0.5, 1.6, -18.0],
-    lookTarget: (ctx) => ctx.player.position,
-    roll: 0,
-    hfov: 56,
-    ease: 'linear',
-    handheld: 0.12,
-  },
-  {
-    id: 'S8', // La perte. La caméra ne bouge plus du tout.
-    t0: 23,
-    t1: 26,
-    pos: [-3.0, 1.0, -14.0],
-    look: [2.0, 0.0, -26.0],
-    roll: 0,
-    hfov: 50,
-    ease: 'linear',
-  },
-  {
-    id: 'S9', // Le point de non-retour, joué et non dit : le demi-tour.
-    t0: 26,
-    t1: 28,
-    pos: [1.2, 0.9, -21.0],
-    posTo: [1.0, 1.0, -20.2],
-    lookTarget: (ctx) => ctx.player.position,
-    roll: 0,
-    hfov: 42,
-    ease: 'linear',
-  },
-  {
-    id: 'S10', // La charge, dans l'épave du convoi.
-    t0: 28,
-    t1: 32,
-    posFn: (e, ctx) => ctx.tmp.copy(ctx.player.position).add(ctx.tmp2.set(0, 1.1, 3.2)),
-    lookFn: (e, ctx) => ctx.tmp.copy(ctx.player.position).add(ctx.tmp2.set(0, 0.4, -8)),
-    roll: 0,
-    hfov: 64,
-    ease: 'linear',
-  },
-  {
-    id: 'S11', // Il perd la face. On ne le tue pas : on le rase.
-    t0: 32,
-    t1: 36,
-    pos: [-14, 8, -66],
-    posTo: [-40, 15, -88],
-    lookFn: (e, ctx) => ctx.eyeWorld,
-    roll: 0.1,
-    rollTo: -0.14,
-    hfov: 60,
-    ease: 'inOutSine',
-  },
-  {
-    id: 'S12', // Le titre en plein vol, puis la partie.
-    t0: 36,
-    t1: END_TIME,
-    posFn: (e, ctx) => ctx.tmp.copy(ctx.player.position).add(ctx.tmp2.set(0, 2.2, 7.0)),
-    lookFn: (e, ctx) => ctx.tmp.copy(ctx.player.position).add(ctx.tmp2.set(0, 0.6, -12)),
-    roll: 0,
-    rollTo: -0.1,
-    hfov: 58,
-    ease: 'linear',
-  },
-];
-
-// ------------------------------------------------------------------- Lumière
-
-// La lumière raconte l'extinction : c'est aussi scénarisé que la caméra.
+// La lumière raconte autant que la caméra. Elle est indexée sur l'AVANCEMENT de la
+// séquence (0 à 1), pas sur des secondes absolues : un souvenir de dix secondes et
+// une introduction de dix-huit partagent ainsi la même courbe.
 const LIGHT_TRACK = [
-  { t: 0, hemi: 1.1, exposure: 1.15, bloom: 0.95, fog: 0.0075, maw: 0 },
-  { t: 9.5, hemi: 1.0, exposure: 1.18, bloom: 0.95, fog: 0.003, maw: 0 },
-  { t: 13.5, hemi: 0.3, exposure: 0.86, bloom: 1.1, fog: 0.0016, maw: 0 },
-  { t: 16.6, hemi: 0.3, exposure: 0.9, bloom: 1.3, fog: 0.0016, maw: 26 },
-  { t: 19.0, hemi: 0.28, exposure: 0.95, bloom: 1.2, fog: 0.0016, maw: 8 },
-  { t: 25.0, hemi: 0.22, exposure: 0.8, bloom: 1.0, fog: 0.0016, maw: 4 },
-  { t: 28.0, hemi: 0.5, exposure: 1.05, bloom: 1.15, fog: 0.002, maw: 4 },
-  { t: 34.0, hemi: 0.95, exposure: 1.2, bloom: 1.5, fog: 0.0026, maw: 12 },
-  { t: 42.0, hemi: 1.1, exposure: 1.15, bloom: 0.95, fog: 0.0075, maw: 0 },
+  {
+    t: 0,
+    hemi: 0.5,
+    sky: 0x9fc4ff,
+    ground: 0x11203a,
+    exposure: 1.15,
+    bloom: 0.9,
+    fog: 0.005,
+    seam: 60,
+  },
+  {
+    t: 0.5,
+    hemi: 0.6,
+    sky: 0x8fb8ff,
+    ground: 0x101c30,
+    exposure: 1.18,
+    bloom: 1.0,
+    fog: 0.006,
+    seam: 120,
+  },
+  {
+    t: 1,
+    hemi: 0.9,
+    sky: 0x8fd4ff,
+    ground: 0x142038,
+    exposure: 1.22,
+    bloom: 0.95,
+    fog: 0.005,
+    seam: 40,
+  },
 ];
 
+// Interpole une piste de valeurs clés (lumière, exposition, bloom) à l'instant t.
 function trackValue(track, t, key) {
   let a = track[0];
   let b = track[track.length - 1];
@@ -226,7 +106,8 @@ export class Cinematic {
 
   // ------------------------------------------------------------------ Montage
 
-  play(onEnd, { handoff = false, pilotName = 'VEILLE-3' } = {}) {
+  // Joue une séquence : l'introduction, ou l'un des souvenirs des paliers.
+  play(onEnd, { handoff = false, pilotName = 'VEILLE-3', sequence = INTRO } = {}) {
     this.stop();
     this.active = true;
     this.onEnd = onEnd;
@@ -234,6 +115,8 @@ export class Cinematic {
     this.pilot = pilotName;
     this.time = 0;
     this.shotIdx = 0;
+    this.seq = sequence;
+    this.duration = sequence.duration;
 
     // Tout le décor vit dans un seul groupe : le nettoyage est alors trivial.
     this.root = new THREE.Group();
@@ -243,92 +126,95 @@ export class Cinematic {
     this._buildDom();
     this._buildTimeline();
 
-    this.player.group.visible = true;
+    const v = this.seq.show || {};
+    this.player.group.visible = !!v.ship;
     this.player.group.position.set(2.0, 0.4, 6.0);
     this.player.group.rotation.set(0, Math.PI, 0);
   }
-
   _buildStage() {
-    this.earth = createEarth(EARTH_R);
-    this.earth.position.copy(EARTH_POS);
-    this.earth.rotation.z = 0.35;
-    this.root.add(this.earth);
+    const add = (o) => {
+      this.root.add(o.group);
+      return o;
+    };
 
-    this.eclipse = createEclipse();
-    this.eclipse.position.copy(ECLIPSE_HOME).setY(140); // hors cadre, entre par le haut
-    this.eclipse.rotation.y = 0.22;
-    this.root.add(this.eclipse);
+    // ANDEL. C'est littéralement le KORN du jeu : même objet, même couture scellée.
+    this.andel = add(createKorn());
+    this.andel.group.position.copy(ANDEL_POS);
+    this.andel.group.rotation.set(0, 0.1, 0);
+    this.andel.group.scale.setScalar(0.9);
 
-    // L'essaim reste dans les flancs du cuirassé et n'existe pas à l'écran avant
-    // qu'il n'en jaillisse : le voir traîner devant la Terre tuerait la surprise.
-    this.swarm = createSwarm(320);
-    this.swarm.visible = false;
-    this.root.add(this.swarm);
-    this.swarmState = [];
-    for (let i = 0; i < 320; i++) {
-      this.swarmState.push({
-        base: new THREE.Vector3(
-          ECLIPSE_HOME.x + (Math.random() - 0.5) * 60,
-          ECLIPSE_HOME.y + (Math.random() - 0.5) * 14,
-          ECLIPSE_HOME.z + (Math.random() - 0.5) * 16
-        ),
-        phase: Math.random() * Math.PI * 2,
-        speed: 0.6 + Math.random() * 0.9,
-      });
+    this.star = add(createDyingStar());
+    this.star.group.position.copy(STAR_POS);
+
+    this.river = add(createRiver(900));
+    this.river.group.position.set(-24, -2, -148);
+
+    this.fleet = add(createFleeingFleet(14));
+    this.fleet.group.position.set(16, 4, -104);
+
+    this.worlds = add(createTornWorlds(7));
+    this.worlds.setProgress(0);
+    this.worlds.group.visible = false;
+
+    // Le décor de l'acte III vient du jeu, sans exception.
+    this.sun = add(createSun());
+    this.sun.setSize(4);
+    this.sun.group.position.set(0, 30, -150);
+    this.sun.group.visible = false;
+
+    this.earth = add(createPlanet({ kind: 'earth', radius: 40, pos: EARTH_POS.toArray() }));
+    this.earth.group.visible = false;
+
+    this.wreck = add(createHulk({ variant: 'torn', pos: [-14, -14, -84], scale: 1.5 }));
+    this.wreck.group.visible = false;
+
+    this.relay = add(createHulk({ variant: 'relay', pos: [22, -6, -60], scale: 0.5 }));
+    this.relay.group.visible = false;
+
+    this.starfield = this._buildStars();
+    this.root.add(this.starfield);
+
+    // Une séquence déclare ce qu'elle montre. Tout le reste est masqué : c'est
+    // ce qui permet de rejouer le même décor sous des angles différents sans
+    // reconstruire une scène par souvenir.
+    const v = this.seq.show || {};
+    this.andel.group.visible = !!v.andel;
+    this.star.group.visible = !!v.star;
+    this.river.group.visible = !!v.river;
+    this.fleet.group.visible = !!v.fleet;
+    this.worlds.group.visible = !!v.worlds;
+    this.sun.group.visible = !!v.sun;
+    this.earth.group.visible = !!v.earth;
+    this.wreck.group.visible = !!v.wreck;
+    this.relay.group.visible = !!v.relay;
+  }
+
+  _buildStars() {
+    const N = 900;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const r = 200 + Math.random() * 160;
+      const th = Math.random() * Math.PI * 2;
+      const ph = Math.acos(2 * Math.random() - 1);
+      pos[i * 3] = Math.sin(ph) * Math.cos(th) * r;
+      pos[i * 3 + 1] = Math.sin(ph) * Math.sin(th) * r * 0.5;
+      pos[i * 3 + 2] = Math.cos(ph) * r;
     }
-
-    // Le convoi : un FLUX qui monte du terminateur vers la caméra, pas un nuage
-    // dispersé. Le faisceau est étroit — c'est ce qui le fait lire comme une fuite
-    // organisée, et c'est ce qui rendra sa destruction lisible.
-    this.shuttles = createShuttles(110);
-    this.root.add(this.shuttles);
-    this.shuttleState = [];
-    for (let i = 0; i < 110; i++) {
-      this.shuttleState.push({
-        a: -1.1 + Math.random() * 1.5, // secteur du limbe d'où part l'évacuation
-        spread: (Math.random() - 0.5) * 14,
-        rise: Math.random() * 100, // le flux est déjà en cours quand on arrive
-        speed: 7 + Math.random() * 5,
-        alive: true,
-      });
-    }
-
-    this.debris = createDebris(90);
-    this.debris.visible = false;
-    this.root.add(this.debris);
-    this.debrisState = [];
-    for (let i = 0; i < 90; i++) {
-      // Semés le long de la trajectoire de charge, pas devant l'objectif : de trop
-      // près, un tétraèdre de 2 unités devient un éclat gris qui masque tout.
-      this.debrisState.push({
-        p: new THREE.Vector3(
-          (Math.random() - 0.5) * 34,
-          (Math.random() - 0.5) * 14,
-          -30 - Math.random() * 90
-        ),
-        rot: new THREE.Vector3(Math.random() * 3, Math.random() * 3, Math.random() * 3),
-        spin: (Math.random() - 0.5) * 1.2,
-        scale: 0.3 + Math.random() * 0.8,
-      });
-    }
-
-    // ORSO — l'ailier. Orange, un peu plus gros : on le distingue au premier coup d'œil.
-    this.orso = createPlayerShip();
-    this.orso.traverse((o) => {
-      if (o.name === 'hitcore' || o.name === 'hitring') o.visible = false;
-      if (o.isMesh && o.material && o.material.color && o.name !== 'exhaust') {
-        o.material = o.material.clone();
-        o.material.color.setHex(0xff9f43).multiplyScalar(0.85);
-        if (o.material.emissive) o.material.emissive.setHex(0x3a1d05);
-      }
-    });
-    this.orso.scale.setScalar(1.12);
-    this.orso.position.set(-3.4, 1.2, 8.0);
-    this.orso.rotation.y = Math.PI;
-    this.root.add(this.orso);
-    this.orsoAlive = true;
-
-    this.player.showHitMarkers(false);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(
+      geo,
+      new THREE.PointsMaterial({
+        size: 0.9,
+        color: 0xcfe0ff,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    pts.frustumCulled = false;
+    return pts;
   }
 
   _buildDom() {
@@ -349,132 +235,59 @@ export class Cinematic {
   _say(speaker, line) {
     this.characters?.sayText(line.replace('{PSEUDO}', this.pilot), { speaker, priority: true });
   }
-
+  // La timeline se DÉDUIT de la séquence : répliques et temps forts déclarés en
+  // données, jamais en code. C'est ce qui permet d'ajouter un souvenir sans
+  // toucher au lecteur.
   _buildTimeline() {
     const A = this.audio;
-    this.events = [
-      { t: 0.0, fn: () => A.cinePulse() },
-      { t: 1.25, fn: () => A.shoot() },
-      { t: 1.5, fn: () => this._killDrone(0) },
-      { t: 3.4, fn: () => this._say('nova', 'ORSO : « Colle à mon aile, {PSEUDO}. »') },
-      { t: 5.0, fn: () => this._orsoSaves() },
-      { t: 6.2, fn: () => A.cinePad('hope', 5.5) },
-      {
-        t: 8.0,
-        fn: () => this._say('nova', 'ORSO : « Deux minutes et ils sont sortis. Tiens bon. »'),
+    const gestes = {
+      padDark: () => A.cinePad('dark', 7),
+      padHope: () => A.cinePad('hope', 7),
+      riser: () => A.cineRiser(2.4),
+      impact: () => {
+        A.cineImpact();
+        this.fx.addShake(0.8);
       },
-      { t: 10.2, fn: () => A.cinePad('dark', 6) },
-      { t: 10.4, fn: () => this._eclipseEnters() },
-      { t: 12.5, fn: () => this._say('korn', 'Oh… de la lumière. J’adore ça.') },
-      { t: 14.0, fn: () => A.cineRiser(2.6) },
-      { t: 16.6, fn: () => this._openMaw() },
-      { t: 17.2, fn: () => this._firstStrike() },
-      { t: 18.4, fn: () => this._say('nova', 'Ils tirent sur le convoi !') },
-      { t: 20.6, fn: () => A.cinePad('tension', 4) },
-      { t: 22.2, fn: () => this._orsoTakesTheHit() },
-      { t: 23.4, fn: () => this._say('nova', 'ORSO : « Le convoi, {PSEUDO}. Pas moi. »') },
-      { t: 24.4, fn: () => this._orsoDies() },
-      { t: 26.05, fn: () => this._say('nova', 'Ordre de repli.') },
-      { t: 26.9, fn: () => this._say('nova', '…Tu ne rentres pas, hein ?') },
-      { t: 27.0, fn: () => this._turnAround() },
-      { t: 28.0, fn: () => A.cineHero() },
-      { t: 28.6, fn: () => this._say('nova', 'Canons chauds. Vise l’œil !') },
-      { t: 29.5, fn: () => this._chargeShot() },
-      { t: 30.5, fn: () => this._chargeShot() },
-      { t: 31.2, fn: () => this._chargeShot() },
-      { t: 33.2, fn: () => this._grazeKorn() },
-      { t: 33.6, fn: () => this._say('korn', 'Un seul ? … UN SEUL ?!') },
-      { t: 35.0, fn: () => this._say('korn', 'Il m’a… ÉRAFLÉ.') },
-      { t: 36.0, fn: () => this._titleCard() },
-      { t: 40.4, fn: () => this._say('nova', 'NOVA, ta copilote. À toi de jouer.') },
+      hero: () => A.cineHero(),
+      title: () => this._titleCard(),
+      seal: () => this._seal(),
+    };
+    this.events = [
+      ...(this.seq.lines || []).map((l) => ({ t: l.t, fn: () => this._say(l.who, l.text) })),
+      ...(this.seq.beats || []).map((b) => ({ t: b.t, fn: gestes[b.do] || (() => {}) })),
     ].sort((a, b) => a.t - b.t);
     this.eventIdx = 0;
   }
 
-  // ------------------------------------------------------------ Événements
-
-  _killDrone(i) {
-    const s = this.swarmState[i];
-    if (!s) return;
-    this.tmp.set(1.5, 0.6, -10);
-    this.fx.explosionBig(this.tmp, 0xff5db1);
-    this.audio.explosionSmall();
-    s.dead = true;
-    this.veils.punch(0.08);
+  // Joue le souvenir attaché à un palier, s'il en existe un. Renvoie false sinon,
+  // pour que l'appelant enchaîne sans attendre.
+  playSouvenir(palier, onEnd) {
+    const seq = souvenirPourPalier(palier);
+    if (!seq) return false;
+    this.play(onEnd, { handoff: true, sequence: seq });
+    return true;
   }
 
-  _orsoSaves() {
-    this.audio.shoot();
-    this.tmp.copy(this.player.group.position).add(this.tmp2.set(0.6, 0, 4.2));
-    this.fx.explosionSmall(this.tmp, 0xff9f43);
-    this.audio.explosionSmall();
+  // ------------------------------------------------------------ Gestes
+
+  // La couture se ferme. C'est LE geste du récit : à partir de là, il ne peut plus
+  // s'ouvrir. On le marque d'un choc et d'un éclair bref — surtout pas d'une
+  // explosion, il ne se passe rien de spectaculaire, c'est bien le problème.
+  _seal() {
+    this.sealed = true;
+    this.audio.cineImpact();
+    this.fx.addShake(0.7);
+    this.veils.punch(0.35);
   }
 
-  _eclipseEnters() {
-    this.eclipseEntering = true;
-  }
-
-  _openMaw() {
-    this.mawOpen = true;
-    this.audio.bossAlarm();
-  }
-
-  _firstStrike() {
-    this.strikeT = 0;
-    this.veils.punch(0.14);
-    this.fx.addShake(0.9);
-    this.fx.hitStop(0.12);
-    this.audio.explosionBig();
-    // Le convoi est fauché en vague le long de sa trajectoire.
-    for (const s of this.shuttleState) {
-      s.doomedAt = 0.15 + Math.random() * 1.1;
-    }
-    this.swarmOut = true;
-  }
-
-  _orsoTakesTheHit() {
-    this.orsoHit = true;
-    this.audio.playerHit();
-    this.tmp.copy(this.orso.position);
-    this.fx.explosionSmall(this.tmp, 0xff9f43);
-    this.fx.addShake(0.5);
-  }
-
-  _orsoDies() {
-    this.orsoDying = true;
-  }
-
-  _turnAround() {
-    this.turning = 0;
-    this.audio.comboUp(3);
-  }
-
-  _chargeShot() {
-    this.audio.shoot();
-    this.tmp.copy(this.player.group.position).add(this.tmp2.set(0, 0, -14));
-    this.fx.explosionSmall(this.tmp, 0xff5db1);
-    this.fx.hitStop(0.045);
-  }
-
-  _grazeKorn() {
-    this.veils.punch(0.18);
-    this.fx.addShake(1.0);
-    this.fx.explosionBig(this.eyeWorld, 0xfff0c0);
-    this.fx.shockwave(this.eyeWorld, 0x8ffbff, 22, { faceCamera: true, camera: this.camera });
-    this.audio.explosionBig();
-    this.eyeHitAt = this.time;
-    this.swarmTurn = true; // les 320 pivotent d'un bloc vers le joueur
-  }
-
+  // La carte de titre porte la phrase du récit, pas un slogan.
   _titleCard() {
     const card = this.dom.querySelector('#cine-card');
+    if (card) card.classList.add('visible');
     const tag = this.dom.querySelector('#cine-card-tag');
-    tag.textContent = `${this.pilot} · VEILLE-3 · DERNIER EN VOL`;
-    card.classList.add('visible');
-    this.audio.waveStart();
+    if (tag) tag.textContent = 'Remonte la traînée. Rapporte la clé.';
+    this.audio.cineHero();
   }
-
-  // -------------------------------------------------------------- Simulation
 
   update(dt, camera) {
     if (!this.active) return null;
@@ -490,241 +303,86 @@ export class Cinematic {
     this._updateActors(dt);
     this._updateLights();
 
-    if (this.time >= END_TIME) {
+    if (this.time >= this.duration) {
       this._finish();
       return null;
     }
     return this._updateCamera(camera);
   }
-
   _updateActors(dt) {
     const t = this.time;
 
-    // --- La Terre tourne, ses nuages plus vite ---
-    this.earth.userData.surface.rotation.y += 0.012 * dt;
-    this.earth.userData.clouds.rotation.y += 0.0162 * dt;
+    // ACTE I — l'étoile gonfle pendant tout l'acte : c'est le compte à rebours.
+    const swell = 1 + THREE.MathUtils.clamp(t / 19, 0, 1) * 0.75;
+    this.star.setSwell(swell);
+    this.star.update(dt);
 
-    // --- Le cuirassé entre par le haut et n'arrête pas d'entrer ---
-    if (this.eclipseEntering) {
-      const k = THREE.MathUtils.clamp((t - 10.4) / 3.2, 0, 1);
-      const eased = 1 - Math.pow(1 - k, 2.2);
-      this.eclipse.position.y = THREE.MathUtils.lerp(140, ECLIPSE_HOME.y, eased);
-      this.eclipse.position.x = ECLIPSE_HOME.x;
-      this.eclipse.position.z = ECLIPSE_HOME.z;
-    }
-    // Respiration des crevasses incandescentes.
-    const pulse = 0.7 + Math.sin(t * 1.6) * 0.3;
-    this.eclipse.userData.bands.material.color.setRGB(0.69 * pulse, 0.3 * pulse, 1.0 * pulse);
+    // Le fleuve coule tant que la couture n'est pas fermée, puis se tarit d'un coup.
+    this.river.setFlow(this.sealed ? Math.max(0, 1 - (t - 18.4) * 3) : 1);
+    this.river.update(dt);
+    this.fleet.update(dt);
 
-    // --- La gueule s'ouvre en corolle ---
-    if (this.mawOpen) {
-      const k = THREE.MathUtils.clamp((t - 16.6) / 0.6, 0, 1);
-      for (const hinge of this.eclipse.userData.maw.children) {
-        if (hinge.isGroup) hinge.rotation.z = -k * 0.5;
-      }
-      this.eclipse.userData.furnace.scale.setScalar(0.01 + k * 1.4);
-    }
-
-    // --- Position de l'œil en repère monde (visée du plan S11) ---
-    this.eclipse.userData.eye.getWorldPosition(this.eyeWorld);
-
-    // --- Les navettes montent du terminateur ---
-    this._updateShuttles(dt);
-
-    // --- L'essaim : invisible tant qu'il n'a pas jailli des flancs ---
-    if (this.swarmOut) this.swarm.visible = true;
-    if (this.swarm.visible) this._updateSwarm(dt);
-
-    // --- Le champ de débris : seulement pour la charge à travers l'épave (S10) ---
-    if (t > 26.5) {
-      this.debris.visible = true;
-      this._updateDebris(dt);
-    }
-
-    // --- ORSO ---
-    this._updateOrso(dt);
-
-    // --- Le joueur ---
-    this._updatePlayerShip(dt);
-
-    // --- Commotion : désaturation + vignette après la mort d'ORSO ---
-    if (t >= 23.6 && t < 25.8) {
-      const k = t < 25.0 ? 1 : 1 - (t - 25.0) / 0.8;
-      this.veils.setShock(k * 0.85);
-    } else {
-      this.veils.setShock(0);
-    }
-  }
-
-  _updateShuttles(dt) {
-    const t = this.time;
-    for (let i = 0; i < this.shuttleState.length; i++) {
-      const s = this.shuttleState[i];
-      if (s.doomedAt != null && t > 17.2 + s.doomedAt && s.alive) {
-        s.alive = false;
-        if (i % 9 === 0) {
-          this.tmp.set(
-            EARTH_POS.x + Math.cos(s.a) * s.r,
-            EARTH_POS.y + s.rise * 0.5,
-            EARTH_POS.z + Math.sin(s.a) * s.r + 24
-          );
-          this.fx.burst(this.tmp, 0xffc857, { count: 4, speed: 6, life: 0.5 });
+    // ANDEL respire, et sa couture se referme sur le geste central du film.
+    this.andel.update(dt);
+    if (this.sealed) {
+      const k = THREE.MathUtils.clamp((t - 18.4) / 1.1, 0, 1);
+      this.andel.group.traverse((o) => {
+        if (o.material && o.material.color && o.material.blending === THREE.AdditiveBlending) {
+          o.material.opacity = Math.max(0.06, (o.material.opacity ?? 1) * (1 - k * 0.06));
         }
-      }
-      if (!s.alive) {
-        this._m.makeScale(0, 0, 0);
-        this.shuttles.setMatrixAt(i, this._m);
-        continue;
-      }
-      s.rise += s.speed * dt;
-      if (s.rise > 100) s.rise = 0; // le flux est continu : il ne se tarit pas
-      // Colonne qui décolle du limbe et s'éloigne de la planète, en restant à
-      // distance de l'objectif : de près, des navettes de 2 unités feraient
-      // un mur de caisses et écraseraient la Terre.
-      const x = EARTH_POS.x + Math.cos(s.a) * (EARTH_R + 4) + s.spread;
-      const y = EARTH_POS.y + Math.sin(s.a) * (EARTH_R + 4) + s.rise * 0.55;
-      const z = EARTH_POS.z + 14 + s.rise * 0.42;
-      this.tmp.set(x, y, z);
-      this._q.setFromAxisAngle(this.tmp2.set(1, 0, 0), -0.42);
-      this._m.compose(this.tmp, this._q, this.tmp2.setScalar(1.25));
-      this.shuttles.setMatrixAt(i, this._m);
+      });
     }
-    this.shuttles.instanceMatrix.needsUpdate = true;
-  }
 
-  _updateSwarm(_dt) {
-    const t = this.time;
-    const out = this.swarmOut ? THREE.MathUtils.clamp((t - 17.2) / 2.4, 0, 1) : 0;
-    const turn = this.swarmTurn ? THREE.MathUtils.clamp((t - 33.2) / 0.8, 0, 1) : 0;
-    const bodies = this.swarm.userData.bodies;
-    const eyes = this.swarm.userData.eyes;
-    for (let i = 0; i < this.swarmState.length; i++) {
-      const s = this.swarmState[i];
-      if (s.dead) {
-        this._m.makeScale(0, 0, 0);
-        bodies.setMatrixAt(i, this._m);
-        eyes.setMatrixAt(i, this._m);
-        continue;
-      }
-      // Avant la sortie : au flanc du cuirassé. Après : ils déferlent VERS LA TERRE,
-      // en s'étalant — c'est le mouvement que la caméra du plan regarde.
-      const drift = Math.sin(t * s.speed + s.phase) * 1.6;
-      const spread = ((i % 17) - 8) * 2.6;
-      this.tmp.set(
-        THREE.MathUtils.lerp(s.base.x, EARTH_POS.x + spread, out) + drift,
-        THREE.MathUtils.lerp(s.base.y, EARTH_POS.y + 6 + ((i % 7) - 3) * 3.4, out) +
-          Math.cos(t * s.speed * 0.7 + s.phase) * 1.2,
-        THREE.MathUtils.lerp(s.base.z, EARTH_POS.z + 26 - (i % 9) * 2.2, out)
-      );
-      // Le pivot d'un bloc : l'image la plus menaçante du film.
-      const yaw = THREE.MathUtils.lerp(Math.PI / 2, Math.PI, turn) + drift * 0.05;
-      this._q.setFromAxisAngle(this.tmp2.set(0, 1, 0), yaw);
-      this._m.compose(this.tmp, this._q, this._s);
-      bodies.setMatrixAt(i, this._m);
-      eyes.setMatrixAt(i, this._m);
+    // ACTE II — les mondes s'ouvrent l'un après l'autre.
+    if (t >= 19.5 && t < 30) {
+      this.worlds.group.visible = true;
+      this.worlds.setProgress(THREE.MathUtils.clamp((t - 19.8) / 8.4, 0, 1));
     }
-    bodies.instanceMatrix.needsUpdate = true;
-    eyes.instanceMatrix.needsUpdate = true;
-  }
 
-  _updateDebris(_dt) {
-    for (let i = 0; i < this.debrisState.length; i++) {
-      const d = this.debrisState[i];
-      d.rot.x += d.spin * _dt;
-      d.rot.y += d.spin * 0.7 * _dt;
-      d.p.z += 5 * _dt;
-      this._q.setFromEuler(new THREE.Euler(d.rot.x, d.rot.y, d.rot.z));
-      this._m.compose(d.p, this._q, this.tmp2.setScalar(d.scale));
-      this.debris.setMatrixAt(i, this._m);
+    // ACTE III — le décor du jeu.
+    if (this.sun.group.visible) {
+      this.sun.update(dt);
+      this.earth.update(dt);
+      this.wreck.update(dt);
+      this.relay.update(dt);
     }
-    this.debris.instanceMatrix.needsUpdate = true;
-  }
 
-  _updateOrso(dt) {
-    const t = this.time;
-    if (!this.orsoAlive) return;
-    if (t < 6) {
-      // En formation, il mène : il déchire le cadre bas-gauche → haut-droite.
-      const k = THREE.MathUtils.clamp((t - 3) / 1.1, 0, 1);
-      this.orso.position.set(-14 + k * 20, -6 + k * 9, 6 - k * 12);
-      this.orso.rotation.set(0, Math.PI + 0.2, -0.5 + k * 0.3);
-    } else if (t < 22.2) {
-      // Il escorte, légèrement en avant du joueur.
-      this.orso.position.lerp(
-        this.tmp.copy(this.player.group.position).add(this.tmp2.set(-3.6, 0.6, -3.0)),
-        Math.min(1, 2.2 * dt)
-      );
-      this.orso.rotation.set(0, Math.PI, Math.sin(t * 1.4) * 0.12);
-    } else if (this.orsoDying) {
-      // Vrille à plat, en traînant du feu.
-      this.orso.position.x += 3.6 * dt;
-      this.orso.position.z -= 7 * dt;
-      this.orso.rotation.z += 4.2 * dt;
-      this.orso.rotation.y += 1.2 * dt;
-      this.fx.trail(this.orso.position, 0xff9f43);
-      if (t > 25.0 && this.orsoAlive) {
-        this.orsoAlive = false;
-        this.orso.visible = false;
-        this.fx.explosionBig(this.orso.position, 0xff9f43);
-        this.audio.explosionBig();
-        this.veils.punch(0.3);
-      }
-    } else if (this.orsoHit) {
-      // Il coupe la trajectoire du tir destiné au joueur.
-      this.orso.position.lerp(
-        this.tmp.copy(this.player.group.position).add(this.tmp2.set(0, 0, -2.2)),
-        Math.min(1, 6 * dt)
-      );
-      this.orso.rotation.z += 2.4 * dt;
-      this.fx.trail(this.orso.position, 0xff9f43);
+    // KORN entre par le fond et grandit : on ne le fait jamais bouger vite, c'est
+    // sa lenteur qui donne sa masse.
+    if (this.kornHere) {
+      const k = THREE.MathUtils.clamp((t - 42) / 4, 0, 1);
+      this.andel.group.position.set(0, -4 - k * 8, -150 + k * 52);
+      this.andel.group.scale.setScalar(0.9 + k * 0.35);
     }
-  }
 
-  _updatePlayerShip(dt) {
-    const t = this.time;
-    const g = this.player.group;
-    if (t < 10) {
-      // Vol de croisière, avec du roulis vivant.
-      g.position.x = 2.0 + Math.sin(t * 0.9) * 1.6;
-      g.position.y = 0.4 + Math.sin(t * 1.3) * 0.4;
-      g.position.z = 6.0 - t * 1.2;
-      g.rotation.set(0, Math.PI, Math.sin(t * 0.9) * -0.25);
-    } else if (t < 27) {
-      // Il suit ORSO, puis dérive après la perte.
-      g.position.x += Math.sin(t * 0.7) * 0.6 * dt;
-      g.position.z -= (t < 23 ? 3.4 : 0.6) * dt;
-      g.rotation.z = Math.sin(t * 0.8) * 0.18;
-    } else if (this.turning != null && this.turning < 1) {
-      // Le demi-tour : la réponse à l'ordre de repli est une manette poussée à fond.
-      this.turning = Math.min(1, this.turning + dt / 0.55);
-      g.rotation.y = Math.PI + this.turning * Math.PI;
-      g.rotation.z = Math.sin(this.turning * Math.PI) * 0.9;
-      for (const e of this.player.exhausts) e.scale.setScalar(1 + this.turning * 2.4);
-    } else if (t < 36) {
-      // La charge : il slalome dans l'épave, vers le cuirassé. Sa course est BORNÉE :
-      // sans butée il dépasserait tout le décor et le titre s'afficherait sur du vide.
-      g.position.x += Math.sin(t * 2.1) * 5.5 * dt;
-      g.position.y += Math.sin(t * 1.7) * 1.6 * dt;
-      g.position.z = Math.max(-66, g.position.z - 9 * dt);
-      g.rotation.set(0, 0, Math.sin(t * 2.1) * -0.55);
-      this.fx.trail(g.position, 0x4ff2ff);
+    // Le vaisseau du joueur : immobile jusqu'au dernier acte, puis il part.
+    const p = this.player.group;
+    if (t < 46) {
+      p.visible = t >= 37.5;
+      p.position.set(2.0, 0.4, 6.0);
+      p.rotation.set(0, Math.PI, 0);
     } else {
-      // Vers l'avant, toujours : le dernier mouvement du film va vers l'ennemi.
-      g.position.z = Math.max(-78, g.position.z - 4 * dt);
-      g.position.x += Math.sin(t * 1.3) * 1.4 * dt;
-      g.rotation.z *= 0.94;
-      this.fx.trail(g.position, 0x4ff2ff);
+      const k = THREE.MathUtils.clamp((t - 49.5) / 2.5, 0, 1);
+      p.visible = true;
+      p.rotation.set(-0.2 * k, Math.PI, 0);
+      p.position.set(2.0, 0.4 + k * 3, 6.0 - k * 40);
     }
+
+    this.starfield.rotation.y += dt * 0.004;
   }
 
   _updateLights() {
     const st = this.stage;
     if (!st) return;
-    const t = this.time;
+    const t = this.duration ? this.time / this.duration : 0;
     if (st.lights?.hemi) st.lights.hemi.intensity = trackValue(LIGHT_TRACK, t, 'hemi');
+    // La lampe ponctuelle suit la COUTURE d'ANDEL : c'est la seule source chaude
+    // du récit, et elle doit éclairer ce qui l'entoure pour qu'on sente qu'il y a
+    // quelque chose de vivant à l'intérieur.
     if (st.lights?.mawLight) {
-      st.lights.mawLight.intensity = trackValue(LIGHT_TRACK, t, 'maw');
-      this.eclipse.userData.maw.getWorldPosition(st.lights.mawLight.position);
+      st.lights.mawLight.intensity = trackValue(LIGHT_TRACK, t, 'seam');
+      const a = this.andel.group;
+      st.lights.mawLight.position.set(a.position.x, a.position.y + 30 * a.scale.x, a.position.z);
     }
     if (st.bloom) st.bloom.strength = trackValue(LIGHT_TRACK, t, 'bloom');
     if (this.scene.fog) this.scene.fog.density = trackValue(LIGHT_TRACK, t, 'fog');
@@ -734,8 +392,9 @@ export class Cinematic {
   }
 
   _updateCamera(camera) {
-    while (this.shotIdx < SHOTS.length - 1 && this.time >= SHOTS[this.shotIdx].t1) this.shotIdx++;
-    const shot = SHOTS[this.shotIdx];
+    const shots = this.seq.shots;
+    while (this.shotIdx < shots.length - 1 && this.time >= shots[this.shotIdx].t1) this.shotIdx++;
+    const shot = shots[this.shotIdx];
     const ctx = {
       aspect: camera.aspect,
       player: { position: this.player.group.position },
@@ -755,8 +414,9 @@ export class Cinematic {
     }
 
     // Raccord final : on plie sur la pose de jeu, vitesse nulle à l'arrivée.
-    if (this.handoff && this.time > 40) {
-      const k = THREE.MathUtils.clamp((this.time - 40) / 2, 0, 1);
+    const raccord = this.duration - 2.4;
+    if (this.handoff && this.time > raccord) {
+      const k = THREE.MathUtils.clamp((this.time - raccord) / 2.4, 0, 1);
       const e = 1 - Math.pow(1 - k, 3);
       const home = this.stage?.cameraHome;
       const target = this.stage?.cameraTarget;
@@ -785,12 +445,8 @@ export class Cinematic {
   stop() {
     this.active = false;
     this.turning = null;
-    this.eclipseEntering = false;
-    this.mawOpen = false;
-    this.swarmOut = false;
-    this.swarmTurn = false;
-    this.orsoHit = false;
-    this.orsoDying = false;
+    this.sealed = false;
+    this.kornHere = false;
 
     if (this.root) {
       this.scene.remove(this.root);
