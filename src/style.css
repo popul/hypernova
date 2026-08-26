@@ -2747,17 +2747,23 @@ body.touch .btn-call-touch {
   }
 }
 
-/* Dialogues en portrait : la largeur est la ressource rare. Côte à côte, le
-   visage prenait un tiers de l'espace et il ne restait au texte que 168 pixels —
-   trois lignes pour une phrase courte, six pour une vraie réplique, dans une
-   colonne aussi étroite qu'un ticket de caisse. Or ces dialogues portent tout le
-   récit.
-   Le visage passe donc AU-DESSUS, posé comme un onglet sur le panneau, et le
-   texte prend toute la largeur disponible jusqu'à la colonne d'action. */
+/* Dialogues en portrait. Deux dispositions ont été essayées, et c'est la HAUTEUR
+   qui décide, pas la largeur.
+   Côte à côte avec un visage de 68 px, il ne restait au texte que 168 pixels :
+   trois lignes pour une phrase courte, six pour une vraie réplique, une colonne
+   aussi étroite qu'un ticket de caisse. Le visage est alors passé AU-DESSUS du
+   panneau : le texte a gagné sa largeur (251 px) mais la fenêtre s'est mise à
+   manger le quart bas de l'écran — 197 px sur 852 pour une vraie réplique, 149
+   pour une phrase de deux lignes, et toujours dans le coin où le pouce pilote.
+   Retour côte à côte, mais avec un visage de 44 px. À cette taille il ne coûte
+   PLUS RIEN en hauteur : le panneau est toujours plus haut que lui, la fenêtre
+   fait donc exactement la hauteur du texte. Mesuré sur 393×852 : 81 px au lieu
+   de 149 pour une phrase de deux lignes, 147 au lieu de 197 pour la plus longue
+   réplique du jeu. La fenêtre occupe 9 à 17 % de l'écran au lieu de 18 à 23 %.
+   Le texte, lui, garde 211 pixels de large : on perd 40 pixels sur la version
+   empilée, mais on reste très loin des 168 de la disposition d'origine. */
 @media (orientation: portrait) and (max-width: 760px) {
   .comm {
-    flex-direction: column;
-    align-items: stretch;
     /* Le panneau s'arrête au bord de la colonne d'action, dix pixels avant. La
        largeur était un forfait de 104 px qui ne laissait que deux pixels : les
        boutons ronds semblaient collés au dialogue, et la moindre encoche les
@@ -2768,18 +2774,37 @@ body.touch .btn-call-touch {
   }
 
   .comm-portrait {
-    width: 62px;
-    height: 62px;
-    align-self: flex-start;
+    /* 44 px, pas 68. Le seuil est celui du panneau le plus court — 58 pixels pour
+       une réplique d'une ligne : en dessous, le visage ne rallonge plus jamais la
+       fenêtre ; au-dessus, il la rallonge sans rien dire de plus. 44 laisse de la
+       marge et garde le rig lisible. C'est une vignette d'identité, pas un
+       portrait : il bouge, et le nom est juste à côté. */
+    width: 44px;
+    height: 44px;
     /* Le carré est POSÉ sur le panneau : sans ça, deux traits parallèles à un
        pixel d'écart, ce qui se lit comme un défaut d'alignement. */
-    border-bottom: none;
+    border-right: none;
   }
 
   .comm-panel {
     max-width: none;
+    /* Le panneau referme son flanc gauche lui-même. Le visage ne le longe que sur
+       ses 44 premiers pixels : sans cette bordure, tout ce qui est en dessous —
+       c'est-à-dire l'essentiel d'une réplique de cinq lignes — resterait ouvert. */
     border-left: 1px solid var(--cyan-dim);
-    padding: 9px 14px 11px;
+    /* Marges resserrées : trois pixels gagnés en hauteur, quatre rendus au texte
+       en largeur. Sur une fenêtre de cinq lignes ça ne se voit pas ; sur une
+       réplique d'une ligne, c'est un vingtième de la hauteur. */
+    padding: 8px 12px 9px;
+  }
+
+  /* Le corps de texte reste à 17 px. Mesuré : descendre à 15 ne fait gagner
+     qu'une ligne, et seulement sur les répliques les plus longues — le jeu se
+     joue à bout de bras sur un téléphone, ce n'est pas là qu'il faut prendre.
+     C'est l'INTERLIGNE qui se resserre : 1,4 servait un texte large et aéré, pas
+     une colonne de cinq lignes courtes où l'œil retombe tout seul. */
+  .comm-text {
+    line-height: 1.3;
   }
 
   .comm.korn-mode .comm-panel {
@@ -3009,4 +3034,130 @@ body.touch .btn-call-touch {
 
 .pilot-note b {
   color: var(--text);
+}
+
+/* ---------- Onglets du panthéon ---------- */
+
+/* Deux modes, deux tableaux. Sans onglets, il aurait fallu choisir lequel montrer
+   au menu — et l'autre serait devenu invisible, donc inexistant. */
+.lb-onglets {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.lb-onglet {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-bottom-color: rgba(79, 242, 255, 0.2);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.lb-onglet:hover {
+  color: var(--text);
+}
+
+.lb-onglet.on {
+  color: var(--cyan);
+  border-color: var(--cyan-dim);
+  border-bottom-color: var(--cyan);
+  background: rgba(79, 242, 255, 0.08);
+}
+
+/* ---------- Hangar : modifier un pilote existant ---------- */
+
+/* Le crayon vit À CÔTÉ de la carte et non dedans : imbriqué, son clic aurait été
+   celui de la carte, et choisir son pilote aurait ouvert le hangar une fois sur
+   deux — au doigt, sur une cible de quarante pixels. */
+.pilot-case {
+  position: relative;
+  display: flex;
+}
+
+.pilot-edit {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--cyan);
+  background: rgba(8, 12, 30, 0.95);
+  border: 1px solid var(--cyan-dim);
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.pilot-edit:hover {
+  color: var(--bg);
+  background: var(--cyan);
+}
+
+/* Une phrase d'explication dans un formulaire : elle doit se lire sans concurrencer
+   les champs, donc plus petite et plus sourde qu'eux. */
+.pilot-note {
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.pilot-note b {
+  color: var(--text);
+}
+
+/* ---------- S'inscrire au panthéon commun, depuis l'écran de fin ---------- */
+
+/* L'invite vit sous son propre score, à l'endroit exact où l'on constate que le
+   tableau des autres ne nous contient pas. Ailleurs, personne ne serait allé la
+   chercher. */
+.go-inscrire {
+  display: block;
+  margin: 8px auto 0;
+  font-size: 12px;
+}
+
+.go-inscription {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 340px;
+  margin: 0 auto;
+}
+
+/* ---------- Identification : on est connu du serveur ---------- */
+
+.pilot-moi {
+  font-size: 15px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.pilot-moi b {
+  font-family: var(--display);
+  font-size: 19px;
+  color: var(--cyan);
+  letter-spacing: 0.06em;
+}
+
+/* Le meilleur score sous chaque nom : c'est ce qui donne envie d'appuyer sur la
+   carte d'un copain plutôt que sur la sienne. */
+.pilot-card-stat {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
 }

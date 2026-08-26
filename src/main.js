@@ -49,7 +49,17 @@ function fitCamera() {
   camera.aspect = aspect;
   const squeeze = Math.max(1, Math.pow(1.78 / aspect, 0.55));
   camera.fov = Math.min(72, 56 * Math.pow(squeeze, 0.4));
-  const pullback = Math.min(1.85, squeeze);
+  // SERRAGE EN PORTRAIT. Le recul qui fait tenir l'arène sur un écran étroit en
+  // faisait beaucoup trop : mesuré sur un téléphone en portrait, quarante-huit
+  // unités de large étaient visibles pour une arène qui en fait vingt-neuf — soit
+  // quatre dixièmes de l'écran occupés par du vide latéral, pendant que le
+  // vaisseau et les ennemis se réduisaient d'autant.
+  //
+  // On resserre donc là, et seulement là. La largeur visible retombe autour de
+  // trente-six unités : l'arène tient toujours, avec trois unités et demie de
+  // marge de chaque côté — de quoi voir arriver un ennemi de bord.
+  const serrage = aspect < 0.8 ? 0.75 : 1;
+  const pullback = Math.min(1.85, squeeze) * serrage;
   CAMERA_BASE.copy(CAMERA_HOME).sub(CAMERA_TARGET).multiplyScalar(pullback).add(CAMERA_TARGET);
   camera.position.copy(CAMERA_BASE);
   camera.lookAt(CAMERA_TARGET);

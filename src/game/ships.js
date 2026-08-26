@@ -2,7 +2,7 @@
 // Style low-poly flat-shaded ; les accents émissifs sont amplifiés par le bloom.
 
 import * as THREE from 'three';
-import { PLAYER, GRAZE } from './constants.js';
+import { PLAYER, GRAZE, BOSS } from './constants.js';
 
 function mat(
   color,
@@ -456,6 +456,10 @@ function createBoss() {
   degats3.add(arrachement);
   degats3.add(bossBreche([0.34, 0.5, 0.5], [0.36, 0.55, 0.78], 0.8, BOSS_BRAISE_VIVE));
   g.add(degats3);
+
+  // La taille de l'amiral vit dans les constantes, à côté de son rayon de
+  // collision : les deux doivent bouger ensemble.
+  g.scale.setScalar(BOSS.echelle);
 
   return g;
 }

@@ -90,14 +90,55 @@ async function appel(chemin, { methode = 'GET', corps = null, avecJeton = false 
 
 // Réclame un pseudo sur le serveur. S'il est libre il devient le nôtre ; s'il est
 // déjà pris, il faut le code de celui qui l'a créé.
-export async function inscris(nom, code, email) {
-  const r = await appel('/pilotes', { methode: 'POST', corps: { nom, code, email } });
+export async function inscris(nom, code, email, apparence = {}) {
+  const r = await appel('/pilotes', {
+    methode: 'POST',
+    corps: { nom, code, email, livree: apparence.livree, carene: apparence.carene },
+  });
   if (r.ok && r.jeton) {
     localStorage.setItem(CLE_JETON, r.jeton);
     localStorage.setItem(CLE_NOM, r.nom || nom);
-    return { ok: true, nouveau: r.nouveau };
+    return { ok: true, nouveau: r.nouveau, livree: r.livree, carene: r.carene };
   }
   return { ok: false, erreur: r.erreur || 'reseau', statut: r.statut };
+}
+
+// Qui suis-je, pour ce jeton ? Appelé au lancement : c'est ce qui remplace la
+// lecture du profil en localStorage.
+export async function moi() {
+  const r = await appel('/moi', { avecJeton: true });
+  if (!r.ok || !r.nom) return null;
+  return {
+    name: r.nom,
+    livree: r.livree,
+    carene: r.carene,
+    // Les records du pilote, qui suivent son nom d'un appareil à l'autre. Le HUD
+    // affichait jusqu'ici le record DE L'APPAREIL, ce qui n'avait pas de sens dès
+    // que deux enfants partageaient un téléphone.
+    meilleur: r.meilleur || 0,
+    meilleureVague: r.meilleureVague || 0,
+    meilleurSurvie: r.meilleurSurvie || 0,
+    meilleureVagueSurvie: r.meilleureVagueSurvie || 0,
+  };
+}
+
+// La liste des pilotes du jeu — donc les copains, y compris ceux qui jouent
+// depuis leur propre téléphone.
+export async function listePilotes(limite = 24) {
+  const r = await appel(`/pilotes?limite=${limite}`);
+  if (!r.ok || !Array.isArray(r.pilotes)) return null;
+  return r.pilotes.map((p) => ({
+    name: p.nom,
+    livree: p.livree,
+    carene: p.carene,
+    parties: p.parties || 0,
+    meilleur: p.meilleur || 0,
+  }));
+}
+
+export async function majMoi({ livree, carene }) {
+  const r = await appel('/moi', { methode: 'PATCH', corps: { livree, carene }, avecJeton: true });
+  return r.ok ? { ok: true, livree: r.livree, carene: r.carene } : { ok: false };
 }
 
 export function deconnecte() {
@@ -114,7 +155,7 @@ export function enFile(partie) {
     score: partie.score,
     vague: partie.wave,
     duree: partie.duree || 0,
-    jouee_le: partie.date,
+    jouee_le: partie.date || new Date().toISOString(),
     version: partie.version || 0,
     seed: partie.seed || 0,
     flux: partie.flux || null,
@@ -124,16 +165,36 @@ export function enFile(partie) {
   ecris(CLE_FILE, file.slice(-FILE_MAX));
 }
 
-let enCours = false;
+let enCoursPromesse = null;
 
 // Vide la file. Appelée au démarrage, après chaque partie, et au retour du réseau.
-// Sérialisée : deux vidages simultanés enverraient deux fois la même partie.
+//
+// Sérialisée — deux vidages simultanés enverraient deux fois la même partie — mais
+// on ATTEND celle qui court au lieu d'abandonner. C'était un vrai défaut : la
+// poussée de démarrage tenait le verrou pendant qu'on terminait une partie, la
+// nouvelle poussée repartait aussitôt les mains vides, et le score restait en file
+// jusqu'au lancement suivant. L'écran de fin annonçait alors « pas encore dans le
+// top 10 » pour une partie qui n'avait tout simplement pas été envoyée.
 export async function pousse() {
-  if (enCours || !jeton()) return { envoyees: 0 };
+  if (!jeton()) return { envoyees: 0 };
+  if (enCoursPromesse) await enCoursPromesse.catch(() => {});
+  if (!lis(CLE_FILE, []).length) return { envoyees: 0 };
+  enCoursPromesse = _pousse();
+  try {
+    return await enCoursPromesse;
+  } finally {
+    enCoursPromesse = null;
+  }
+}
+
+async function _pousse() {
   const file = lis(CLE_FILE, []);
-  if (!file.length) return { envoyees: 0 };
-  enCours = true;
   let envoyees = 0;
+  // Les identifiants attribués par le serveur, dans l'ordre d'envoi. C'est par eux
+  // qu'on retrouve sa propre ligne dans le classement : deux parties d'un même
+  // pilote peuvent avoir le même score et la même vague, et se chercher par
+  // valeurs revenait à jouer à pile ou face.
+  const ids = [];
   try {
     while (file.length) {
       const r = await appel('/parties', { methode: 'POST', corps: file[0], avecJeton: true });
@@ -142,14 +203,16 @@ export async function pousse() {
       const definitif = r.statut >= 400 && r.statut < 500;
       if (!r.ok && !definitif) break; // panne ou hors ligne : on retentera plus tard
       file.shift();
-      if (r.ok) envoyees++;
+      if (r.ok) {
+        envoyees++;
+        if (r.id) ids.push(r.id);
+      }
       ecris(CLE_FILE, file);
     }
   } finally {
-    enCours = false;
     ecris(CLE_FILE, file);
   }
-  return { envoyees, reste: file.length };
+  return { envoyees, reste: file.length, ids };
 }
 
 export function tailleFile() {

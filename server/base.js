@@ -18,6 +18,10 @@ import { dirname } from 'node:path';
 // les deux ne se conservent pas au même rythme.
 const MAX_PARTIES_PAR_PILOTE = 100;
 const MAX_REPLAYS_PAR_PILOTE = 12;
+// Combien d'appareils un même pilote peut garder connectés en même temps. Une
+// famille en a deux ou trois ; huit laissent de la marge sans laisser traîner des
+// jetons oubliés pendant des mois.
+const MAX_SESSIONS = 8;
 
 export class Base {
   constructor(chemin) {
@@ -63,6 +67,16 @@ export class Base {
         etats     TEXT,
         controles TEXT
       );
+      -- UNE SESSION PAR APPAREIL. Le jeton vivait dans la ligne du pilote : s'y
+      -- connecter depuis la tablette révoquait le téléphone, et l'enfant se
+      -- retrouvait déconnecté sans comprendre pourquoi. Une famille joue sur
+      -- plusieurs écrans — c'est même tout l'intérêt d'un panthéon commun.
+      CREATE TABLE IF NOT EXISTS sessions (
+        jeton_hash TEXT PRIMARY KEY,
+        pilote     TEXT NOT NULL REFERENCES pilotes(nom) ON DELETE CASCADE,
+        cree_le    TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS sessions_pilote ON sessions(pilote);
       CREATE INDEX IF NOT EXISTS parties_score  ON parties(mode, score DESC, vague DESC);
       CREATE INDEX IF NOT EXISTS parties_vague  ON parties(mode, vague DESC, score DESC);
       CREATE INDEX IF NOT EXISTS parties_pilote ON parties(pilote, mode, score DESC);
@@ -111,7 +125,14 @@ export class Base {
           maintenant,
           maintenant
         );
-      return { ok: true, jeton, nouveau: true };
+      this._ouvreSession(nom, jeton, maintenant);
+      return {
+        ok: true,
+        jeton,
+        nouveau: true,
+        livree: apparence.livree || null,
+        carene: apparence.carene || null,
+      };
     }
 
     // Comparaison à temps constant : sans elle, le temps de réponse trahirait le
@@ -122,20 +143,100 @@ export class Base {
       return { ok: false, erreur: 'code' };
     }
     this.db
+      .prepare(`UPDATE pilotes SET vu_le = ?, email = COALESCE(email, ?) WHERE nom = ?`)
+      .run(maintenant, email, nom);
+    this._ouvreSession(nom, jeton, maintenant);
+    // La reconnexion ne touche pas à l'apparence, et la renvoie : c'est le serveur
+    // qui détient le vaisseau, pas l'appareil. Un téléphone neuf qui arrive avec sa
+    // fiche vide effacerait sinon la livrée choisie sur la tablette du salon.
+    return { ok: true, jeton, nouveau: false, livree: existant.livree, carene: existant.carene };
+  }
+
+  // Change la livrée et/ou la carène. Les deux champs sont facultatifs, d'où le
+  // COALESCE : il laisse en place ce que l'appelant n'a pas fourni sans qu'on ait à
+  // relire la ligne d'abord, donc sans qu'une écriture concurrente puisse se glisser
+  // entre la lecture et l'écriture. Renvoie la fiche telle qu'elle est désormais.
+  majApparence(nom, apparence = {}) {
+    this.db
       .prepare(
-        `UPDATE pilotes SET jeton_hash = ?, vu_le = ?, email = COALESCE(email, ?) WHERE nom = ?`
+        'UPDATE pilotes SET livree = COALESCE(?, livree), carene = COALESCE(?, carene) WHERE nom = ?'
       )
-      .run(this._hacheJeton(jeton), maintenant, email, nom);
-    return { ok: true, jeton, nouveau: false };
+      .run(apparence.livree ?? null, apparence.carene ?? null, nom);
+    return (
+      this.db.prepare('SELECT nom, livree, carene FROM pilotes WHERE nom = ?').get(nom) || null
+    );
+  }
+
+  // Qui vole en ce moment, du plus récemment vu au plus ancien : l'écran « Qui
+  // pilote ? » sert à se reconnaître, et on se reconnaît en haut de la liste.
+  //
+  // Les colonnes sont énumérées une par une, et surtout pas SELECT * comme dans
+  // pilote() : cette table porte un sel, une empreinte de code et une adresse
+  // électronique. Avec une étoile ici, la prochaine colonne ajoutée au schéma
+  // partirait sans bruit sur une route que tout le monde peut appeler.
+  pilotes(limite = 24) {
+    return this.db
+      .prepare(
+        `SELECT p.nom, p.livree, p.carene,
+                (SELECT COUNT(*) FROM parties WHERE pilote = p.nom) AS parties,
+                (SELECT COALESCE(MAX(score), 0) FROM parties
+                   WHERE pilote = p.nom AND mode = 'arcade') AS meilleur
+         FROM pilotes p ORDER BY p.vu_le DESC LIMIT ?`
+      )
+      .all(Math.max(1, Math.min(60, limite)));
+  }
+
+  // Les records personnels d'un pilote, pour le « Record » du HUD.
+  //
+  // Une requête par mode, et non quatre : le même relevé donne le meilleur score et
+  // la meilleure vague en un seul balayage de l'index (pilote, mode, score). Les
+  // deux maxima sont indépendants — on peut avoir marqué son record de points dans
+  // une partie et poussé sa meilleure vague dans une autre, et c'est bien de la
+  // meilleure vague ATTEINTE qu'il s'agit, pas de celle du meilleur score.
+  //
+  // COALESCE parce que MAX() sur zéro ligne rend NULL, et que le HUD affiche la
+  // valeur telle quelle : un pilote qui n'a jamais joué doit y lire 0, pas « null ».
+  records(nom) {
+    const releve = this.db.prepare(
+      `SELECT COALESCE(MAX(score), 0) AS score, COALESCE(MAX(vague), 0) AS vague
+       FROM parties WHERE pilote = ? AND mode = ?`
+    );
+    const arcade = releve.get(nom, 'arcade');
+    const survie = releve.get(nom, 'survie');
+    return {
+      meilleur: arcade.score,
+      meilleureVague: arcade.vague,
+      meilleurSurvie: survie.score,
+      meilleureVagueSurvie: survie.vague,
+    };
+  }
+
+  // Une session de plus pour ce pilote. On en garde un nombre borné, les plus
+  // récentes : sans plafond, un appareil qui se reconnecte chaque jour laisserait
+  // derrière lui une traînée de jetons valides pour toujours.
+  _ouvreSession(nom, jeton, maintenant) {
+    this.db
+      .prepare('INSERT OR REPLACE INTO sessions (jeton_hash, pilote, cree_le) VALUES (?, ?, ?)')
+      .run(this._hacheJeton(jeton), nom, maintenant);
+    this.db
+      .prepare(
+        `DELETE FROM sessions WHERE pilote = ? AND jeton_hash NOT IN (
+           SELECT jeton_hash FROM sessions WHERE pilote = ? ORDER BY cree_le DESC LIMIT ?
+         )`
+      )
+      .run(nom, nom, MAX_SESSIONS);
   }
 
   // Le pilote derrière un jeton, ou null.
   parJeton(jeton) {
     if (!jeton) return null;
-    return (
-      this.db.prepare('SELECT * FROM pilotes WHERE jeton_hash = ?').get(this._hacheJeton(jeton)) ||
-      null
-    );
+    const h = this._hacheJeton(jeton);
+    const s = this.db.prepare('SELECT pilote FROM sessions WHERE jeton_hash = ?').get(h);
+    if (s) return this.pilote(s.pilote);
+    // Repli sur l'ancien emplacement : les jetons émis avant l'arrivée des
+    // sessions vivaient dans la ligne du pilote. Sans ce repli, une mise à jour du
+    // serveur déconnecterait tout le monde d'un coup.
+    return this.db.prepare('SELECT * FROM pilotes WHERE jeton_hash = ?').get(h) || null;
   }
 
   // --- Parties ---------------------------------------------------------------

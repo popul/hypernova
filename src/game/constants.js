@@ -87,7 +87,13 @@ export const ENEMY_TYPES = {
     fireChance: 0.08,
     shot: { shots: 3, spread: 0.26, speedMul: 0.8 }, // nappe large et lente : déni de zone
   },
-  boss: { hp: 50, radius: 2.6, score: 1500, credits: 220, gemCount: 16, fireChance: 0 },
+  // L'amiral mesurait 4,6 unités de large sur une arène qui en fait 29 — soit à
+  // peine plus qu'un chasseur, et cinq pour cent de la largeur de l'écran. On
+  // l'annonce comme un dévoreur de mondes et l'on touchait une mouche. Doublé, il
+  // occupe un tiers de l'arène : assez pour être frappé, pas assez pour boucher
+  // le champ (il patrouille jusqu'à x=8,5, donc son flanc s'arrête à 13,2 sur
+  // 14,5 — il ne sort jamais du cadre).
+  boss: { hp: 50, radius: 5.2, score: 1500, credits: 220, gemCount: 16, fireChance: 0 },
 };
 
 export const ENEMY = {
@@ -255,6 +261,10 @@ export const BOSS_PHASES = [
 export const BOSS_BASCULE = 1.35;
 
 export const BOSS = {
+  // Facteur appliqué à la carène. Le rayon de collision ci-dessus suit le même
+  // rapport : un boss qu'on voit plus gros mais qu'on touche pareil serait un
+  // mensonge visuel, et le joueur le sentirait sans savoir le nommer.
+  echelle: 2,
   hpPerWave: 13,
   fanInterval: 2.1,
   aimedBurstInterval: 3.4,
@@ -355,8 +365,13 @@ export const PICKUPS = {
   // Avec une charge unique, chaque vague pose la même question et elle est
   // intéressante — maintenant pour ces trois gemmes, ou plus tard pour la grappe
   // qu'on espère ? On ne le saura qu'après.
-  callRadiusBase: 9,
-  callRadiusPerLevel: 4.5, // l'Aimant tracteur élargit l'onde
+  // PORTÉE. Neuf unités ne couvraient qu'un tiers du champ : les gemmes tombent
+  // depuis la formation, à vingt-cinq unités du vaisseau, et l'onde ne les
+  // atteignait tout simplement jamais. Mesuré : au-delà de vingt unités, l'Appel
+  // ne rapportait plus rien du tout — d'où l'impression, juste, qu'il ne marchait
+  // pas. Dix-huit couvrent l'essentiel de ce qui est encore rattrapable.
+  callRadiusBase: 18,
+  callRadiusPerLevel: 6, // l'Aimant tracteur élargit l'onde
   callChargeAtLevel: 4, // …et au dernier niveau, il en donne une seconde
   callPull: 70,
   callSweep: 0.42, // secondes que met l'onde à atteindre sa portée
@@ -450,9 +465,10 @@ export const SURVIE = {
   pente: 0.45,
 };
 
+// Ce qui reste sur l'appareil : deux PRÉFÉRENCES, et rien d'autre. Les pilotes,
+// les scores et les records vivent sur le serveur — c'est lui qui fait qu'un enfant
+// retrouve ses parties depuis n'importe quel écran de la maison.
 export const STORAGE_KEYS = {
-  hiscore: 'novaswarm.hiscore',
-  bestWave: 'novaswarm.bestwave',
   muted: 'novaswarm.muted',
   introSeen: 'novaswarm.introseen',
 };

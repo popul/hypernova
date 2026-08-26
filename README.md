@@ -87,11 +87,22 @@ cents octets**. Cela suppose trois choses, qui sont des invariants du code :
 3. **toute modification des règles incrémente `VERSION`** dans `rejeu/format.js` — un
    enregistrement d'une autre version est refusé plutôt que rejoué de travers.
 
-### Le panthéon partagé (optionnel)
+### Le serveur est la source
 
-Un petit serveur (`server/`, Node + `node:sqlite`, aucune dépendance npm) met les scores et
-les replays en commun entre appareils. Le jeu reste **hors-ligne d'abord** : une partie s'écrit
-en local, puis part dans une file d'envoi qui se vide dès que le réseau répond.
+Un petit serveur (`server/`, Node + `node:sqlite`, aucune dépendance npm) tient **les pilotes,
+les scores, les replays et les records**. Rien de tout cela n'est en `localStorage` : chaque
+appareil avait sinon ses propres pilotes et son propre tableau, qui ne se rejoignaient jamais —
+et sur iOS, Safari efface le stockage d'un site laissé de côté une semaine.
+
+Il ne reste sur l'appareil que trois choses, et elles sont assumées :
+
+- le **jeton de session** et le nom du pilote, exactement ce que fait un cookie de connexion ;
+- une **file d'envoi** — les parties qui n'ont pas encore pu partir. Ce n'est pas un second
+  panthéon mais un tampon : il se vide au retour du réseau, et il est vide la plupart du temps ;
+- deux préférences : le son coupé, et l'introduction déjà vue.
+
+Un même pilote peut rester connecté sur **plusieurs appareils** (huit sessions), pour qu'une
+tablette ne déconnecte pas le téléphone.
 
 ```bash
 node server/index.js          # PORT=8081, DB_PATH=/data/hypernova.db

@@ -28,7 +28,8 @@ import {
 //   2 — les ennemis ne tirent plus depuis le dos du vaisseau, ni à plat
 //       (noFireBehind, minShotSlope)
 //   3 — les boss combattent en trois phases (BOSS_PHASES)
-export const VERSION = 3;
+//   4 — l'amiral est deux fois plus gros, l'Appel porte deux fois plus loin
+export const VERSION = 4;
 
 // --- Écriture ---------------------------------------------------------------
 

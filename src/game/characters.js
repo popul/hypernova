@@ -183,6 +183,15 @@ const EMOTION_BY_KEY = {
   odReadyTouch: 'determine',
 };
 
+// Espaces insécables devant la ponctuation double, et à l'intérieur des guillemets
+// français. Appliqué à l'AFFICHAGE et non aux sources : les répliques restent
+// lisibles dans le code, et la règle vaut aussi pour celles qu'on écrira demain.
+function typo(t) {
+  return String(t)
+    .replace(/ ([:;!?»])/g, '\u00a0$1')
+    .replace(/« /g, '«\u00a0');
+}
+
 function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
@@ -265,6 +274,12 @@ export class Characters {
   }
 
   sayText(text, { speaker = 'nova', priority = false, emotion = null, duration = null } = {}) {
+    // Typographie française : l'espace qui précède deux-points, point-virgule,
+    // point d'exclamation ou d'interrogation doit être INSÉCABLE. Sans elle, la
+    // ponctuation tombe seule en début de ligne — « …te jeter / : les tirs te
+    // traversent ». C'est fréquent dans une colonne étroite, c'est-à-dire sur un
+    // téléphone, c'est-à-dire là où le jeu se joue.
+    text = typo(text);
     // SUR PETIT ÉCRAN, NOVA ATTEND SON TOUR.
     //
     // Le panneau de dialogue occupe le quart bas d'un téléphone en portrait —

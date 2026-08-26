@@ -56,6 +56,11 @@ class Enemy {
     this.time = alea() * 10;
 
     this.group = createEnemyShip(this.type);
+    // L'échelle de REPOS, telle que la carène a été construite. Les animations de
+    // flash et de télégraphe la faisaient revenir à 1 : un ennemi bâti à une autre
+    // taille — l'amiral, deux fois plus gros — rapetissait au premier tir encaissé
+    // et n'y revenait jamais.
+    this.echelle = this.group.scale.x;
     this.group.position.copy(this.curve.getPoint(0));
     scene.add(this.group);
     this._scene = scene;
@@ -207,15 +212,16 @@ export class Enemies {
         }
       }
 
+      const repos = e.echelle ?? 1;
       if (e.flashTime > 0) {
         e.flashTime -= dt;
         const s = 1 + Math.max(0, e.flashTime) * 2.2;
-        e.group.scale.setScalar(s);
+        e.group.scale.setScalar(repos * s);
       } else if (e.telegraph > 0) {
         // Pulsation d'avertissement pendant le télégraphe.
-        e.group.scale.setScalar(1 + Math.sin(e.telegraph * 40) * 0.16);
-      } else if (e.group.scale.x !== 1) {
-        e.group.scale.setScalar(1);
+        e.group.scale.setScalar(repos * (1 + Math.sin(e.telegraph * 40) * 0.16));
+      } else if (e.group.scale.x !== repos) {
+        e.group.scale.setScalar(repos);
       }
     }
 
@@ -591,7 +597,9 @@ export class Enemies {
   _bossMouvement(e, dt, game, ph) {
     const p = e.group.position;
     if (ph.style === 'patrouille') {
-      p.x = Math.sin(e.time * 0.55 * ph.vitesse) * 8.5;
+      // Amplitude réduite depuis que l'amiral est deux fois plus large : à 8,5, son
+      // flanc arrivait à 14,2 pour un bord d'arène à 14,5 — il rasait la couture.
+      p.x = Math.sin(e.time * 0.55 * ph.vitesse) * 7;
       p.z = -13 + Math.sin(e.time * 0.31 * ph.vitesse) * 2.2;
       p.y = Math.sin(e.time * 1.2) * 0.4;
       e.group.rotation.y = Math.sin(e.time * 0.4) * 0.2;
@@ -604,7 +612,7 @@ export class Enemies {
       if (!e.ancre || (e.ancreTimer -= dt) <= 0) {
         const cote = e.ancre && e.ancre.x > 0 ? -1 : 1;
         e.ancre = {
-          x: cote * entre(4, 11),
+          x: cote * entre(3.5, 9),
           z: -13 + entre(-2, 2.5),
         };
         e.ancreTimer = entre(1.1, 1.8);
@@ -620,7 +628,7 @@ export class Enemies {
 
     // TRAQUE. Il descend et suit le joueur en x, sans jamais l'atteindre tout à
     // fait — le retard est ce qui laisse une chance de le semer.
-    const cible = THREE.MathUtils.clamp(game.player.position.x, -10, 10);
+    const cible = THREE.MathUtils.clamp(game.player.position.x, -8.5, 8.5);
     p.x += (cible - p.x) * Math.min(1, 1.35 * ph.vitesse * dt);
     p.z += (-8.5 - p.z) * Math.min(1, 0.9 * dt);
     p.y = Math.sin(e.time * 3.1) * 0.25;

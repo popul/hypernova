@@ -1,12 +1,20 @@
-// Profils de pilotes sur l'appareil : chaque copain a son badge, choisi au décollage.
-// Un code secret optionnel (4 chiffres) protège un profil contre l'emprunt de pseudo
-// entre copains. C'est dissuasif, pas une vraie sécurité : tout reste en localStorage —
-// une protection réelle demanderait un serveur et des comptes.
+// Les pilotes. LE SERVEUR EST LA SEULE SOURCE.
+//
+// Ils vivaient en localStorage : chaque appareil avait ses propres pilotes, ses
+// propres scores, et rien ne se rejoignait jamais. Deux frères sur deux téléphones
+// jouaient dans deux jeux différents qui portaient le même nom — et sur iOS,
+// Safari efface le stockage d'un site laissé de côté une semaine.
+//
+// Il ne reste donc en local qu'UNE chose : le jeton de session, qui dit « c'est
+// encore moi » au serveur. Exactement ce que fait un cookie de connexion, et pour
+// la même raison — sans lui, il faudrait retaper son code à chaque lancement.
+// Tout le reste — la liste des pilotes, l'apparence du vaisseau, les parties — se
+// demande au serveur et ne se recopie nulle part.
+//
+// Ce que ça coûte, et il faut le savoir : sans réseau, on ne peut plus s'identifier.
+// Le jeu le dit alors clairement au lieu d'échouer en silence.
 
-const PILOTS_KEY = 'novaswarm.pilots';
-const ACTIVE_KEY = 'novaswarm.pilot';
-const LEGACY_NAME_KEY = 'novaswarm.lastname';
-const MAX_PILOTS = 8;
+import * as reseau from './reseau.js';
 
 export function sanitizeName(raw) {
   return String(raw || '')
@@ -16,87 +24,68 @@ export function sanitizeName(raw) {
     .slice(0, 10);
 }
 
-// Hachage djb2 salé par le nom : suffisant pour un code secret dissuasif local.
-function hashPin(name, pin) {
-  const s = `${name}:${pin}:novaswarm`;
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return String(h >>> 0);
-}
-
-export function listPilots() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(PILOTS_KEY));
-    const pilots = Array.isArray(raw) ? raw.filter((p) => p && p.name) : [];
-    // Migration : l'ancien "dernier nom utilisé" devient un profil.
-    if (pilots.length === 0) {
-      const legacy = sanitizeName(localStorage.getItem(LEGACY_NAME_KEY));
-      if (legacy) {
-        pilots.push({ name: legacy, pinHash: null });
-        savePilots(pilots);
-      }
-    }
-    return pilots;
-  } catch {
-    return [];
-  }
-}
-
-function savePilots(pilots) {
-  localStorage.setItem(PILOTS_KEY, JSON.stringify(pilots.slice(0, MAX_PILOTS)));
-}
+// Le pilote de la session en cours. Rempli par `reprends()` au démarrage et par
+// `connecte()` — c'est un cache de la réponse du serveur, jamais une source.
+let courant = null;
 
 export function activePilot() {
-  const name = localStorage.getItem(ACTIVE_KEY);
-  return listPilots().find((p) => p.name === name) || null;
+  return courant;
 }
 
-export function setActivePilot(name) {
-  localStorage.setItem(ACTIVE_KEY, name);
-  localStorage.setItem(LEGACY_NAME_KEY, name); // compat partage de défi
+// Au lancement : le jeton est-il encore bon ? Le serveur répond avec le nom et
+// l'apparence. S'il ne répond pas, on n'a pas de pilote — et on le dira.
+export async function reprends() {
+  if (!reseau.jeton()) return null;
+  const moi = await reseau.moi();
+  if (moi) {
+    courant = moi;
+    return courant;
+  }
+  // Hors ligne, ou serveur éteint. On sait encore QUI l'on est — le jeton et le
+  // nom sont dans cette session — on ignore seulement ce que le serveur en dit.
+  // Le jeu doit rester jouable dans un train : on joue, et les parties montent au
+  // retour du réseau. C'est un cache d'IDENTITÉ, pas un second panthéon.
+  const nom = reseau.nomEnLigne();
+  courant = nom ? { name: nom, horsLigne: true } : null;
+  return courant;
 }
 
-// Renvoie { ok, error } — error: 'exists' | 'invalid' | 'full'.
-export function createPilot(rawName, pin = '', apparence = {}) {
-  const name = sanitizeName(rawName);
-  if (!name) return { ok: false, error: 'invalid' };
-  const pilots = listPilots();
-  if (pilots.some((p) => p.name === name)) return { ok: false, error: 'exists' };
-  if (pilots.length >= MAX_PILOTS) return { ok: false, error: 'full' };
-  const cleanPin = /^\d{4}$/.test(pin) ? pin : '';
-  // L'apparence est attachée au PILOTE, pas à la partie : elle survit aux morts,
-  // et c'est elle qu'on reconnaît dans un classement partagé entre copains.
-  pilots.push({
-    name,
-    pinHash: cleanPin ? hashPin(name, cleanPin) : null,
-    livree: apparence.livree || 'flotte',
-    carene: apparence.carene || 'dague',
-  });
-  savePilots(pilots);
-  setActivePilot(name);
-  return { ok: true, name };
+// Qui joue sur ce jeu ? La liste vient du serveur, donc elle contient les copains
+// qui jouent depuis LEUR téléphone. C'est tout l'intérêt.
+export async function listPilots() {
+  const l = await reseau.listePilotes();
+  return l || [];
 }
 
-// Modifier un pilote existant : son vaisseau, et éventuellement son code.
-// L'apparence est attachée au pilote et non à la partie — la changer doit donc
-// être possible ailleurs qu'au moment de la création, sinon un choix fait une
-// fois à la va-vite est définitif.
-export function majPilote(nom, { livree, carene, pin } = {}) {
-  const pilots = listPilots();
-  const p = pilots.find((x) => x.name === nom);
-  if (!p) return { ok: false, error: 'inconnu' };
-  if (livree) p.livree = livree;
-  if (carene) p.carene = carene;
-  if (pin != null && /^\d{4}$/.test(pin)) p.pinHash = hashPin(nom, pin);
-  savePilots(pilots);
-  return { ok: true };
+// Réclamer un pseudo, ou revenir dessus avec son code. Le serveur tranche : libre,
+// il devient le nôtre ; pris, il faut le code de celui qui l'a créé.
+// Renvoie { ok } ou { ok: false, error: 'code' | 'email' | 'reseau' | 'invalid' }.
+export async function connecte(rawName, code, email, apparence = {}) {
+  const nom = sanitizeName(rawName);
+  if (!nom) return { ok: false, error: 'invalid' };
+  const r = await reseau.inscris(nom, code, email, apparence);
+  if (!r.ok) return { ok: false, error: r.erreur || 'reseau' };
+  courant = {
+    name: nom,
+    livree: r.livree || apparence.livree,
+    carene: r.carene || apparence.carene,
+  };
+  return { ok: true, name: nom };
 }
 
-export function hasPin(pilot) {
-  return !!pilot?.pinHash;
+export function deconnecte() {
+  courant = null;
+  reseau.deconnecte();
 }
 
-export function verifyPin(pilot, pin) {
-  if (!pilot?.pinHash) return true;
-  return hashPin(pilot.name, String(pin)) === pilot.pinHash;
+// L'apparence appartient au pilote, donc au serveur : elle le suit d'un appareil
+// à l'autre. Un vaisseau qu'on a choisi et qui ne serait pas là au prochain
+// téléphone ne serait pas vraiment le sien.
+export async function majApparence({ livree, carene }) {
+  const r = await reseau.majMoi({ livree, carene });
+  if (r?.ok && courant) {
+    courant.livree = r.livree;
+    courant.carene = r.carene;
+  }
+  return !!r?.ok;
 }

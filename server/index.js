@@ -2,8 +2,8 @@
 //
 // Elle vit sous /api, derrière le même nom de domaine que le jeu : pas de CORS à
 // desserrer, pas de second certificat, pas de second déploiement à surveiller.
-// Node nu, sans cadre applicatif — il y a six routes, et un routeur générique
-// coûterait plus de lignes à auditer que les six réunies.
+// Node nu, sans cadre applicatif — il y a neuf routes, et un routeur générique
+// coûterait plus de lignes à auditer que les neuf réunies.
 //
 // Ce que le serveur refuse est aussi important que ce qu'il accepte : une requête
 // trop grosse, un champ d'un mauvais type, un score invraisemblable, un client
@@ -106,6 +106,32 @@ function emailPropre(brut) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) ? e : null;
 }
 
+// Copie des identifiants de src/game/ships.js. Le serveur ne peut pas importer ce
+// module — il tire Three.js avec lui, et on ne charge pas un moteur de rendu dans
+// une API. Deux listes de mots à tenir à jour à la main est le prix de l'absence de
+// dépendance ; si la flotte s'agrandit, c'est ici qu'il faut repasser.
+const LIVREES = ['flotte', 'braise', 'menthe', 'orage', 'or', 'sang'];
+const CARENES = ['dague', 'faucon', 'enclume'];
+
+// Une valeur inconnue est ignorée, jamais refusée : le client peut être plus vieux
+// ou plus neuf que le serveur, et lui rendre une erreur pour une teinte lui ferait
+// perdre le reste de sa requête. Le filtre sert surtout à l'autre bout — ces deux
+// chaînes ressortent sur une route publique, et rien d'arbitraire ne doit y entrer.
+function livreePropre(v) {
+  return LIVREES.includes(v) ? v : null;
+}
+
+function carenePropre(v) {
+  return CARENES.includes(v) ? v : null;
+}
+
+// Le client reconstruit un vaisseau à partir de cette paire : il lui faut deux
+// identifiants valides, jamais un champ absent. Un pilote d'avant la boutique n'a
+// rien en base — il vole en livrée de flotte, sur une dague, comme dans le jeu.
+function apparenceDe(p) {
+  return { livree: p?.livree || LIVREES[0], carene: p?.carene || CARENES[0] };
+}
+
 function entier(v, max) {
   const n = Number(v);
   return Number.isFinite(n) && n >= 0 && n <= max ? Math.floor(n) : null;
@@ -134,9 +160,74 @@ async function route(req, res, chemin) {
     // enfant qui ne peut plus publier ses scores.
     if (!connu && !email) return repond(res, 400, { erreur: 'email-requis' });
 
-    const r = base.reclame(nom, code, { livree: corps.livree, carene: corps.carene }, email);
+    const apparence = { livree: livreePropre(corps.livree), carene: carenePropre(corps.carene) };
+    const r = base.reclame(nom, code, apparence, email);
     if (!r.ok) return repond(res, 403, { erreur: r.erreur });
-    return repond(res, connu ? 200 : 201, { nom, jeton: r.jeton, nouveau: r.nouveau });
+    // L'apparence part avec le jeton : c'est la seule occasion où le client apprend
+    // à quoi ressemble son vaisseau sans avoir encore de quoi appeler /moi. Sur un
+    // appareil qu'il n'a jamais utilisé, il n'a rien d'autre pour le redessiner.
+    return repond(res, connu ? 200 : 201, {
+      nom,
+      jeton: r.jeton,
+      nouveau: r.nouveau,
+      ...apparenceDe(r),
+    });
+  }
+
+  // GET /pilotes — qui vole en ce moment, pour l'écran « Qui pilote ? ».
+  //
+  // Public et sans jeton, parce que cet écran s'affiche AVANT qu'on sache qui est
+  // devant la machine : sur la tablette partagée d'une fratrie, c'est lui qui sert à
+  // choisir. Donc rien de personnel n'en sort — voir base.pilotes(), qui nomme ses
+  // colonnes une par une pour que ça reste vrai après la prochaine migration.
+  if (req.method === 'GET' && chemin === '/pilotes') {
+    const url = new URL(req.url, 'http://x');
+    // Le paramètre absent est écarté AVANT entier() : Number(null) vaut zéro, et un
+    // zéro traverse ses garde-fous sans rien déclencher. Sans ce test, une requête
+    // sans `limite` demanderait zéro pilote et l'écran n'afficherait qu'un nom.
+    const brut = url.searchParams.get('limite');
+    const limite = brut === null ? 24 : (entier(brut, 60) ?? 24);
+    const pilotes = base.pilotes(limite).map((p) => ({
+      nom: p.nom,
+      ...apparenceDe(p),
+      parties: p.parties,
+      meilleur: p.meilleur,
+    }));
+    return repond(res, 200, { pilotes });
+  }
+
+  // GET /moi — la fiche du porteur du jeton : de quoi redessiner son vaisseau, et
+  // ses records pour le « Record » du HUD.
+  //
+  // Les records viennent d'ici et non plus du navigateur : c'est tout l'objet du
+  // déplacement. Un enfant qui rejoue sur la tablette de son frère doit y retrouver
+  // son propre record, et non celui que le localStorage de l'appareil aurait gardé.
+  //
+  // L'adresse électronique, elle, reste en base même pour son propriétaire : un
+  // jeton se perd avec un téléphone, et il ne doit alors rien apprendre de plus que
+  // ce qui est déjà affiché au tableau.
+  if (req.method === 'GET' && chemin === '/moi') {
+    const pilote = base.parJeton(jetonDe(req));
+    if (!pilote) return repond(res, 401, { erreur: 'jeton' });
+    return repond(res, 200, {
+      nom: pilote.nom,
+      ...apparenceDe(pilote),
+      ...base.records(pilote.nom),
+    });
+  }
+
+  // PATCH /moi — repeindre son vaisseau. PATCH et non PUT : le client envoie ce
+  // qu'il vient de changer, pas la fiche entière, et deux réglages modifiés depuis
+  // deux écrans différents ne s'effacent pas l'un l'autre.
+  if (req.method === 'PATCH' && chemin === '/moi') {
+    const pilote = base.parJeton(jetonDe(req));
+    if (!pilote) return repond(res, 401, { erreur: 'jeton' });
+    const corps = await lisCorps(req);
+    const fiche = base.majApparence(pilote.nom, {
+      livree: livreePropre(corps.livree),
+      carene: carenePropre(corps.carene),
+    });
+    return repond(res, 200, { ok: true, nom: pilote.nom, ...apparenceDe(fiche) });
   }
 
   // POST /parties — publier une partie terminée.
@@ -168,7 +259,12 @@ async function route(req, res, chemin) {
   // GET /classement — le tableau, sans rien de personnel.
   if (req.method === 'GET' && chemin === '/classement') {
     const url = new URL(req.url, 'http://x');
-    const limite = entier(url.searchParams.get('limite'), 100) ?? 20;
+    // `Number(null)` vaut zéro, pas NaN : sans ce test, un paramètre absent
+    // demandait zéro ligne — ramenée à une par le plancher. Le défaut annoncé de
+    // vingt n'a jamais servi, et un client qui oubliait `limite` recevait un
+    // classement d'une seule ligne sans que rien ne le signale.
+    const brut = url.searchParams.get('limite');
+    const limite = (brut === null ? null : entier(brut, 100)) ?? 20;
     const mode = url.searchParams.get('mode') === 'survie' ? 'survie' : 'arcade';
     return repond(res, 200, { mode, classement: base.classement(limite, mode) });
   }

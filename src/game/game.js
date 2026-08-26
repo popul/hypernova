@@ -12,6 +12,7 @@ import { Cinematic } from './cinematic.js';
 import { makeWave, dailySeed } from './waves.js';
 import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
 import {
+  ARENA,
   COMBO,
   PLAYER,
   STORAGE_KEYS,
@@ -30,17 +31,22 @@ import {
   prochainPalier,
   PALIERS,
 } from './routes.js';
-import { classement, enregistrePartie, partieParId, challengeText } from './parties.js';
+import {
+  classement,
+  classementConnu,
+  enregistrePartie,
+  partieParId,
+  challengeText,
+} from './parties.js';
 import * as reseau from './reseau.js';
 
 import {
   listPilots,
   activePilot,
-  setActivePilot,
-  createPilot,
-  majPilote,
-  hasPin,
-  verifyPin,
+  connecte,
+  deconnecte,
+  majApparence,
+  reprends,
   sanitizeName,
 } from './pilots.js';
 import { CARENES, LIVREES } from './ships.js';
@@ -133,13 +139,23 @@ export class Game {
     this.state = 'title';
     this.mode = 'arcade';
     this.paused = false;
-    this.hiscore = Number(localStorage.getItem(STORAGE_KEYS.hiscore)) || 0;
-    this.bestWave = Number(localStorage.getItem(STORAGE_KEYS.bestWave)) || 0;
+    // Les records viennent du SERVEUR, avec le pilote — ils ne sont plus ceux de
+    // l'appareil. Deux enfants qui se passent un téléphone n'ont plus le même
+    // « Record » affiché, et le sien le suit sur la tablette.
+    // Ils vivent en mémoire le temps de la partie : rien ne s'écrit sur disque.
+    this.hiscore = 0;
+    this.bestWave = 0;
     this._tmp = new THREE.Vector3();
 
-    // Les parties en attente d'envoi partent dès l'ouverture : une session hors
-    // ligne se rattrape au démarrage suivant, sans que le joueur ait rien à faire.
-    reseau.pousse();
+    // Reprise de session : le jeton dit au serveur « c'est encore moi », et l'on
+    // récupère nom et vaisseau. Puis les parties en attente partent — une session
+    // hors ligne se rattrape au démarrage suivant, sans rien demander au joueur.
+    reprends().then((moi) => {
+      if (moi) this._appliquePilote(moi);
+      reseau.pousse().then(() => {
+        if (this.state === 'title') this.showTitle();
+      });
+    });
 
     const typing = (e) => e.target instanceof Element && e.target.closest('input, button');
     input.on('Space', (e) => {
@@ -291,9 +307,11 @@ export class Game {
     el.querySelector('#gate-form').addEventListener('submit', (e) => {
       e.preventDefault();
       this.audio.unlock();
+      // Le nom saisi ici ne crée plus de pilote : il ne sert qu'à ce que NOVA
+      // s'adresse à quelqu'un pendant l'introduction. L'identification, elle, se
+      // fait devant le serveur — avec un code — au moment de décoller.
       const name = sanitizeName(input.value);
-      if (name && !listPilots().some((p) => p.name === name)) createPilot(name, '');
-      else if (name) setActivePilot(name);
+      if (name) this.characters.setContext({ pilote: name });
       this.playCinematic({ handoff: true });
     });
   }
@@ -429,7 +447,11 @@ export class Game {
     if (!w) return;
     w.radius += (w.max / PICKUPS.callSweep) * dt;
     w.pris += this.pickups.call(w.origin, w.radius);
-    this.fx.shockwave(w.origin, 0xffc857, w.radius * 0.5);
+    // L'onde se dessine à SA TAILLE. Elle était tracée à la moitié de sa portée :
+    // le joueur voyait un petit cercle près du vaisseau, des gemmes rentraient de
+    // bien plus loin sans raison visible, et rien ne disait jusqu'où l'Appel
+    // portait. Un pouvoir dont on ne voit pas la limite ne s'apprend pas.
+    this.fx.shockwave(w.origin, 0xffc857, w.radius);
     if (w.radius >= w.max) {
       if (w.pris > 0) this.audio.callHit(w.pris);
       this.callWave = null;
@@ -538,13 +560,70 @@ export class Game {
       .join('')}</ol>`;
   }
 
+  // Ce qu'un changement de pilote entraîne : son vaisseau, et SES records. Le HUD
+  // affichait le record du pilote précédent après un changement — deux enfants qui
+  // se passent le téléphone voyaient chacun le « Record » de l'autre.
+  _appliquePilote(moi) {
+    if (!moi) return;
+    this._refreshShip();
+    this.hiscore = (this.mode === 'survie' ? moi.meilleurSurvie : moi.meilleur) || 0;
+    this.bestWave = (this.mode === 'survie' ? moi.meilleureVagueSurvie : moi.meilleureVague) || 0;
+    this.hud.setHiscore(this.hiscore);
+  }
+
+  // Le formulaire d'inscription, là où le manque se constate : sous son propre
+  // score, au moment où l'on regarde le tableau des autres.
+  _inviteInscription(el, pilot) {
+    const ligne = el.querySelector('#go-pilot');
+    if (!ligne) return;
+    ligne.innerHTML = `
+      <form class="lb-form go-inscription" id="form-inscrire">
+        <div class="pilot-note">
+          Un code à 4 chiffres pour que personne d'autre ne publie sous
+          <b>${esc(pilot.name)}</b>, et une adresse pour le retrouver si tu l'oublies.
+        </div>
+        <input id="ins-pin" type="password" inputmode="numeric" maxlength="4"
+               placeholder="Code à 4 chiffres" autocomplete="off" aria-label="Code secret" />
+        <input id="ins-mail" type="email" maxlength="120" placeholder="Adresse d'un parent"
+               autocomplete="email" aria-label="Adresse électronique" />
+        <button class="btn-launch" type="submit">Publier</button>
+        <div class="pilot-error" id="ins-erreur"></div>
+      </form>`;
+    ligne.querySelector('#form-inscrire').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const erreur = ligne.querySelector('#ins-erreur');
+      const code = ligne.querySelector('#ins-pin').value;
+      const mail = ligne.querySelector('#ins-mail').value.trim();
+      if (!/^\d{4}$/.test(code) || !mail) {
+        erreur.textContent = 'Il faut les deux : un code à 4 chiffres et une adresse.';
+        return;
+      }
+      erreur.textContent = 'Inscription…';
+      const r = await reseau.inscris(pilot.name, code, mail);
+      if (!r.ok) {
+        erreur.textContent =
+          r.erreur === 'code'
+            ? 'Ce nom est déjà pris en ligne, par quelqu’un qui a un autre code.'
+            : 'Pas de réseau. Tes parties sont gardées et monteront plus tard.';
+        return;
+      }
+      // Les parties jouées avant l'inscription attendaient dans la file : elles
+      // partent maintenant, d'un coup.
+      const { envoyees } = await reseau.pousse();
+      ligne.innerHTML = `${esc(pilot.name)} — en ligne ✓${
+        envoyees > 1 ? ` · ${envoyees} parties envoyées` : ''
+      }`;
+      this._rafraichitPantheon(el, '#go-lb', this.mode);
+    });
+  }
+
   // Le tableau commun. Le classement du serveur remplace le local dès qu'il
   // arrive — jamais avant : un écran qui s'affiche vide en attendant le réseau est
   // pire qu'un écran qui montre ce qu'on a sous la main.
   async _rafraichitPantheon(el, selecteur = '#go-lb', mode = 'arcade') {
     const cible = el?.querySelector?.(selecteur);
     if (!cible) return;
-    const distant = await reseau.classementDistant(10, mode);
+    const distant = await classement(10, mode);
     if (!distant || !cible.isConnected) return;
     cible.innerHTML = this._leaderboardHtml(distant, -1, mode);
     this._brancheRejeux(cible);
@@ -566,14 +645,11 @@ export class Game {
   }
 
   async _lanceRejeu(id) {
-    let partie = partieParId(id);
-    // Une ligne venue du serveur ne porte qu'un marqueur : le replay lui-même ne
-    // se télécharge qu'au moment où on le demande. Charger douze enregistrements
-    // pour en regarder un seul serait payer douze fois trop.
-    if (!partie || !partie.flux || partie.flux === 'distant') {
-      this.hud.announce('Chargement…', '', 1200);
-      partie = await reseau.partieDistante(id);
-    }
+    // Une ligne du classement ne porte qu'un marqueur : l'enregistrement lui-même
+    // ne se télécharge qu'au moment où on le demande. Charger douze replays pour
+    // en regarder un seul serait payer douze fois trop.
+    this.hud.announce('Chargement…', '', 1200);
+    const partie = await partieParId(id);
     if (!partie || !partie.flux) {
       this.hud.announce('Enregistrement indisponible', '', 1800);
       return;
@@ -660,7 +736,7 @@ export class Game {
     const mode = this._modeTableau || 'arcade';
     this.audio.setMode('title');
     this.hud.root.classList.add('hidden');
-    const scores = classement(5, this._modeTableau || 'arcade');
+    const scores = classementConnu(this._modeTableau || 'arcade').slice(0, 5);
     const pilot = activePilot();
     const el = this._screen(`
       <div class="screen title">
@@ -724,126 +800,117 @@ export class Game {
 
   // Sélecteur de profils : chaque copain a son badge ; un code secret optionnel (4 chiffres)
   // dissuade l'emprunt de pseudo sur un appareil partagé.
-  showPilotSelect(onDone = null) {
+  // L'ÉCRAN D'IDENTIFICATION. Ce n'est plus une liste locale mais une connexion :
+  // les pilotes vivent sur le serveur, donc on y retrouve les copains qui jouent
+  // depuis LEUR téléphone. C'était tout l'intérêt de sortir du localStorage.
+  async showPilotSelect(onDone = null) {
     this.state = 'pilots';
     this.hud.root.classList.add('hidden');
-    const done = () => (onDone ? onDone() : this.showTitle());
-    const pilots = listPilots();
+    const done = () => {
+      this._vitrine(false);
+      return onDone ? onDone() : this.showTitle();
+    };
+    const moi = activePilot();
     const el = this._screen(`
       <div class="screen pilots">
         <h2 class="shop-title">Qui pilote ?</h2>
-        <div class="pilot-grid">
-          ${pilots
-            .map(
-              (p, i) => `
-            <div class="pilot-case">
-              <button class="pilot-card" data-pilot="${i}">
-                <span class="pilot-avatar big">${esc(p.name[0])}</span>
-                <span class="pilot-card-name">${esc(p.name)}${hasPin(p) ? ' <span class="pin-lock">🔒</span>' : ''}</span>
-              </button>
-              <button class="pilot-edit" data-edit="${i}" title="Modifier le vaisseau de ${esc(p.name)}" aria-label="Modifier le vaisseau de ${esc(p.name)}">✎</button>
-            </div>`
-            )
-            .join('')}
-          <button class="pilot-card new" id="pilot-new">
-            <span class="pilot-avatar big">+</span>
-            <span class="pilot-card-name">Nouveau pilote</span>
-          </button>
-        </div>
+        ${
+          moi
+            ? `<div class="pilot-moi">Tu es <b>${esc(moi.name)}</b>${
+                moi.horsLigne ? ' <span class="pilot-note">(hors ligne)</span>' : ''
+              }</div>
+               <div class="title-menu">
+                 <button class="btn-launch" id="pilot-jouer">Jouer</button>
+                 <button class="btn-secondary" id="pilot-vaisseau">Mon vaisseau</button>
+                 <button class="btn-ghost" id="pilot-changer">Changer de pilote</button>
+               </div>`
+            : '<div class="pilot-note" id="pilot-etat">Chargement des pilotes…</div>'
+        }
+        <div class="pilot-grid" id="pilot-grid"></div>
         <div class="pilot-form-zone" id="pilot-form-zone"></div>
         <button class="btn-ghost" id="pilots-back">← Retour</button>
       </div>
     `);
     const zone = el.querySelector('#pilot-form-zone');
-    el.querySelector('#pilots-back').addEventListener('click', () => this.showTitle());
+    const grille = el.querySelector('#pilot-grid');
+    el.querySelector('#pilots-back').addEventListener('click', () => {
+      this._vitrine(false);
+      this.showTitle();
+    });
+    el.querySelector('#pilot-jouer')?.addEventListener('click', done);
+    el.querySelector('#pilot-vaisseau')?.addEventListener('click', () =>
+      this._formVaisseau(zone, moi, done)
+    );
+    el.querySelector('#pilot-changer')?.addEventListener('click', () => {
+      deconnecte();
+      this.showPilotSelect(onDone);
+    });
+    if (moi) return;
 
-    el.querySelectorAll('.pilot-card[data-pilot]').forEach((card) =>
+    // La liste arrive du réseau : l'écran s'affiche AVANT, et se remplit ensuite.
+    // Attendre le serveur pour dessiner quoi que ce soit donnerait un écran noir
+    // sur une connexion lente.
+    const pilotes = await listPilots();
+    if (!el.isConnected) return;
+    const etat = el.querySelector('#pilot-etat');
+    if (etat) {
+      etat.textContent = pilotes.length
+        ? 'Choisis ton nom, ou crée-toi un pilote'
+        : 'Personne encore. Crée le premier pilote !';
+    }
+    grille.innerHTML = `
+      ${pilotes
+        .map(
+          (p, i) => `
+        <button class="pilot-card" data-pilot="${i}">
+          <span class="pilot-avatar big">${esc(p.name[0] || '?')}</span>
+          <span class="pilot-card-name">${esc(p.name)}</span>
+          <span class="pilot-card-stat">${p.meilleur ? `${p.meilleur} pts` : 'jamais joué'}</span>
+        </button>`
+        )
+        .join('')}
+      <button class="pilot-card new" id="pilot-new">
+        <span class="pilot-avatar big">+</span>
+        <span class="pilot-card-name">Nouveau pilote</span>
+      </button>`;
+
+    grille.querySelectorAll('.pilot-card[data-pilot]').forEach((card) =>
       card.addEventListener('click', () => {
-        const pilot = pilots[Number(card.dataset.pilot)];
-        if (!hasPin(pilot)) {
-          setActivePilot(pilot.name);
-          this.audio.buy();
-          done();
-          return;
-        }
+        const p = pilotes[Number(card.dataset.pilot)];
+        // Le code est TOUJOURS demandé : c'est lui qui prouve que ce pseudo est le
+        // vôtre. Sans lui, n'importe qui publierait sous le nom d'un autre.
         zone.innerHTML = `
           <form class="lb-form" id="pin-form">
             <input id="pin-input" type="password" inputmode="numeric" maxlength="4"
-                   placeholder="Code de ${esc(pilot.name)}" autocomplete="off" aria-label="Code secret" />
-            <button class="btn-launch" type="submit">OK</button>
+                   placeholder="Code de ${esc(p.name)}" autocomplete="off" aria-label="Code secret" />
+            <button class="btn-launch" type="submit">C'est moi</button>
+            <div class="pilot-error" id="pilot-error"></div>
           </form>`;
         const input = zone.querySelector('#pin-input');
         input.focus();
-        zone.querySelector('#pin-form').addEventListener('submit', (e) => {
+        zone.querySelector('#pin-form').addEventListener('submit', async (e) => {
           e.preventDefault();
-          if (verifyPin(pilot, input.value)) {
-            setActivePilot(pilot.name);
-            this.audio.buy();
-            done();
-          } else {
-            this.audio.deny();
-            input.value = '';
-            input.placeholder = 'Mauvais code…';
-          }
-        });
-      })
-    );
-
-    // Le hangar, après coup. L'apparence appartient au pilote et non à la partie :
-    // il faut donc pouvoir la reprendre plus tard, sinon un choix fait en trois
-    // secondes le jour de l'inscription est définitif.
-    //
-    // C'est aussi ici qu'un pilote créé avant l'arrivée du panthéon commun peut
-    // s'inscrire en ligne : il lui manque un code et une adresse, rien d'autre.
-    el.querySelectorAll('.pilot-edit').forEach((b) =>
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const pilot = pilots[Number(b.dataset.edit)];
-        const choix = { livree: pilot.livree || 'flotte', carene: pilot.carene || 'dague' };
-        const enLigne = reseau.estInscrit(pilot.name);
-        zone.innerHTML = `
-          <form class="lb-form pilot-create" id="edit-form">
-            <div class="pilot-note">Le vaisseau de <b>${esc(pilot.name)}</b></div>
-            ${this._pimpHtml(choix)}
-            ${
-              enLigne
-                ? '<div class="pilot-note">Ce pilote publie déjà ses scores en ligne.</div>'
-                : `<input id="edit-pin" type="password" inputmode="numeric" maxlength="4"
-                          placeholder="Code à 4 chiffres" autocomplete="off" aria-label="Code secret" />
-                   <input id="edit-mail" type="email" maxlength="120" placeholder="Adresse d'un parent"
-                          autocomplete="email" aria-label="Adresse électronique" />
-                   <div class="pilot-note">Renseigne-les pour publier tes scores au panthéon commun.</div>`
-            }
-            <button class="btn-launch" type="submit">Enregistrer</button>
-            <div class="pilot-error" id="pilot-error"></div>
-          </form>`;
-        this._branchePimp(zone, choix);
-        zone.querySelector('#edit-form').addEventListener('submit', async (ev) => {
-          ev.preventDefault();
           const erreur = zone.querySelector('#pilot-error');
-          const code = zone.querySelector('#edit-pin')?.value || '';
-          const mail = zone.querySelector('#edit-mail')?.value || '';
-          majPilote(pilot.name, { ...choix, pin: code });
-          setActivePilot(pilot.name);
-          this._refreshShip();
-          this.audio.buy();
-          if (!enLigne && /^\d{4}$/.test(code) && mail.trim()) {
-            erreur.textContent = 'Inscription…';
-            const r = await reseau.inscris(pilot.name, code, mail.trim());
-            if (!r.ok) {
-              erreur.textContent =
-                r.erreur === 'code'
-                  ? 'Ce nom est déjà pris en ligne par quelqu’un d’autre.'
-                  : 'Pas de réseau : tes scores monteront plus tard.';
-              if (r.erreur === 'code') return;
-            }
+          erreur.textContent = 'Connexion…';
+          const r = await connecte(p.name, input.value, null, {
+            livree: p.livree,
+            carene: p.carene,
+          });
+          if (r.ok) {
+            this.audio.buy();
+            this._appliquePilote(await reprends());
+            done();
+            return;
           }
-          done();
+          this.audio.deny();
+          input.value = '';
+          erreur.textContent =
+            r.error === 'code' ? 'Mauvais code…' : 'Pas de réseau : réessaie plus tard.';
         });
       })
     );
 
-    el.querySelector('#pilot-new').addEventListener('click', () => {
+    grille.querySelector('#pilot-new').addEventListener('click', () => {
       // On choisit son nom ET son vaisseau du même geste. Faire le tour du hangar
       // avant de décoller fait partie du plaisir, et un vaisseau qu'on a choisi
       // soi-même n'est plus le vaisseau du jeu : c'est le sien.
@@ -857,9 +924,8 @@ export class Game {
           <input id="new-mail" type="email" maxlength="120" placeholder="Adresse d'un parent"
                  autocomplete="email" aria-label="Adresse électronique" />
           <div class="pilot-note">
-            Le code et l'adresse servent à publier tes scores en ligne — et à
-            retrouver ton pilote si tu oublies le code. Sans eux, tu joues quand
-            même : tes parties restent sur cet appareil.
+            Le code empêche les copains de publier sous ton nom. L'adresse sert à le
+            retrouver si tu l'oublies — elle n'apparaît nulle part dans le jeu.
           </div>
           <button class="btn-launch" type="submit">C'est moi !</button>
           <div class="pilot-error" id="pilot-error"></div>
@@ -869,49 +935,63 @@ export class Game {
       this._branchePimp(zone, choix);
       zone.querySelector('#create-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const code = zone.querySelector('#new-pin').value;
-        const mail = zone.querySelector('#new-mail').value;
         const erreur = zone.querySelector('#pilot-error');
-        const result = createPilot(nameInput.value, code, choix);
-        if (!result.ok) {
-          this.audio.deny();
-          erreur.textContent =
-            result.error === 'exists'
-              ? 'Ce nom est déjà pris sur cet appareil.'
-              : result.error === 'full'
-                ? 'Trop de pilotes ! Supprime-en un (à venir).'
-                : 'Choisis un nom (lettres et chiffres).';
+        const code = zone.querySelector('#new-pin').value;
+        const mail = zone.querySelector('#new-mail').value.trim();
+        if (!sanitizeName(nameInput.value)) {
+          erreur.textContent = 'Choisis un nom (lettres et chiffres).';
           return;
         }
-        // Le pilote existe déjà sur l'appareil : on peut jouer. L'inscription en
-        // ligne se tente ensuite, et son échec ne coûte que le panthéon commun —
-        // jamais la partie.
-        this.audio.buy();
-        if (/^\d{4}$/.test(code) && mail.trim()) {
-          erreur.textContent = 'Inscription…';
-          const r = await reseau.inscris(result.name, code, mail.trim());
-          if (!r.ok) {
-            erreur.textContent =
-              r.erreur === 'code'
-                ? 'Ce nom est déjà pris en ligne, par quelqu’un qui a un autre code. Choisis-en un autre.'
-                : r.erreur === 'email-requis'
-                  ? 'Il manque une adresse valable pour publier en ligne.'
-                  : 'Pas de réseau : tu joues, et tes scores monteront plus tard.';
-            // Un pseudo déjà pris en ligne est le seul cas où l'on ne passe pas :
-            // il faudrait publier sous un nom qui n'est pas le sien.
-            if (r.erreur === 'code') return;
-          }
+        if (!/^\d{4}$/.test(code) || !mail) {
+          erreur.textContent = 'Il faut un code à 4 chiffres et une adresse.';
+          return;
         }
-        done();
+        erreur.textContent = 'Création…';
+        const r = await connecte(nameInput.value, code, mail, choix);
+        if (r.ok) {
+          this.audio.buy();
+          this._appliquePilote(await reprends());
+          done();
+          return;
+        }
+        this.audio.deny();
+        erreur.textContent =
+          r.error === 'code'
+            ? 'Ce nom est déjà pris. Choisis-en un autre, ou entre son code.'
+            : r.error === 'email-requis'
+              ? 'Il manque une adresse valable.'
+              : 'Pas de réseau : impossible de créer un pilote pour l’instant.';
       });
     });
   }
 
-  // « Rejouer » relance le mode qu'on vient de jouer : celui qui enchaîne les
-  // survies ne veut pas se retrouver en arcade parce qu'il a appuyé trop vite.
-  // Le sélecteur de vaisseau, partagé par la création et la modification. En
-  // double, il aurait fini par diverger — et un joueur qui voit six livrées à la
-  // création et cinq à la modification pense à juste titre que le jeu ment.
+  // Le hangar de son propre vaisseau. On ne modifie que le SIEN — celui d'un
+  // copain ne nous regarde pas, et le serveur le refuserait de toute façon.
+  _formVaisseau(zone, moi, done) {
+    const choix = { livree: moi.livree || 'flotte', carene: moi.carene || 'dague' };
+    zone.innerHTML = `
+      <form class="lb-form pilot-create" id="edit-form">
+        <div class="pilot-note">Le vaisseau de <b>${esc(moi.name)}</b></div>
+        ${this._pimpHtml(choix)}
+        <button class="btn-launch" type="submit">Enregistrer</button>
+        <div class="pilot-error" id="pilot-error"></div>
+      </form>`;
+    this._branchePimp(zone, choix);
+    zone.querySelector('#edit-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const erreur = zone.querySelector('#pilot-error');
+      erreur.textContent = 'Enregistrement…';
+      const ok = await majApparence(choix);
+      this._refreshShip();
+      if (!ok) {
+        erreur.textContent = 'Pas de réseau : ton vaisseau sera enregistré plus tard.';
+        return;
+      }
+      this.audio.buy();
+      done();
+    });
+  }
+
   _pimpHtml(choix) {
     return `
       <div class="pimp">
@@ -938,6 +1018,27 @@ export class Game {
       </div>`;
   }
 
+  // LA VITRINE. Le vaisseau était bien affiché pendant qu'on le choisissait — mais
+  // à sa place de combat : tout en bas de l'écran, à cent vingt pixels du bord, et
+  // de la taille d'un pouce. On choisissait donc une livrée sans la voir.
+  //
+  // Le temps du hangar, il vient au centre, grandit et tourne sur lui-même. Rien
+  // de tout cela n'est simulé : c'est un présentoir, pas une partie.
+  _vitrine(actif) {
+    this.vitrine = actif;
+    const g = this.player.group;
+    if (actif) {
+      g.visible = true;
+      g.position.set(0, 0, 1.5);
+      g.rotation.set(-0.35, 0, 0);
+      g.scale.setScalar(2.4);
+    } else {
+      g.scale.setScalar(1);
+      g.rotation.set(0, 0, 0);
+      g.position.set(0, 0, ARENA.playerZMax * 0.8);
+    }
+  }
+
   // Le vaisseau se reconstruit à chaque clic : on voit ce qu'on choisit, tout de
   // suite et en trois dimensions. C'est la moitié de l'intérêt de choisir.
   _branchePimp(zone, choix) {
@@ -951,13 +1052,13 @@ export class Game {
           zone.querySelectorAll(`${id} .pimp-opt`).forEach((o) => o.classList.remove('on'));
           b.classList.add('on');
           this.player.rebuild(choix);
-          this.player.group.visible = true;
+          this._vitrine(true); // rebuild remet une échelle neuve : on repose la pose
           this.audio.uiTick();
         })
       );
     }
     this.player.rebuild(choix);
-    this.player.group.visible = true;
+    this._vitrine(true);
   }
 
   _replay() {
@@ -973,19 +1074,13 @@ export class Game {
 
     // Arcade : records + inscription au panthéon local.
     const newRecord = this.score > 0 && this.score >= this.hiscore;
-    if (this.score > this.hiscore) {
-      this.hiscore = this.score;
-      localStorage.setItem(STORAGE_KEYS.hiscore, String(this.hiscore));
-    }
-    if (this.wave > this.bestWave) {
-      this.bestWave = this.wave;
-      localStorage.setItem(STORAGE_KEYS.bestWave, String(this.bestWave));
-    }
+    if (this.score > this.hiscore) this.hiscore = this.score;
+    if (this.wave > this.bestWave) this.bestWave = this.wave;
     // Inscription automatique au panthéon sous le pilote actif : zéro friction.
     // L'enregistrement de la partie, lui, se compresse — donc il s'écrit APRÈS
     // l'affichage. On ne fait pas attendre un écran de fin pour un gzip.
     const pilot = activePilot();
-    const scores = classement(10, this.mode);
+    const scores = classementConnu(this.mode);
     const pilotLine =
       this.score > 0 && pilot
         ? `<div class="go-pilot" id="go-pilot">${esc(pilot.name)} — inscription au panthéon…</div>`
@@ -1054,10 +1149,20 @@ export class Game {
     if (!el.isConnected) return;
     const ligne = el.querySelector('#go-pilot');
     if (ligne) {
-      ligne.innerHTML =
+      const local =
         rang > 0
           ? `${esc(pilot.name)} — inscrit au panthéon <b class="gold">n°${rang}</b>`
           : `${esc(pilot.name)} — pas encore dans le top 10, retente !`;
+      // UN PILOTE QUI N'EST PAS INSCRIT NE LE SAIT PAS. Sa partie part dans la file
+      // d'envoi, la file attend un jeton qui n'existe pas, et le panthéon commun
+      // reste vide sans que rien ne l'explique — c'est exactement ce qu'on nous a
+      // signalé. Tous les pilotes créés avant l'arrivée du serveur sont dans ce cas.
+      ligne.innerHTML = reseau.estInscrit(pilot.name)
+        ? local
+        : `${local}<button class="btn-ghost go-inscrire" id="go-inscrire">↑ Publier mes scores en ligne</button>`;
+      el.querySelector('#go-inscrire')?.addEventListener('click', () =>
+        this._inviteInscription(el, pilot)
+      );
     }
     const lb = el.querySelector('#go-lb');
     if (lb) {
@@ -1075,10 +1180,7 @@ export class Game {
     this.audio.setMode('shop');
     this.audio.waveStart();
     this.hud.root.classList.add('hidden');
-    if (this.score > this.hiscore) {
-      this.hiscore = this.score;
-      localStorage.setItem(STORAGE_KEYS.hiscore, String(this.hiscore));
-    }
+    if (this.score > this.hiscore) this.hiscore = this.score;
     const pilot = activePilot();
     const el = this._screen(`
       <div class="screen gameover">
@@ -1092,7 +1194,7 @@ export class Game {
         <div class="go-pilot" id="go-pilot">Inscription au tableau de survie…</div>
         <div class="title-lb">
           <div class="lb-title">— Survie —</div>
-          <div id="go-lb">${this._leaderboardHtml(classement(10, 'survie'))}</div>
+          <div id="go-lb">${this._leaderboardHtml(classementConnu('survie'), -1, 'survie')}</div>
         </div>
         <div class="title-menu">
           <button class="btn-secondary" id="btn-share">📣 Le dire aux copains</button>
@@ -1738,6 +1840,11 @@ export class Game {
   update(dt) {
     // Hors combat, rien ne gêne : la parole est libre.
     if (this.state !== 'playing') this.characters.setCalme(true);
+    // Le présentoir du hangar tourne doucement : une carène ne se juge pas de face.
+    if (this.vitrine && this.state === 'pilots') {
+      this.player.group.rotation.y += dt * 0.55;
+      return;
+    }
     if (this.paused) return;
     // Le pas de temps est arrondi dès l'entrée, en partie comme en relecture. Deux
     // simulations qui ne partagent pas exactement leurs pas de temps divergent en
