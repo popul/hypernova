@@ -103,6 +103,12 @@ body {
   text-align: center;
 }
 
+/* Le bloc des crédits s'efface en Survie : ce mode n'a pas de monnaie, et un
+   compteur figé à zéro annoncerait une mécanique qui n'existe pas. */
+.hud-credits.hidden {
+  display: none;
+}
+
 .hud-credits {
   text-align: right;
 }

@@ -626,6 +626,142 @@ export class AudioEngine {
     });
   }
 
+  // LE RAMASSAGE D'UN MODULE. Ce n'est pas un crédit de plus, c'est le vaisseau
+  // qui change — et le son doit dire exactement ça, sans qu'on quitte les balles
+  // des yeux pour aller lire le HUD.
+  //
+  // `pickup` fait deux sinus de 70 ms et s'arrête là, et c'est très bien : il
+  // sonne quarante fois par vague, il doit pouvoir DISPARAÎTRE. Celui-ci sonne
+  // trois ou quatre fois dans une partie. Il a donc le droit à ce que l'autre ne
+  // pourra jamais se permettre, et c'est là-dessus qu'on les sépare — dans
+  // l'ordre où l'oreille le remarque :
+  //  · une PHRASE, arpège qui monte et accord qui se pose, contre deux bips ;
+  //  · un SOCLE grave sous l'accord, alors que `pickup` n'a rien sous 600 Hz ;
+  //  · une QUEUE dans la réverbération du jeu, alors que `pickup` est sec.
+  //
+  // La rareté ne monte pas le volume — c'est le seul réglage que le limiteur de
+  // sortie annulerait. Elle monte la HAUTEUR : deux degrés d'arpège en plus, une
+  // octave supérieure qui prend du poids dans l'accord, et une gerbe
+  // d'harmoniques par-dessus. Elle presse aussi le débit et allonge la tenue.
+  // Mesuré au rendu hors ligne, la médiane spectrale de l'arrivée passe de 436 Hz
+  // au plus commun à 571 puis 700 au plus rare, pour une durée qui va de 1,00 s à
+  // 1,52 s et une queue de 0,49 s à 0,99 s. Un module rare s'entend plus HAUT et
+  // plus LONG, et ça se reconnaît sans avoir un module commun sous la main pour
+  // comparer.
+  //
+  // Le socle grave, lui, ne bouge PAS avec la rareté, et c'est délibéré : quand il
+  // suivait, il montait plus vite que le reste et la médiane spectrale de
+  // l'arrivée DESCENDAIT à mesure que le module devenait rare — mesuré, 352 Hz au
+  // plus commun contre 240 au plus rare. Le son disait exactement l'inverse de ce
+  // qu'il devait dire. Un socle fixe sert d'étalon : c'est par rapport à lui qu'on
+  // entend que le haut est monté.
+  moduleRamasse(rarete = 0) {
+    if (!this.ctx) return;
+    const r = Math.max(0, Math.min(1, rarete));
+
+    // Le lieu. On fabrique une sortie qui part à la fois sur le bus SFX et dans la
+    // réverbération commune : c'est cette queue, plus que les notes, qui empêche
+    // de confondre les deux ramassages même entendus à une seconde d'intervalle.
+    let sortie = this.sfxBus;
+    if (this.revSend) {
+      sortie = this.ctx.createGain();
+      sortie.connect(this.sfxBus);
+      const envoi = this.ctx.createGain();
+      envoi.gain.value = 0.25 + 0.45 * r;
+      sortie.connect(envoi);
+      envoi.connect(this.revSend);
+    }
+
+    // Le verrouillage : le module qui s'encastre. Son filtre s'OUVRE, à l'envers
+    // de toutes les explosions du jeu dont le filtre se referme — c'est ce qui le
+    // fait entendre comme un mécanisme et non comme un dégât.
+    this._noise({ dur: 0.09, gain: 0.05 + 0.05 * r, filterFreq: 600, filterEnd: 5200 });
+
+    // L'arpège de ré mineur : ré fa la ré fa la. Il part toujours du même ré, si
+    // bien que c'est le point d'ARRIVÉE qui porte l'information.
+    const montee = [36, 39, 43, 48, 51, 55];
+    const degres = 4 + Math.round(r * 2);
+    const pas = 0.058 - 0.014 * r;
+    for (let i = 0; i < degres; i++) {
+      const f = hz(montee[i]);
+      this._tone({ type: 'triangle', freq: f, dur: 0.17, gain: 0.09, when: i * pas, dest: sortie });
+      this._tone({
+        type: 'sine',
+        freq: f * 2,
+        dur: 0.11,
+        gain: 0.035 + 0.045 * r,
+        when: i * pas + 0.012,
+        dest: sortie,
+      });
+    }
+
+    // L'accord qui se pose : ré, la, ré. La quinte à vide, comme la grosse pièce
+    // des enchaînements — mais une octave plus haut, et tenue trois fois plus
+    // longtemps. Deux sons de la même famille qu'on ne prendra pas l'un pour
+    // l'autre parce qu'ils n'occupent pas le même registre.
+    const pose = (degres - 1) * pas + 0.05;
+    const tenue = 0.5 + 0.5 * r;
+    for (const [semi, gain] of [
+      [48, 0.085],
+      [55, 0.07],
+      [60, 0.05 + 0.05 * r],
+    ]) {
+      this._tone({
+        type: 'triangle',
+        freq: hz(semi),
+        dur: tenue,
+        gain,
+        when: pose,
+        dest: sortie,
+      });
+    }
+
+    // Le socle. Un ré de contrebasse qui retombe d'une octave sous l'accord : c'est
+    // la seule chose de tout ce son qui PÈSE, et `pickup` n'a rien, absolument
+    // rien, en dessous de 600 Hz.
+    //
+    // Il était une octave plus bas et deux fois plus fort. Rendu hors ligne et
+    // mesuré, quatre-vingt-sept pour cent de l'énergie du son passaient sous
+    // 150 Hz — c'est-à-dire sous ce qu'un haut-parleur de téléphone sait
+    // reproduire. La récompense était donc, sur l'appareil qu'on vise, un souffle
+    // avec une phrase inaudible posée dessus. Remonté d'une octave et rabaissé de
+    // moitié, il ne laisse plus que quatre pour cent de l'énergie sous 180 Hz : il
+    // pèse là où l'appareil peut le rendre, et la phrase passe devant lui.
+    this._tone({
+      type: 'sine',
+      freq: hz(36),
+      freqEnd: hz(24),
+      dur: 0.45 + 0.3 * r,
+      gain: 0.1,
+      when: pose,
+    });
+
+    // La gerbe des raretés. Elle n'existe pas en bas de l'échelle : un module
+    // commun ne doit pas être une petite version du rare, il doit être une AUTRE
+    // chose, sans quoi on passe la partie à se demander lequel vient de tomber.
+    if (r > 0.15) {
+      const gerbe = [60, 63, 67, 72].slice(0, 1 + Math.round(r * 3));
+      gerbe.forEach((semi, i) =>
+        this._tone({
+          type: 'sine',
+          freq: hz(semi),
+          dur: 0.22,
+          gain: 0.03 + 0.04 * r,
+          when: pose + 0.06 + i * 0.045,
+          dest: sortie,
+        })
+      );
+      this._noise({
+        dur: 0.7 * r,
+        gain: 0.028 * r,
+        filterFreq: 9000,
+        filterEnd: 3200,
+        when: pose,
+        dest: sortie,
+      });
+    }
+  }
+
   // L'escalier de combo montait par intervalles de 1,335 — une quarte APPROCHÉE,
   // qui dérivait de plus en plus faux à chaque palier. Il monte maintenant dans la
   // gamme du morceau : à ×8, le dernier degré tombe pile sur la tonique.

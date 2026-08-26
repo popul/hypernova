@@ -520,6 +520,339 @@ export function createGem() {
   return gem;
 }
 
+// ---- LES HUIT MODULES ----
+//
+// Ce qui tombe d'un ennemi détruit et se ramasse en vol : les améliorations
+// elles-mêmes, devenues des objets. Le joueur doit pouvoir DÉCIDER d'aller en
+// chercher un — donc savoir lequel c'est — sans le regarder, au milieu des
+// balles, sur un écran de téléphone. Quatre règles en découlent, et aucune n'est
+// une préférence esthétique : les quatre viennent d'avoir regardé les huit
+// alignés à leur vraie taille dans le jeu, et d'en avoir raté la moitié.
+//
+//  1. ON DESSINE POUR LA CAMÉRA QU'ON A. Elle regarde de vingt et un mètres de
+//     haut vers un point au ras du sol : trente-huit degrés au-dessus de
+//     l'horizon. Une hauteur se voit donc aux quatre cinquièmes, une profondeur
+//     aux trois cinquièmes, et une largeur en entier. Surtout, on voit le DESSUS
+//     des choses — la première version empilait ses formes en hauteur, où elles
+//     se cachent les unes les autres, et six modules sur huit rendaient une
+//     tache. Ce qui distingue, ici, c'est l'EMPREINTE AU SOL.
+//  2. UNE EMPREINTE PAR MODULE : un escalier, deux barres, un dard, une boule
+//     cerclée, une tuyère et sa flamme, un fer à cheval, un cadran, une croix.
+//     Huit contours qu'on nomme même en négatif — et c'est en négatif que le
+//     bloom les rend.
+//  3. UNE COULEUR PAR MODULE, et aucune n'appartient déjà au décor. L'or est pris
+//     par les gemmes, le rose et le magenta par les ennemis et leurs explosions,
+//     l'orange par les brutes : les huit teintes se partagent ce qui reste, du
+//     vermillon au violet, avec trente degrés au minimum entre deux voisines. Là
+//     où l'écart de teinte est le plus faible, l'écart de forme est le plus
+//     grand — c'est cette contrainte qui a décidé des appariements.
+//  4. RIEN QUI DÉPENDE DE L'AZIMUT. Le jeu fait tourner sur elles-mêmes les
+//     choses qu'il laisse tomber. Une forme plate posée debout disparaîtrait un
+//     quart de tour sur deux : tout ce qui est plat est donc posé À PLAT,
+//     normale vers le haut, et son contour ne bouge plus.
+//
+// Taille : les huit sont dessinés à l'unité puis agrandis d'un même coefficient
+// (voir MODULE_ECHELLE, plus bas). Mesuré à l'écran, à l'endroit exact où tombent
+// les gemmes, chacun occupe entre cinquante et cinquante-six pixels de diagonale
+// contre trente-cinq pour une gemme. Plus gros, parce que c'est une trouvaille et
+// pas de la monnaie — mais pas beaucoup plus, sinon ça ne tombe plus du même
+// monde.
+const MODULE_TEINTES = {
+  firerate: 0xb4ff1f, // chartreuse — franchement verte, pour ne pas virer à l'or
+  cannons: 0x00f0c8, // turquoise
+  missiles: 0xff4a33, // vermillon : une ogive
+  shield: 0x2fc8ff, // cyan — la teinte qu'a déjà la bulle du bouclier en jeu
+  engine: 0x4a63ff, // bleu roi : une flamme de tuyère
+  magnet: 0xb44dff, // violet
+  reflex: 0xeef4ff, // blanc glacé : le seul achromatique, donc jamais confondu
+  hull: 0x3aff5e, // vert : ce qu'on lit « vie » sans avoir à l'expliquer
+  inconnu: 0xffffff,
+};
+
+// LE HALO SE CALCULE, IL NE SE CHOISIT PAS.
+//
+// Le bloom du jeu ne déclenche pas sur une couleur, il déclenche sur une
+// LUMINANCE, au-dessus de 0,55. Or les huit teintes ci-dessus s'étalent de 0,18
+// (le bleu roi) à 0,90 (le blanc glacé) : à teintes brutes, mesuré à l'écran, le
+// chartreuse et le vert avaient un halo énorme, le turquoise et le blanc aussi,
+// et le bleu, le violet, le rouge et le cyan n'en avaient aucun. Quatre modules
+// annonçaient leur présence à travers l'écran, quatre attendaient qu'on les
+// remarque. Ce n'est pas une question de goût, c'est deux qualités d'objet.
+//
+// On ramène donc chaque teinte à la MÊME luminance, en la multipliant — et non
+// en la délavant vers le blanc, ce qui lui coûterait justement la saturation qui
+// la rend reconnaissable. Le résultat peut dépasser 1 : la cible de rendu du
+// composer est en virgule flottante, elle le supporte, et c'est exactement à ça
+// qu'elle sert. La teinte survit, seul le halo change.
+//
+// La valeur est réglée à l'œil, sur une capture des huit à leur vraie taille : à
+// 1,05 tout le monde brillait, mais le halo débordait sur la forme et il ne
+// restait qu'une bille lumineuse par module. Juste au-dessus du seuil, on garde
+// le halo qui fait repérer de loin, et le contour qui fait reconnaître de près.
+
+const MODULE_LUMINANCE = 0.74;
+
+function calibre(hex, part = 1) {
+  const c = new THREE.Color(hex);
+  const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  return glow(c.multiplyScalar((MODULE_LUMINANCE / Math.max(0.02, lum)) * part));
+}
+
+// Chaque forme reçoit deux matériaux, jamais plus : la teinte calibrée, et la
+// MÊME teinte au sixième de sa lumière — assez pour se détacher du vide, trop peu
+// pour déclencher le halo. Un détail gris se lirait comme une pièce empruntée à un
+// autre module ; à teinte égale, il se lit comme une ombre dans le même objet.
+const MODULE_FORMES = {
+  // Surcadenceur — trois départs de tir en escalier, de plus en plus petits. Ils
+  // montent EN DIAGONALE et non à la verticale : empilés, ils se masquaient les uns
+  // les autres sous cette caméra et ne faisaient qu'une tache. Décalés, on compte
+  // trois plaques, et trois plaques identiques qui se répètent, c'est une cadence —
+  // exactement ce que raconte la vignette de la boutique.
+  //
+  // Elles sont CARRÉES en plan, et l'escalier se décale aussi en profondeur. La
+  // première version était faite de barres allongées : un quart de tour et elles se
+  // présentaient par la tranche, l'escalier s'effondrait en un trait vertical, et un
+  // trait vertical, c'était déjà les canons. Un carré ne se met pas de profil.
+  firerate(vif, sourd) {
+    const g = new THREE.Group();
+    const plaque = new THREE.BoxGeometry(0.44, 0.16, 0.44);
+    const etages = [
+      [-0.3, -0.32, 0.12, 1, vif],
+      [0, 0, 0, 0.84, vif],
+      [0.3, 0.32, -0.12, 0.68, sourd],
+    ];
+    for (const [x, y, z, k, matiere] of etages) {
+      const m = new THREE.Mesh(plaque, matiere);
+      m.position.set(x, y, z);
+      m.scale.set(k, 1, k);
+      g.add(m);
+    }
+    return g;
+  },
+
+  // Canons jumelés — deux tubes debout sur leur joug. C'est la seule forme du lot
+  // faite de deux barres parallèles : réduite à deux traits, elle reste elle-même.
+  // Le joug est décalé vers l'avant pour rester visible d'en haut, sinon les tubes
+  // s'asseyaient dessus et on ne voyait plus qu'eux.
+  cannons(vif, sourd) {
+    const g = new THREE.Group();
+    const tube = new THREE.CylinderGeometry(0.13, 0.15, 0.8, 6);
+    for (const cote of [-1, 1]) {
+      const m = new THREE.Mesh(tube, vif);
+      // Les deux tubes sont légèrement DÉCALÉS en profondeur : alignés, ils se
+      // superposaient exactement un quart de tour sur deux et la paire devenait un
+      // tube unique. En biais, il en reste toujours deux.
+      m.position.set(cote * 0.29, 0.14, cote * -0.14);
+      g.add(m);
+    }
+    // Le joug est CLAIR, et il l'est pour une raison mesurée : au quart de tour où
+    // les deux tubes finissent malgré tout par se recouvrir, c'est lui seul qui
+    // reste, et « une barre avec une traverse en bas » n'est aucun des sept autres.
+    const joug = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.19, 0.24), vif);
+    joug.rotation.y = 0.45;
+    joug.position.set(0, -0.32, 0.1);
+    g.add(joug);
+    const embase = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.34), sourd);
+    embase.position.y = -0.32;
+    g.add(embase);
+    return g;
+  },
+
+  // Missiles Nova — un dard debout, pointe en haut, sur trois ailerons. Vu de
+  // dessus les ailerons dessinent un Y, et non une croix : la croix était déjà
+  // celle de la coque renforcée, et deux croix à trente mètres, c'est une croix.
+  missiles(vif, sourd) {
+    const g = new THREE.Group();
+    const corps = new THREE.Mesh(new THREE.ConeGeometry(0.25, 1.0, 6), vif);
+    corps.position.y = 0.16;
+    g.add(corps);
+    const aileron = new THREE.BoxGeometry(0.42, 0.3, 0.07);
+    for (let i = 0; i < 3; i++) {
+      const angle = (i * Math.PI * 2) / 3;
+      const a = new THREE.Mesh(aileron, vif);
+      a.rotation.y = -angle;
+      a.position.set(Math.cos(angle) * 0.22, -0.3, -Math.sin(angle) * 0.22);
+      g.add(a);
+    }
+    const collier = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.06, 4, 10), sourd);
+    collier.rotation.x = -Math.PI / 2;
+    collier.position.y = 0.16;
+    g.add(collier);
+    return g;
+  },
+
+  // Bouclier à ions — un noyau et son champ. L'anneau est posé à plat : c'est lui
+  // qui donne au module sa largeur, et il garde exactement la même ellipse quel
+  // que soit l'azimut. La ceinture sombre coupe la boule en deux, sans quoi le
+  // halo en fait une bille lisse et le noyau disparaît dans sa propre lumière.
+  shield(vif, sourd) {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 0), vif));
+    const anneau = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.075, 4, 16), vif);
+    anneau.rotation.x = -Math.PI / 2;
+    g.add(anneau);
+    const ceinture = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.06, 4, 10), sourd);
+    ceinture.rotation.x = -Math.PI / 2;
+    ceinture.position.y = 0.09;
+    g.add(ceinture);
+    return g;
+  },
+
+  // Propulseurs — une tuyère COUCHÉE et sa flamme à trois langues. Debout, elle ne
+  // montrait d'en haut que le disque de son col : un hexagone plein, c'est-à-dire
+  // rien. Couchée dans l'axe de chute, on voit la cloche s'évaser puis les langues
+  // s'effiler derrière, et l'INTERVALLE entre les deux est le détail qui décide de
+  // tout — sans lui, le halo recolle la cloche à la flamme et il ne reste qu'une
+  // goutte. C'est aussi le seul module qui pointe vers l'arrière : le dard des
+  // missiles, lui, vise.
+  engine(vif, sourd) {
+    const g = new THREE.Group();
+    const cloche = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.18, 0.5, 6), vif);
+    cloche.rotation.x = Math.PI / 2; // le large vers +z : la poussée sort par là
+    cloche.position.z = -0.06;
+    g.add(cloche);
+    const langue = new THREE.ConeGeometry(0.14, 0.52, 5);
+    for (const [x, z, k] of [
+      [0, 0.7, 1],
+      [-0.22, 0.58, 0.7],
+      [0.22, 0.58, 0.7],
+    ]) {
+      const f = new THREE.Mesh(langue, vif);
+      f.rotation.x = Math.PI / 2;
+      f.position.set(x, 0, z);
+      f.scale.set(k, k, 1);
+      g.add(f);
+    }
+    // La GUEULE, sombre, entre la cloche et les langues. C'est elle qui empêche le
+    // halo de recoller les deux en une seule goutte : sans ce disque noir, la
+    // tuyère rendait une bille à franges, et une bille à franges n'est pas un
+    // propulseur.
+    const gueule = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.07, 6), sourd);
+    gueule.rotation.x = Math.PI / 2;
+    gueule.position.z = 0.2;
+    g.add(gueule);
+    const col = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.07, 4, 10), sourd);
+    col.position.z = -0.3;
+    g.add(col);
+    return g;
+  },
+
+  // Aimant tracteur — un fer à cheval, posé À PLAT. Debout il aurait été plus
+  // joli, et il aurait disparu un quart de tour sur deux ; à plat, son ouverture
+  // tourne mais son contour ne change jamais. Les deux pôles sont sombres : sans
+  // eux on lit un anneau ébréché, avec eux on lit un aimant.
+  magnet(vif, sourd) {
+    const g = new THREE.Group();
+    const ouverture = Math.PI * 1.35;
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.14, 5, 16, ouverture), vif);
+    arc.rotation.x = -Math.PI / 2;
+    g.add(arc);
+    const pole = new THREE.BoxGeometry(0.24, 0.23, 0.23);
+    for (const a of [0, ouverture]) {
+      const p = new THREE.Mesh(pole, sourd);
+      p.position.set(Math.cos(a) * 0.42, 0, -Math.sin(a) * 0.42);
+      p.rotation.y = -a;
+      g.add(p);
+    }
+    return g;
+  },
+
+  // Réflexe Chrono — un cadran et son aiguille, à plat. Le premier essai était un
+  // sablier plein : sous cette caméra on n'en voyait que le couvercle, et le blanc
+  // — la teinte la plus lumineuse des huit — en faisait une boule de lumière sans
+  // contour. Un anneau CREUX résout les deux d'un coup : il n'offre presque rien à
+  // faire briller au bloom, et son trou noir au milieu est ce qui le distingue de
+  // la boule du bouclier. L'aiguille tourne avec le module : elle avance.
+  reflex(vif, sourd) {
+    const g = new THREE.Group();
+    const anneau = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.07, 4, 18), vif);
+    anneau.rotation.x = -Math.PI / 2;
+    g.add(anneau);
+    const aiguille = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.46), vif);
+    aiguille.position.z = -0.21;
+    g.add(aiguille);
+    const index = new THREE.BoxGeometry(0.13, 0.11, 0.13);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const m = new THREE.Mesh(index, sourd);
+      m.position.set(Math.cos(a) * 0.5, 0, Math.sin(a) * 0.5);
+      g.add(m);
+    }
+    return g;
+  },
+
+  // Coque renforcée — deux plaques épaisses en croix, posées à plat. Empilées en
+  // escalier, elles ressemblaient de trois quarts au surcadenceur, qui est déjà un
+  // escalier ; à plat, elles dessinent d'en haut une croix pleine que rien d'autre
+  // ne dessine. C'est aussi le seul module large et bas de la série, ce qui suffit
+  // à le trouver en vision périphérique.
+  hull(vif, sourd) {
+    const g = new THREE.Group();
+    const bras = new THREE.BoxGeometry(1.04, 0.24, 0.38);
+    for (const angle of [0, Math.PI / 2]) {
+      const m = new THREE.Mesh(bras, vif);
+      m.rotation.y = angle;
+      g.add(m);
+    }
+    const noyau = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.34), sourd);
+    noyau.position.y = 0.04;
+    g.add(noyau);
+    return g;
+  },
+
+  // Filet de sécurité. Un identifiant inconnu doit se VOIR — un cube blanc n'est
+  // aucun des huit — plutôt que de se déguiser en module valide : sinon la faute
+  // de frappe traverse tout le développement et arrive chez le joueur.
+  inconnu(vif) {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.62), vif));
+    return g;
+  },
+};
+
+const gabaritsModule = new Map();
+
+// Les huit formes sont dessinées à l'unité, puis toutes agrandies d'un même
+// coefficient. Mesurée à l'écran, à l'endroit exact où tombent les gemmes, une
+// gemme occupe dix-sept pixels sur trente ; les modules dessinés à l'unité en
+// occupaient trente-huit à quarante-six en diagonale, contre trente-quatre pour
+// elle. Douze pour cent d'écart, ça ne dit pas « trouvaille », ça dit « grosse
+// gemme ». Un cinquième de plus les met à cinquante, et là on voit tomber autre
+// chose.
+//
+// L'échelle vit à l'INTÉRIEUR d'un groupe enveloppe, et pas sur l'objet rendu.
+// Le jeu met à l'échelle ce qu'il ramasse — la piscine des gemmes fait
+// exactement ça à chaque tirage — et un `scale.set()` posé de l'extérieur
+// écraserait la taille de dessin au lieu de s'y ajouter.
+//
+// RÉGLÉ SUR UN TÉLÉPHONE, pas sur un écran de bureau. Mesuré en portrait à
+// 391 × 778 — la taille où le jeu se joue vraiment : à 1,2, les modules faisaient
+// de onze à dix-huit pixels de diagonale, c'est-à-dire à peine plus qu'un point.
+// La mesure de référence à cinquante pixels avait été prise sur une fenêtre de
+// 1728 de large, où tout est trois fois plus gros. À 2, ils tiennent entre dix-huit
+// et trente pixels sur un téléphone, et restent lisibles sans encombrer.
+const MODULE_ECHELLE = 2;
+
+// Un gabarit par identifiant, cloné ensuite. Un clone partage ses géométries ET
+// ses matériaux par référence : c'est exactement le contrat de createEnemyShip, et
+// c'est la seule façon d'en tenir des dizaines en piscine sans multiplier d'autant
+// le nombre d'états GPU. Rien n'est texturé, rien n'est éclairé — comme la gemme,
+// ces objets sont en MeshBasic : sous une lampe, un module qui tombe dans un coin
+// sombre de l'arène serait un module qu'on ne va pas chercher.
+export function createModule(id) {
+  const cle = MODULE_FORMES[id] ? id : 'inconnu';
+  if (!gabaritsModule.has(cle)) {
+    const teinte = MODULE_TEINTES[cle];
+    const forme = MODULE_FORMES[cle](calibre(teinte), calibre(teinte, 0.17));
+    forme.scale.setScalar(MODULE_ECHELLE);
+    const enveloppe = new THREE.Group();
+    enveloppe.name = `module:${cle}`;
+    enveloppe.add(forme);
+    gabaritsModule.set(cle, enveloppe);
+  }
+  return gabaritsModule.get(cle).clone(true);
+}
+
 // Anneau matérialisant la zone de frôlement : discret au repos, il s'embrase à
 // chaque balle frôlée pour enseigner la mécanique sans un mot.
 export function createGrazeAura() {

@@ -29,7 +29,8 @@ import {
 //       (noFireBehind, minShotSlope)
 //   3 — les boss combattent en trois phases (BOSS_PHASES)
 //   4 — l'amiral est deux fois plus gros, l'Appel porte deux fois plus loin
-export const VERSION = 4;
+//   5 — la Survie n'a plus ni boutique ni crédits : les modules tombent des ennemis
+export const VERSION = 5;
 
 // --- Écriture ---------------------------------------------------------------
 

@@ -165,7 +165,7 @@ export class Enemies {
           game.audio.bossAlarm();
           game.audio.setMode('boss'); // la musique martèle tant que l'amiral est en vie
           game.hud.showBossBar();
-          game.characters?.onBossIntro();
+          if (game.mode !== 'survie') game.characters?.onBossIntro();
         }
         this.list.push(enemy);
         this.pending.splice(i, 1);
@@ -697,7 +697,7 @@ export class Enemies {
       game.hud.setBossHp(e.hp / e.maxHp);
       if (!e.halfTaunted && e.hp > 0 && e.hp <= e.maxHp / 2) {
         e.halfTaunted = true;
-        game.characters?.onBossHalf();
+        if (game.mode !== 'survie') game.characters?.onBossHalf();
       }
     }
     if (e.hp > 0) {
@@ -714,7 +714,7 @@ export class Enemies {
       game.fx.explosionBig(e.group.position, EXPLOSION_COLORS.boss);
       game.audio.explosionBig();
       game.audio.setMode('play');
-      game.characters?.onBossDown();
+      if (game.mode !== 'survie') game.characters?.onBossDown();
     } else if (e.type === 'brute') {
       game.fx.explosionBig(e.group.position, EXPLOSION_COLORS.brute);
       game.audio.explosionBig();

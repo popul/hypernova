@@ -21,7 +21,7 @@ export class Hud {
           <div class="hud-label">Vague</div>
           <div class="hud-value" id="hud-wave">1</div>
         </div>
-        <div class="hud-block hud-credits">
+        <div class="hud-block hud-credits" id="hud-credits-bloc">
           <div class="hud-label">Crédits</div>
           <div class="hud-value gold" id="hud-credits">0</div>
         </div>
@@ -56,6 +56,7 @@ export class Hud {
         'hud-hiscore',
         'hud-wave',
         'hud-credits',
+        'hud-credits-bloc',
         'hud-combo',
         'combo-mult',
         'combo-fill',
@@ -92,6 +93,13 @@ export class Hud {
 
   setWave(v) {
     this._set('hud-wave', String(v));
+  }
+
+  // Le mode Survie n'a pas de monnaie : afficher « Crédits 0 » pendant cent vagues
+  // annoncerait une mécanique qui n'existe pas, et le joueur chercherait où
+  // dépenser.
+  setModeSurvie(actif) {
+    this.el['hud-credits-bloc']?.classList.toggle('hidden', !!actif);
   }
 
   setCredits(v) {

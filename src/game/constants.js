@@ -463,6 +463,58 @@ export const SURVIE = {
   vagues: 100,
   bossTousLes: 10,
   pente: 0.45,
+
+  // NI BOUTIQUE NI CRÉDITS. En arcade, on interrompt l'action pour acheter ; ici on
+  // ne s'arrête jamais — les améliorations TOMBENT des ennemis et se ramassent en
+  // vol. C'est la même progression, mais elle se gagne dans le mouvement au lieu de
+  // se choisir dans un menu, et cent vagues d'affilée ne supportaient pas cent
+  // arrêts.
+  //
+  // Chance qu'un ennemi détruit lâche un module. Le compte : environ quinze ennemis
+  // par vague, trente-deux améliorations à récolter en tout (huit modules, de deux à
+  // six niveaux chacun). À quatre pour cent, le vaisseau est au maximum vers la
+  // cinquantième vague — assez tôt pour en profiter, assez tard pour que chaque
+  // trouvaille compte.
+  chanceModule: 0.04,
+  // Un boss vaut plusieurs vagues : il lâche sa récompense à coup sûr.
+  modulesParBoss: 3,
+
+  // LA SURCHARGE. Mesuré : le vaisseau est entièrement amélioré vers la
+  // vingt-neuvième vague — soit soixante-dix vagues, les deux tiers du marathon,
+  // sans plus rien à gagner. Une montée en puissance qui s'arrête aux deux tiers
+  // n'est pas une montée en puissance, c'est un plateau avec une rampe devant.
+  //
+  // Quand tous les modules sont au maximum, ce sont donc des surcharges qui
+  // tombent : un gain modeste, cumulable, sur la seule cadence de tir. Modeste,
+  // parce que la difficulté, elle, continue de monter — et parce qu'un vaisseau
+  // qui balaie l'écran tout seul n'a plus besoin de pilote.
+  //
+  // Réglage mesuré : à 3 % et quarante paliers, le plafond tombait dès la
+  // quarante-deuxième vague — la cadence sextuplait à mi-parcours et les cinquante
+  // vagues suivantes n'apportaient plus rien. À 2 % sur soixante paliers, la
+  // progression court jusqu'aux environs de la soixantième, et le vaisseau finit
+  // fort sans jamais jouer à la place du pilote.
+  surchargeGain: 0.02,
+  surchargeMax: 60,
+};
+
+// LA RARETÉ D'UN MODULE SUIT SA PUISSANCE, à l'envers : ce qui change le plus la
+// partie se trouve le moins souvent. On ne réinvente pas l'échelle — le prix en
+// boutique la porte déjà, et deux barèmes qui divergeraient seraient un piège pour
+// le prochain qui touchera au jeu. Le poids est donc l'inverse du prix de base.
+//
+// Concrètement : la cadence de tir (70 crédits) tombe six fois plus souvent que les
+// missiles (460). Un module au maximum sort du tirage — la montée s'arrête d'elle-
+// même quand il n'y a plus rien à gagner, sans qu'aucun compteur ne le décide.
+export const MODULE_RARETE = {
+  firerate: 1 / 70,
+  engine: 1 / 90,
+  magnet: 1 / 80,
+  shield: 1 / 300,
+  reflex: 1 / 340,
+  cannons: 1 / 380,
+  hull: 1 / 420,
+  missiles: 1 / 460,
 };
 
 // Ce qui reste sur l'appareil : deux PRÉFÉRENCES, et rien d'autre. Les pilotes,

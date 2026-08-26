@@ -2,6 +2,9 @@
 
 import * as THREE from 'three';
 import { createGem } from './ships.js';
+// En namespace : la carène des modules vit dans ships.js, et son absence ne doit
+// pas empêcher le jeu de démarrer.
+import * as Ships from './ships.js';
 import { PICKUPS, ARENA } from './constants.js';
 import { entre, ecart } from '../core/rng.js';
 
@@ -177,6 +180,117 @@ export class Pickups {
     let n = 0;
     for (const e of this.entries) if (e.active) n++;
     return n;
+  }
+
+  clear() {
+    for (const e of this.entries) {
+      e.active = false;
+      e.mesh.visible = false;
+    }
+  }
+}
+
+// LES MODULES DU MODE SURVIE.
+//
+// Un pool à part, et non un drapeau sur les gemmes : une gemme et un module n'ont
+// ni la même durée de vie, ni la même valeur, ni la même façon de tomber. Les
+// mélanger aurait obligé chaque ligne du code de collecte à demander « lequel des
+// deux es-tu ? » — et c'est précisément le genre de question qu'on finit par
+// oublier de poser quelque part.
+export class Modules {
+  constructor(scene) {
+    this.scene = scene;
+    this.entries = [];
+    this._tmp = new THREE.Vector3();
+  }
+
+  // Les meshes sont créés à la demande et gardés : huit identifiants possibles, et
+  // rarement plus de deux ou trois en vol à la fois.
+  _libre(id) {
+    let e = this.entries.find((x) => !x.active && x.id === id);
+    if (e) return e;
+    const mesh = Ships.createModule ? Ships.createModule(id) : createGem();
+    mesh.visible = false;
+    this.scene.add(mesh);
+    e = { id, mesh, active: false, vel: new THREE.Vector3(), age: 0, called: false };
+    this.entries.push(e);
+    return e;
+  }
+
+  lache(pos, id) {
+    const e = this._libre(id);
+    e.active = true;
+    e.age = 0;
+    e.called = false;
+    e.mesh.visible = true;
+    e.mesh.position.copy(pos);
+    // Il monte un peu avant de redescendre : une trouvaille doit se REMARQUER, et
+    // rien n'attire l'œil comme un objet qui ne fait pas ce que font les autres.
+    //
+    // `ecart` et non Math.random : la trajectoire d'un module change ce que le
+    // joueur ramasse, donc l'issue de la partie. Tout ce qui décide passe par le
+    // générateur semé, sans quoi le replay dérive — mesuré : quatre points de
+    // contrôle en désaccord sur une partie de quarante-cinq secondes.
+    e.vel.set(ecart(1), 0, -3.5);
+    return true;
+  }
+
+  update(dt, playerPos, magnetRadius, onCollect, vacuum = false) {
+    for (const e of this.entries) {
+      if (!e.active) continue;
+      e.age += dt;
+      // Plus patient qu'une gemme : on renonce rarement à un module, il faut donc
+      // avoir le temps d'aller le chercher.
+      if (e.age > PICKUPS.lifetime * 1.6 || e.mesh.position.z > ARENA.playerZMax + 5) {
+        e.active = false;
+        e.mesh.visible = false;
+        continue;
+      }
+      const dist = this._tmp.copy(playerPos).sub(e.mesh.position).length();
+      if (e.called) {
+        this._tmp.normalize();
+        e.vel.lerp(this._tmp.multiplyScalar(PICKUPS.callPull), Math.min(1, 9 * dt));
+      } else if (vacuum || dist < magnetRadius * 1.35) {
+        // Rayon d'attraction plus large que pour l'argent : rater un module par
+        // deux dixièmes d'unité serait une frustration, pas une difficulté.
+        this._tmp.normalize();
+        e.vel.lerp(this._tmp.multiplyScalar(PICKUPS.magnetPull), Math.min(1, 8 * dt));
+      } else {
+        e.vel.x *= 1 - 1.6 * dt;
+        e.vel.z += (PICKUPS.fallAccel * 0.62 - e.vel.z * 2.2) * dt;
+      }
+      e.mesh.position.addScaledVector(e.vel, dt);
+      e.mesh.rotation.y += 2.2 * dt;
+      e.mesh.rotation.z = Math.sin(e.age * 3) * 0.25;
+      const reste = PICKUPS.lifetime * 1.6 - e.age;
+      e.mesh.visible = reste > 3 || Math.sin(e.age * 16) > -0.3;
+      if (dist < PICKUPS.collectRadius * 1.5) {
+        e.active = false;
+        e.mesh.visible = false;
+        onCollect(e.id, e.mesh.position);
+      }
+    }
+  }
+
+  call(origin, radius) {
+    let pris = 0;
+    for (const e of this.entries) {
+      if (!e.active || e.called) continue;
+      if (this._tmp.copy(origin).sub(e.mesh.position).length() > radius) continue;
+      e.called = true;
+      pris++;
+    }
+    return pris;
+  }
+
+  activeCount() {
+    let n = 0;
+    for (const e of this.entries) if (e.active) n++;
+    return n;
+  }
+
+  forEachActive(fn) {
+    for (const e of this.entries) if (e.active) fn(e);
   }
 
   clear() {

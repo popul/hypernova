@@ -1,7 +1,7 @@
 // Définitions data-driven des améliorations : prix, niveaux, effets.
 // `computeStats` transforme les niveaux possédés en stats concrètes du vaisseau.
 
-import { PLAYER, PICKUPS, REFLEX } from './constants.js';
+import { PLAYER, PICKUPS, REFLEX, SURVIE } from './constants.js';
 import { UPGRADE_ART } from './upgradeart.js';
 
 export const UPGRADES = [
@@ -95,10 +95,15 @@ export function emptyLevels() {
 // bouclier avance au risque pris, pas au temps qui passe.
 const SHIELD_RECHARGE = [0, 20, 14, 9];
 
-export function computeStats(levels) {
+export function computeStats(levels, surcharge = 0) {
   return {
     speed: PLAYER.baseSpeed * Math.pow(1.13, levels.engine),
-    fireRate: PLAYER.baseFireRate * Math.pow(1.18, levels.firerate),
+    // La surcharge du mode Survie s'ajoute par-dessus les niveaux : elle n'existe
+    // que là, et vaut zéro partout ailleurs.
+    fireRate:
+      PLAYER.baseFireRate *
+      Math.pow(1.18, levels.firerate) *
+      (1 + surcharge * SURVIE.surchargeGain),
     streams: 1 + levels.cannons,
     missileCount: levels.missiles === 0 ? 0 : levels.missiles >= 2 ? 2 : 1,
     missileInterval: levels.missiles >= 3 ? 1.0 : 1.7,

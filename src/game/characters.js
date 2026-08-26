@@ -242,6 +242,7 @@ export class Characters {
       this.exigeCalme = e.matches;
     });
     this.calme = true;
+    this.muet = false;
     this._enAttente = null;
     this.hideTimer = null;
     this.talkTimer = null;
@@ -291,6 +292,10 @@ export class Characters {
     // de vague, vague nettoyée, vaisseau détruit, ou n'importe quel écran. On ne
     // garde que la dernière en attente — trois répliques qui se déversent d'un
     // coup à la fin d'une vague seraient pires que le silence.
+    // Le mode Survie coupe la parole à tout le monde : il n'y a pas de récit à y
+    // raconter, et un dialogue qui s'ouvre entre deux vagues enchaînées serait une
+    // gêne pure.
+    if (this.muet) return;
     if (this.exigeCalme && !this.calme) {
       this._enAttente = { text, opts: { speaker, priority, emotion, duration } };
       return;

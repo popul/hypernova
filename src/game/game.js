@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { Player } from './player.js';
 import { Enemies } from './enemies.js';
 import { PlayerBullets, EnemyBullets, Missiles } from './bullets.js';
-import { Pickups } from './pickups.js';
+import { Pickups, Modules } from './pickups.js';
 import { Hud } from './hud.js';
 import { Shop } from './shop.js';
 import { Cinematic } from './cinematic.js';
@@ -55,7 +55,7 @@ import { CARENES, LIVREES } from './ships.js';
 import * as Ships from './ships.js';
 import { Characters } from './characters.js';
 import { Director, romanTier } from './director.js';
-import { SURVIE, DEFAULT_MODS, BOSS_PHASES } from './constants.js';
+import { SURVIE, DEFAULT_MODS, BOSS_PHASES, MODULE_RARETE } from './constants.js';
 import { alea, semer } from '../core/rng.js';
 import { commandeVide, lireEntrees, EV, quantifieDt, dtDepuis } from './rejeu/commandes.js';
 import { Enregistreur, ouvreReplay } from './rejeu/index.js';
@@ -97,6 +97,9 @@ export class Game {
     this.enemyBullets = new EnemyBullets(scene);
     this.missiles = new Missiles(scene, fx);
     this.pickups = new Pickups(scene);
+    // Les modules du mode Survie : les améliorations qui tombent des ennemis, et
+    // qui y remplacent entièrement la boutique.
+    this.modules = new Modules(scene);
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
     this.shop = new Shop(overlayRoot, {
@@ -131,6 +134,8 @@ export class Game {
 
     // La commande de la frame : ce que le joueur demande, exprimé dans le monde.
     // Le vaisseau ne lit plus que ça — en partie comme en relecture.
+    // Les modules du mode Survie : les améliorations qui tombent des ennemis.
+    this.modules = new Modules(scene);
     this.cmd = commandeVide();
     this._demandes = []; // pirouettes, bombes, appels : un par frame, dans l'ordre
     this.enregistreur = new Enregistreur();
@@ -447,6 +452,9 @@ export class Game {
     if (!w) return;
     w.radius += (w.max / PICKUPS.callSweep) * dt;
     w.pris += this.pickups.call(w.origin, w.radius);
+    // En survie l'onde ne rabat pas de l'argent — il n'y en a pas — mais les
+    // modules. Sans cela l'Appel n'aurait plus rien à attraper dans ce mode.
+    w.pris += this.modules.call(w.origin, w.radius);
     // L'onde se dessine à SA TAILLE. Elle était tracée à la moitié de sa portée :
     // le joueur voyait un petit cercle près du vaisseau, des gemmes rentraient de
     // bien plus loin sans raison visible, et rien ne disait jusqu'où l'Appel
@@ -466,6 +474,65 @@ export class Game {
     if (this.energy >= OVERDRIVE.odCost) this.characters.teachOnce('odReady', IS_TOUCH);
     else if (this.energy >= OVERDRIVE.bombCost) this.characters.teachOnce('bombReady', IS_TOUCH);
     else if (this.energy >= ROLL.cost) this.characters.teachOnce('rollFirst', IS_TOUCH);
+  }
+
+  // Quel module lâcher ? Pondéré par la rareté, et surtout : ceux qui sont déjà au
+  // maximum sortent du tirage. La montée en puissance s'arrête donc d'elle-même
+  // quand il n'y a plus rien à gagner — aucun compteur n'a besoin de le décider.
+  _tireModule() {
+    const dispo = UPGRADES.filter((u) => (this.levels[u.id] || 0) < u.maxLevel);
+    // Plus rien à améliorer : place aux surcharges, tant qu'il en reste à prendre.
+    if (!dispo.length) return this.surcharge < SURVIE.surchargeMax ? 'surcharge' : null;
+    let total = 0;
+    for (const u of dispo) total += MODULE_RARETE[u.id] || 0.002;
+    let r = alea() * total;
+    for (const u of dispo) {
+      r -= MODULE_RARETE[u.id] || 0.002;
+      if (r <= 0) return u.id;
+    }
+    return dispo[dispo.length - 1].id;
+  }
+
+  // Un module ramassé. C'est LE moment de la boucle en survie : il doit s'entendre,
+  // se voir sur la coque, et se lire sans quitter l'action des yeux.
+  _prendModule(id, pos) {
+    if (id === 'surcharge') {
+      this.surcharge = Math.min(SURVIE.surchargeMax, this.surcharge + 1);
+      this.stats = computeStats(this.levels, this.surcharge);
+      this.audio.moduleRamasse?.(1) ?? this.audio.buy();
+      this.fx.burst(pos, 0xff3df0, { count: 22, speed: 11, life: 0.55 });
+      this.fx.shockwave(pos, 0xff3df0, 6);
+      this.hud.announce(
+        `SURCHARGE ×${this.surcharge}`,
+        `Cadence +${Math.round(this.surcharge * SURVIE.surchargeGain * 100)} %`,
+        1100
+      );
+      return;
+    }
+    const u = UPGRADES.find((x) => x.id === id);
+    if (!u) return;
+    const niveau = (this.levels[id] || 0) + 1;
+    this.levels[id] = Math.min(u.maxLevel, niveau);
+    this.stats = computeStats(this.levels, this.surcharge);
+    if (id === 'hull') this.lives = Math.min(PLAYER.maxLives + 2, this.lives + 1);
+    this.hud.setLives(this.lives);
+    this._refreshShip();
+    // La rareté du module décide de l'intensité du retour : une cadence de plus
+    // n'est pas un lance-missiles, et le joueur doit l'entendre.
+    const rarete = 1 - Math.min(1, (MODULE_RARETE[id] || 0.002) / (1 / 70));
+    this.audio.moduleRamasse?.(rarete) ?? this.audio.buy();
+    this.fx.burst(pos, 0x4ff2ff, { count: 16 + Math.round(rarete * 14), speed: 9, life: 0.5 });
+    this.fx.shockwave(pos, 0x4ff2ff, 3.5 + rarete * 3);
+    this.hud.announce(u.name.toUpperCase(), `Niveau ${this.levels[id]}`, 1500);
+    this.hud.creditPop(
+      ...(() => {
+        this._tmp.copy(pos).project(this.camera);
+        const r = this.renderer.domElement.getBoundingClientRect();
+        return [(this._tmp.x * 0.5 + 0.5) * r.width, (-this._tmp.y * 0.5 + 0.5) * r.height];
+      })(),
+      `${u.icon || '+'} ${u.name}`,
+      true
+    );
   }
 
   // Bouton panique, pas bouton « annuler la mort » : coûteuse, en recharge, à portée
@@ -534,6 +601,13 @@ export class Game {
   // partie a été enregistrée, on peut la revoir — et c'est la seule façon de
   // répondre à « comment il a fait ce score ? » autrement qu'en le croyant.
   _leaderboardHtml(scores, highlightRank = -1, mode = 'arcade') {
+    // Le classement peut être INCONNU — pas vide : quand le serveur ne répond pas
+    // et qu'on n'a rien vu de la session, il n'y a aucun tableau à montrer. Le
+    // distinguer du tableau vide évite d'annoncer « personne n'a encore joué » à
+    // quelqu'un qui a simplement perdu le réseau.
+    if (!scores) {
+      return '<div class="lb-empty">Panthéon indisponible — pas de réseau.</div>';
+    }
     if (!scores.length) {
       return '<div class="lb-empty">Aucun pilote au panthéon — soyez le premier !</div>';
     }
@@ -1244,12 +1318,13 @@ export class Game {
 
     this.score = 0;
     this.wave = 0;
+    this.surcharge = 0;
     {
       this.levels = emptyLevels();
       this.credits = 0;
       this.lives = PLAYER.baseLives;
     }
-    this.stats = computeStats(this.levels);
+    this.stats = computeStats(this.levels, this.surcharge);
     this.fragments = 0;
     this._refreshShip(); // la coque repart de la livrée et de la carène du pilote
     this.combo = { chain: 0, mult: 1, timer: 0 };
@@ -1293,6 +1368,8 @@ export class Game {
     this.enemyBullets.clear();
     this.missiles.clear();
     this.pickups.clear();
+    this.modules.clear();
+    this.modules.clear();
     this.enemies.clear();
     this.player.shieldUp = false;
     this.player.reset();
@@ -1309,23 +1386,25 @@ export class Game {
       pilote: activePilot()?.name || 'pilote',
       systeme: 'Ce secteur',
     });
-    // On n'enregistre que l'arcade. Une partie de campagne dépend d'un fichier de
-    // mission chargé à distance : la rejouer supposerait de le retrouver identique
-    // des semaines plus tard, ce que rien ne garantit. Mieux vaut ne pas proposer un
-    // bouton qui échouerait une fois sur deux.
-    if (this.mode === 'arcade') {
-      this.enregistreur.demarre({
-        mode: 'arcade',
-        seed: this.seed,
-        pilote: activePilot()?.name || null,
-      });
-    } else {
-      this.enregistreur.actif = false;
-      this.enregistreur.vagues = [];
-      this.enregistreur.courante = null;
-    }
+    // LES DEUX MODES S'ENREGISTRENT. La restriction à l'arcade datait du temps où
+    // l'autre mode était la campagne, qui dépendait d'un fichier de mission chargé
+    // à distance — impossible à garantir identique des semaines plus tard. La
+    // Survie, elle, ne dépend que du jeu : elle se rejoue exactement comme
+    // l'arcade. Et c'est même là qu'on a le plus envie de revoir comment un copain
+    // est monté si haut.
+    this.enregistreur.demarre({
+      mode: this.mode,
+      seed: this.seed,
+      pilote: activePilot()?.name || null,
+    });
     this.startWave(1);
-    this.characters.onRunStart(this.mode === 'survie');
+    // LE MODE SURVIE N'A PAS D'HISTOIRE. Pas de KORN, pas de souvenirs, pas de
+    // dialogues : cent vagues d'affilée, et rien qui s'interpose. Le récit vit en
+    // arcade, où l'on prend le temps de sauter d'un secteur à l'autre.
+    this.hud.setModeSurvie(this.mode === 'survie');
+    this.characters.muet = this.mode === 'survie';
+    if (this.characters.muet) this.characters.hide();
+    else this.characters.onRunStart(false);
   }
 
   startWave(n) {
@@ -1608,7 +1687,7 @@ export class Game {
       this.lives++;
       this.hud.setLives(this.lives);
     }
-    this.stats = computeStats(this.levels);
+    this.stats = computeStats(this.levels, this.surcharge);
     // Ce qu'on achète se voit sur la coque, sinon ce n'est pas un achat : c'est
     // une case cochée.
     this._refreshShip();
@@ -1676,7 +1755,7 @@ export class Game {
     this.audio.bossAlarm();
     this.fx.shockwave(boss ? boss.group.position : this.player.position, 0xff4757, 9);
     this.fx.addShake(0.6);
-    this.characters.onBossHalf?.();
+    if (this.mode !== 'survie') this.characters.onBossHalf?.();
   }
 
   // ---- Commandes, instantanés, enregistrement ----
@@ -1704,6 +1783,7 @@ export class Game {
       seed: this.seed,
       mode: this.mode,
       niveaux: { ...this.levels },
+      surcharge: this.surcharge,
       score: this.score,
       // L'enchaînement en cours fait partie de l'état : il ne s'arrête pas à la
       // frontière d'une vague, il expire tout seul quelques secondes plus tard.
@@ -1737,7 +1817,8 @@ export class Game {
     this.mode = etat.mode || 'arcade';
     this.seed = etat.seed;
     this.levels = { ...etat.niveaux };
-    this.stats = computeStats(this.levels);
+    this.surcharge = etat.surcharge || 0;
+    this.stats = computeStats(this.levels, this.surcharge);
     this.score = etat.score || 0;
     this.combo = etat.combo
       ? { chain: etat.combo[0], mult: etat.combo[1], timer: etat.combo[2] }
@@ -1799,6 +1880,7 @@ export class Game {
     this.enemyBullets.clear();
     this.missiles.clear();
     this.pickups.clear();
+    this.modules.clear();
     this.showTitle();
   }
 
@@ -1930,6 +2012,13 @@ export class Game {
     this._updateGraze();
 
     const vacuum = this.enemies.waveCleared();
+    this.modules.update(
+      dt,
+      this.player.position,
+      this.stats.magnetRadius,
+      (id, pos) => this._prendModule(id, pos),
+      vacuum
+    );
     this.pickups.update(
       dt,
       this.player.position,
@@ -1972,14 +2061,30 @@ export class Game {
       if (!this.waveBonusGiven && !derniereVague) {
         this.waveBonusGiven = true;
         this.director.onWaveCleared(this.waveDeath);
-        const bonus = 25 + this.wave * 10;
-        this.credits += bonus;
-        this.hud.setCredits(this.credits);
-        this.hud.announce('Vague nettoyée', `+${bonus} cr de prime`, 1800);
+        if (this.mode === 'survie') {
+          // Pas de prime en crédits : il n'y a rien à acheter. La vague nettoyée
+          // rapporte des POINTS, seule monnaie du mode — c'est elle qui départage
+          // deux pilotes arrivés à la même vague.
+          const points = 100 + this.wave * 25;
+          this.score += points;
+          this.hud.setScore(this.score);
+          this.hud.announce(`Vague ${this.wave} tenue`, `+${points} points`, 1200);
+        } else {
+          const bonus = 25 + this.wave * 10;
+          this.credits += bonus;
+          this.hud.setCredits(this.credits);
+          this.hud.announce('Vague nettoyée', `+${bonus} cr de prime`, 1800);
+        }
       }
       this.waveEndTimer += dt;
-      if (this.waveEndTimer > 1.2 && this.pickups.activeCount() === 0) {
+      // On attend que le butin soit rentré — mais en survie on n'attend rien
+      // d'autre : ni saut, ni boutique, ni choix de route. Cent vagues coupées cent
+      // fois ne seraient pas un marathon, seulement cent petites parties.
+      const butin = this.pickups.activeCount() + this.modules.activeCount();
+      const attente = this.mode === 'survie' ? 0.55 : 1.2;
+      if (this.waveEndTimer > attente && butin === 0) {
         if (derniereVague) this.showVictoire();
+        else if (this.mode === 'survie') this.startWave(this.wave + 1);
         else this._startJump();
       }
     }
@@ -2254,6 +2359,20 @@ export class Game {
   }
 
   _dropCredits(e) {
+    // EN SURVIE, PAS D'ARGENT. Il n'y a rien à acheter : ce qui tombe, ce sont les
+    // améliorations elles-mêmes. Le boss en lâche plusieurs — il vaut dix vagues.
+    if (this.mode === 'survie') {
+      const combien =
+        e.type === 'boss' ? SURVIE.modulesParBoss : alea() < SURVIE.chanceModule ? 1 : 0;
+      for (let i = 0; i < combien; i++) {
+        const id = this._tireModule();
+        if (!id) break;
+        const p = e.group.position.clone();
+        p.x += (i - (combien - 1) / 2) * 2.4;
+        this.modules.lache(p, id);
+      }
+      return;
+    }
     const creditMul = this.enemies.mods?.credits ?? 1;
     this.pickups.dropFrom(
       e.group.position,
