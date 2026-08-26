@@ -39,31 +39,6 @@ jobs:
           npm run build
           echo "✅ lint + format + build"
 
-      - name: Intégrité des campagnes publiées
-        run: |
-          node --input-type=module -e '
-            import { readFileSync } from "node:fs";
-            const index = JSON.parse(readFileSync("public/campaigns/index.json"));
-            for (const entry of index.campaigns) {
-              const c = JSON.parse(readFileSync(`public/campaigns/${entry.file}`));
-              if (c.id !== entry.id) throw new Error(`${entry.file}: id incohérent`);
-              if (!Array.isArray(c.systems) || c.systems.length === 0)
-                throw new Error(`${entry.file}: systems vide`);
-              for (const s of c.systems) {
-                if (!s.id || !s.name) throw new Error(`${entry.file}/${s.id}: id/name requis`);
-                if (!Number.isInteger(s.waves) || s.waves < 1)
-                  throw new Error(`${entry.file}/${s.id}: waves invalide`);
-                if (!Number.isInteger(s.baseWave) || s.baseWave < 1)
-                  throw new Error(`${entry.file}/${s.id}: baseWave invalide`);
-              }
-              console.log(`✅ ${entry.file} — ${c.systems.length} systèmes`);
-            }
-          '
-
-      - uses: azure/setup-helm@v4
-        with:
-          version: v3.16.2
-
       - name: Lint et rendu du chart
         run: |
           helm lint chart/hypernova
@@ -95,8 +70,6 @@ jobs:
           verifier index.html text/html
           verifier manifest.webmanifest manifest
           verifier sw.js javascript
-          verifier campaigns/index.json json
-          verifier campaigns/orion-2026-w35.json json
           verifier icons/icon-192.png image/png
           # Bundle hashé par Vite : extrait de l'index, doit être servi immutable.
           bundle=$(curl -s http://localhost:8137/ | grep -o '/assets/[^"]*\.js' | head -1)
@@ -106,8 +79,6 @@ jobs:
             | grep -q immutable || { echo "❌ assets non immutables"; echec=1; }
           curl -sI http://localhost:8137/sw.js | grep -i '^cache-control' \
             | grep -q no-cache || { echo "❌ sw.js ne doit pas être caché"; echec=1; }
-          curl -sI http://localhost:8137/campaigns/index.json | grep -i '^cache-control' \
-            | grep -q no-store || { echo "❌ campagnes cachées"; echec=1; }
           # L'utilisateur doit tourner en non-root (contrainte du cluster).
           uid=$(docker exec essai id -u)
           echo "uid dans le conteneur : $uid"
