@@ -32,6 +32,32 @@ export class Input {
     window.addEventListener('keyup', (e) => this.held.delete(e.code));
     window.addEventListener('blur', () => this.held.clear());
 
+    // Safari iOS n'applique pas `user-scalable=no` et laisse passer le pincement
+    // même sous `touch-action: none` : ses événements de geste sont propriétaires
+    // et doivent être refusés un par un. Sur les autres navigateurs, ces trois
+    // écouteurs ne sont jamais appelés — ils ne coûtent rien.
+    for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+      document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+    }
+    // Ceinture et bretelles pour le double-appui : `touch-action: none` suffit sur
+    // les navigateurs récents, mais deux appuis rapprochés restent le geste de zoom
+    // par défaut — et c'est justement notre pirouette.
+    //
+    // JAMAIS sur un bouton : refuser l'événement empêche le clic synthétique, et
+    // deux appuis rapides sur « Autres pièces » ne doivent pas compter pour un seul.
+    // Sur l'aire de jeu, il n'y a pas de clic à préserver.
+    let dernierAppui = 0;
+    document.addEventListener(
+      'touchend',
+      (e) => {
+        const t = performance.now();
+        const surUI = e.target instanceof Element && e.target.closest('button, input, a, label');
+        if (!surUI && t - dernierAppui < 300) e.preventDefault();
+        dernierAppui = t;
+      },
+      { passive: false }
+    );
+
     window.addEventListener('mousedown', (e) => {
       if (e.button === 0) this.mouseDown = true;
     });

@@ -30,6 +30,16 @@ body {
   font-family: var(--body);
   color: var(--text);
   user-select: none;
+  -webkit-user-select: none;
+  /* Un jeu ne zoome pas. iOS ignore `user-scalable=no` depuis iOS 10 : la seule
+     chose qu'il respecte est touch-action, et il faut la poser sur TOUT ce qu'un
+     doigt peut atteindre — pas seulement sur le canevas.
+     C'est d'autant plus vrai ici que la pirouette EST un double-appui : le geste
+     qu'on vient d'ajouter déclenchait le zoom du navigateur. */
+  touch-action: none;
+  /* Pas de loupe ni de menu contextuel sur appui long. */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
@@ -1363,8 +1373,39 @@ button.lb-ligne:hover {
 
 /* ---------- Tactile & responsive ---------- */
 
-#scene {
+#scene,
+#app,
+#hud,
+#overlay,
+.comm,
+.hud-touch button,
+.btn-energy-touch,
+.btn-call-touch,
+.rejeu-boutons button {
   touch-action: none;
+}
+
+/* Les autres boutons vivent DANS des listes qui défilent — une carte de boutique,
+   un pilote, une trajectoire. « none » y interdirait de faire défiler l'écran dès
+   que le doigt se pose sur une carte, c'est-à-dire presque toujours.
+   « manipulation » garde le défilement et supprime le seul geste qui gêne : le
+   double-appui qui zoome. */
+button,
+input {
+  touch-action: manipulation;
+}
+
+/* Les zones qui DÉFILENT gardent le droit de défiler — verticalement seulement :
+   un défilement horizontal n'existe nulle part dans le jeu, et le laisser ouvert
+   rouvre la porte au balayage de navigation. */
+.shop-scroll,
+.screen.gameover,
+.screen.mission-won,
+.route-pick,
+.galaxy,
+.pilot-grid,
+.shop {
+  touch-action: pan-y;
 }
 
 .hud-touch {
