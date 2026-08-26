@@ -1406,7 +1406,15 @@ export class AudioEngine {
   // Le sidechain d'origine était un pompage de musique électronique. Il n'a plus
   // lieu d'être : un orchestre ne se creuse pas sous ses propres timbales. On garde
   // un très léger retrait, uniquement pour que le coup de timbale respire.
-  _duck(when, depth = 0.16, release = 0.5) {
+  // Le creusement sous la frappe. Il existe pour qu'un coup de timbale s'entende
+  // comme un COUP et non comme une couche de plus — mais il était réglé pour des
+  // frappes isolées, et au sommet les timbales tombent six fois par mesure, soit
+  // toutes les 0,48 s à 84 BPM. Avec un demi-seconde de relâchement, la musique
+  // n'avait jamais le temps de remonter : elle restait écrasée d'un sixième d'un
+  // bout à l'autre du sommet, ce qui s'entend exactement comme « les percussions
+  // sont trop présentes ». Le relâchement passe donc SOUS l'intervalle entre deux
+  // frappes, et le creusement s'allège d'autant.
+  _duck(when, depth = 0.09, release = 0.26) {
     const g = this.musicDuck.gain;
     g.cancelScheduledValues(when);
     g.setValueAtTime(1 - depth, when);
@@ -1421,12 +1429,16 @@ export class AudioEngine {
   _timpani(when, semi, gain = 1) {
     const t = when - this.ctx.currentTime;
     const f = hz(semi);
+    // Mesurée seule contre le reste de l'orchestre, la timbale sortait à −11 dBFS
+    // de crête quand tout le reste réuni tenait à −8,3 : deux virgule sept
+    // décibels sous un orchestre entier, pour un instrument qui frappe six fois
+    // par mesure. Elle ne soutenait plus le morceau, elle le menait.
     this._tone({
       type: 'sine',
       freq: f * 1.18,
       freqEnd: f,
       dur: 1.5,
-      gain: 0.55 * gain,
+      gain: 0.36 * gain,
       when: t,
       dest: this.kickBus,
     });
@@ -1435,20 +1447,23 @@ export class AudioEngine {
       freq: f * 2.02,
       freqEnd: f * 1.98,
       dur: 0.7,
-      gain: 0.16 * gain,
+      gain: 0.1 * gain,
       when: t,
       dest: this.kickBus,
     });
     // Le mailletage : le bruit feutré du feutre sur la peau, très court.
     this._noise({
       dur: 0.05,
-      gain: 0.1 * gain,
+      gain: 0.055 * gain,
       filterFreq: 2600,
       filterEnd: 500,
       when: t,
       dest: this.kickBus,
     });
-    this._duck(when);
+    // Seules les frappes appuyées creusent. Les autres sont du remplissage
+    // rythmique : les laisser toutes déclencher revenait à maintenir un creux
+    // permanent au lieu de ponctuer.
+    if (gain >= 0.9) this._duck(when);
   }
 
   // Le tic. Très court, très sec, et SANS réverbération : c'est ce qui le place
