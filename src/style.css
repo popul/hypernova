@@ -374,10 +374,43 @@ body.touch .btn-energy-touch {
   text-shadow: 0 0 10px rgba(255, 71, 87, 0.6);
 }
 
+.boss-acte {
+  color: var(--gold);
+}
+
 .boss-track {
+  position: relative;
   height: 7px;
   background: rgba(255, 71, 87, 0.15);
   border: 1px solid rgba(255, 71, 87, 0.4);
+  transition:
+    height 0.35s ease,
+    border-color 0.35s ease;
+}
+
+/* LES TROIS TRONÇONS. Les repères sont posés PAR-DESSUS le remplissage, jamais
+   dessous : une barre qui ne révélerait son découpage qu'une fois vidée n'aurait
+   rien annoncé — or c'est avant d'y arriver qu'on veut savoir ce qu'il reste à
+   faire tomber. Ils débordent des bordures pour entailler la barre de part en
+   part, sinon on les lit comme une décoration et non comme une césure. */
+
+.boss-track::before,
+.boss-track::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: rgba(5, 4, 15, 0.92);
+  z-index: 2;
+}
+
+.boss-track::before {
+  left: calc(33.333% - 1px);
+}
+
+.boss-track::after {
+  left: calc(66.666% - 1px);
 }
 
 .boss-fill {
@@ -386,6 +419,73 @@ body.touch .btn-energy-touch {
   transform-origin: left;
   box-shadow: 0 0 12px rgba(255, 71, 87, 0.7);
   transition: transform 0.15s ease-out;
+}
+
+/* Les trois actes. La teinte suit celle de la carène — braise, or en fusion, puis
+   blanc — pour qu'un coup d'œil à la barre et un coup d'œil au boss racontent la
+   même chose. La barre ÉPAISSIT aussi : c'est ce qui se voit du coin de l'œil,
+   quand on n'a pas une seconde à donner à un dégradé. Le battement est réservé au
+   dernier acte ; s'il commençait plus tôt, il ne dirait plus rien quand ça compte. */
+
+.boss-bar.phase-2 .boss-label {
+  color: #ff8a3c;
+  text-shadow: 0 0 12px rgba(255, 138, 60, 0.7);
+}
+
+.boss-bar.phase-2 .boss-track {
+  height: 9px;
+  border-color: rgba(255, 138, 60, 0.55);
+  animation: boss-bascule 0.5s ease-out;
+}
+
+.boss-bar.phase-2 .boss-fill {
+  background: linear-gradient(90deg, #ff5a1e, var(--gold));
+  box-shadow: 0 0 15px rgba(255, 138, 60, 0.8);
+}
+
+.boss-bar.phase-3 .boss-label {
+  color: #fff;
+  text-shadow: 0 0 14px rgba(255, 43, 14, 0.9);
+}
+
+.boss-bar.phase-3 .boss-acte {
+  color: #fff;
+}
+
+.boss-bar.phase-3 .boss-track {
+  height: 11px;
+  border-color: rgba(255, 255, 255, 0.7);
+  animation: boss-bascule 0.5s ease-out;
+}
+
+.boss-bar.phase-3 .boss-fill {
+  background: linear-gradient(90deg, #fff6e0, #ff2b0e);
+  box-shadow: 0 0 20px rgba(255, 90, 30, 0.95);
+  animation: boss-critique 0.55s ease-in-out infinite alternate;
+}
+
+/* La bascule d'acte : la barre encaisse le coup en même temps que le boss. */
+
+@keyframes boss-bascule {
+  0% {
+    transform: scaleY(2.4);
+    filter: brightness(2.6);
+  }
+
+  100% {
+    transform: scaleY(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes boss-critique {
+  from {
+    filter: brightness(1);
+  }
+
+  to {
+    filter: brightness(1.7);
+  }
 }
 
 /* Annonces centrales */
@@ -1536,6 +1636,15 @@ body.touch .key-hint {
 
   .boss-bar {
     top: calc(max(10px, env(safe-area-inset-top)) + 56px);
+    /* En portrait, 60vw ne laissaient que 234 px : le titre du boss passait sur
+       deux lignes et l'acte tombait tout seul à la ligne suivante. La barre prend
+       la largeur disponible, et l'interlettrage cède avant le texte. */
+    width: min(420px, 88vw);
+  }
+
+  .boss-label {
+    font-size: 10px;
+    letter-spacing: 0.16em;
   }
 
   .title-logo {

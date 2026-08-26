@@ -15,6 +15,56 @@ const LAYERS = [
 ];
 const FADE = 1.1; // secondes de transition d'un secteur à l'autre
 
+// LE SECTEUR SE DURCIT. Le combat de boss se joue en trois actes, et le décor est
+// ce qui l'annonce avant la barre de vie : la lumière tombe, la brume monte, les
+// étoiles s'éteignent, et une braise s'allume loin derrière l'arène.
+//
+// Ce sont des FACTEURS, jamais des couleurs absolues. Le durcissement doit tenir
+// au-dessus des onze paliers du voyage, du bleu de l'orbite terrestre au violet de
+// l'héliopause, sans jamais effacer le lieu où l'on se bat.
+//
+// L'exposition qui baisse a un effet gratuit et précieux : les projectiles ennemis
+// sont en MeshBasicMaterial toneMapped:false, donc rigoureusement insensibles à
+// elle. Assombrir le secteur ne les touche pas — ça les DÉTACHE.
+const DURCISSEMENT = [
+  { fog: 1, expo: 1, hemi: 1, key: 1, teinte: 0, etoiles: 1, gueule: 0, nebuleuse: 1 },
+  {
+    fog: 1.18,
+    expo: 0.95,
+    hemi: 0.86,
+    key: 0.92,
+    teinte: 0.3,
+    etoiles: 0.88,
+    gueule: 26,
+    nebuleuse: 1.12,
+  },
+  {
+    fog: 1.5,
+    expo: 0.87,
+    hemi: 0.62,
+    key: 0.78,
+    teinte: 0.62,
+    etoiles: 0.7,
+    gueule: 70,
+    nebuleuse: 1.35,
+  },
+  {
+    fog: 2,
+    expo: 0.77,
+    hemi: 0.4,
+    key: 0.6,
+    teinte: 1,
+    etoiles: 0.48,
+    gueule: 150,
+    nebuleuse: 1.6,
+  },
+];
+const PHASE_FADE = 0.55; // secondes : assez pour qu'on sente basculer, trop court pour attendre
+const TEINTE_FOND = new THREE.Color(0x1a0416); // le fond et la brume virent au sang séché
+const TEINTE_RIM = new THREE.Color(0xb84cff); // le contre-jour vire au violet, comme le biome de boss
+const TEINTE_GUEULE = new THREE.Color(0xff3a1e);
+const GUEULE_BOSS = new THREE.Vector3(0, -3, -46); // derrière la formation, hors du champ
+
 function blankPalette() {
   return {
     bg: new THREE.Color(),
@@ -156,6 +206,46 @@ export class Space {
     // déborde de partout. On le remet à sa taille apparente prévue.
     this.framing = 1;
     this._c = new THREE.Color();
+
+    // Phase de boss. On garde la phase courante en FLOTTANT, pas en entier : c'est
+    // elle qu'on interpole, et une ambiance qui bascule en une image se lit comme
+    // un changement de scène, pas comme une montée en tension.
+    this.phase = 0;
+    this.phaseFrom = 0;
+    this.phaseTo = 0;
+    this.phaseT = 1;
+    this._dur = { ...DURCISSEMENT[0] };
+    // Le fondu de secteur et celui de phase sont indépendants : on peut être en
+    // plein durcissement sans changer de lieu. On retient donc où en est le fondu
+    // de secteur pour pouvoir repeindre à tout moment sans le faire reculer.
+    this._fadeK = 1;
+    // Ces trois-là appartiennent à main.js, pas au ciel. On note leur valeur de
+    // repos pour pouvoir la rendre intacte à la fin du combat.
+    this._rimBase = lights?.rimLight?.intensity ?? 0.7;
+    this._keyBase = lights?.keyLight?.intensity ?? 1.6;
+    this._gueuleHome = lights?.mawLight?.position.clone() ?? null;
+  }
+
+  // 1, 2, 3 — l'acte en cours du combat de boss. 0 remet le secteur exactement tel
+  // que le biome l'a laissé : le combat est fini, on respire.
+  setBossPhase(phase) {
+    const p = Math.min(3, Math.max(0, Math.round(phase) || 0));
+    if (this.phaseTo === p) return;
+    this.phaseFrom = this.phase;
+    this.phaseTo = p;
+    this.phaseT = 0;
+  }
+
+  // Les facteurs de l'instant, interpolés entre les deux actes encadrants. Écrit
+  // dans un objet de travail : une bascule dure une trentaine d'images, ce n'est
+  // pas une raison pour y allouer trente objets.
+  _durcir() {
+    const i = Math.floor(this.phase);
+    const a = DURCISSEMENT[i];
+    const b = DURCISSEMENT[Math.min(DURCISSEMENT.length - 1, i + 1)];
+    const f = this.phase - i;
+    for (const cle in a) this._dur[cle] = a[cle] + (b[cle] - a[cle]) * f;
+    return this._dur;
   }
 
   // Reçoit la demi-tangente du champ horizontal courant. La taille apparente d'un
@@ -218,22 +308,38 @@ export class Space {
   // scène, les lampes et l'exposition — les quatre doivent bouger ENSEMBLE, sinon
   // le lieu ne change pas, seule sa couleur change.
   _applyPalette(k) {
+    this._fadeK = k;
     const c = this._c;
+    const d = this._durcir();
     this.scene.background.copy(c.copy(this.from.bg).lerp(this.to.bg, k));
     this.scene.fog.color.copy(c.copy(this.from.fog).lerp(this.to.fog, k));
-    this.scene.fog.density = THREE.MathUtils.lerp(this.from.density, this.to.density, k);
+    if (d.teinte > 0) {
+      this.scene.background.lerp(TEINTE_FOND, d.teinte * 0.5);
+      this.scene.fog.color.lerp(TEINTE_FOND, d.teinte * 0.7);
+    }
+    this.scene.fog.density = THREE.MathUtils.lerp(this.from.density, this.to.density, k) * d.fog;
     if (this.lights) {
-      this.lights.hemi.color.copy(c.copy(this.from.hemiSky).lerp(this.to.hemiSky, k));
-      this.lights.hemi.groundColor.copy(c.copy(this.from.hemiGround).lerp(this.to.hemiGround, k));
-      this.lights.hemi.intensity = THREE.MathUtils.lerp(this.from.intensity, this.to.intensity, k);
-      this.lights.rimLight.color.copy(c.copy(this.from.rim).lerp(this.to.rim, k));
+      const L = this.lights;
+      L.hemi.color.copy(c.copy(this.from.hemiSky).lerp(this.to.hemiSky, k));
+      L.hemi.groundColor.copy(c.copy(this.from.hemiGround).lerp(this.to.hemiGround, k));
+      L.hemi.intensity = THREE.MathUtils.lerp(this.from.intensity, this.to.intensity, k) * d.hemi;
+      L.rimLight.color.copy(c.copy(this.from.rim).lerp(this.to.rim, k)).lerp(TEINTE_RIM, d.teinte);
+      // Le contre-jour MONTE pendant que la lampe principale tombe : le boss et la
+      // formation se détachent en silhouette au lieu de disparaître dans le noir.
+      L.rimLight.intensity = this._rimBase * (1 + d.teinte * 0.8);
+      if (L.keyLight) L.keyLight.intensity = this._keyBase * d.key;
+      // La braise derrière l'arène. Elle ne s'allume que pour lui, et elle rentre
+      // chez elle éteinte : la cinématique se sert de la même lampe.
+      if (L.mawLight) {
+        L.mawLight.color.copy(TEINTE_GUEULE);
+        L.mawLight.intensity = d.gueule;
+        if (d.gueule > 0) L.mawLight.position.copy(GUEULE_BOSS);
+        else if (this._gueuleHome) L.mawLight.position.copy(this._gueuleHome);
+      }
     }
     if (this.renderer) {
-      this.renderer.toneMappingExposure = THREE.MathUtils.lerp(
-        this.from.exposure,
-        this.to.exposure,
-        k
-      );
+      this.renderer.toneMappingExposure =
+        THREE.MathUtils.lerp(this.from.exposure, this.to.exposure, k) * d.expo;
     }
     for (const l of this.layers) {
       l.points.material.color.copy(c.copy(this.from.star).lerp(this.to.star, k));
@@ -307,16 +413,30 @@ export class Space {
 
   update(dt, speedScale = 1) {
     // Fondu de secteur.
+    let repeindre = false;
     if (this.fadeT < 1) {
       this.fadeT = Math.min(1, this.fadeT + dt / FADE);
       const t = this.fadeT;
-      this._applyPalette(t * t * (3 - 2 * t)); // lissage aux deux bouts
+      this._fadeK = t * t * (3 - 2 * t); // lissage aux deux bouts
+      repeindre = true;
     }
+    // Bascule d'acte. Elle repeint la même palette avec d'autres facteurs, d'où le
+    // fondu de secteur figé à sa valeur courante : les deux ne se marchent pas dessus.
+    if (this.phaseT < 1) {
+      this.phaseT = Math.min(1, this.phaseT + dt / PHASE_FADE);
+      const t = this.phaseT;
+      this.phase = THREE.MathUtils.lerp(this.phaseFrom, this.phaseTo, t * t * (3 - 2 * t));
+      repeindre = true;
+    }
+    if (repeindre) this._applyPalette(this._fadeK);
 
-    // Les nébuleuses montent en opacité à l'arrivée dans le secteur.
+    // Les nébuleuses montent en opacité à l'arrivée dans le secteur — et elles
+    // enflent encore d'un acte à l'autre : le ciel se charge à mesure qu'il tombe.
     for (const n of this.nebulas) {
       const o = n.sprite.material;
-      o.opacity += (n.target - o.opacity) * Math.min(1, dt * 1.6);
+      const cible = Math.min(1, n.target * this._dur.nebuleuse);
+      o.opacity += (cible - o.opacity) * Math.min(1, dt * 1.6);
+      o.color.setRGB(1, 1, 1).lerp(TEINTE_RIM, this._dur.teinte * 0.5);
     }
 
     this.sun.update(dt);
@@ -336,7 +456,10 @@ export class Space {
       layer.geo.attributes.position.needsUpdate = true;
 
       const w = this.warp;
-      layer.points.material.opacity = this.starOpacity[layer.index] * (1 - w * 0.9);
+      // Les étoiles s'éteignent d'un acte à l'autre. C'est le plus discret des
+      // signes et le plus efficace : le ciel se vide, on se retrouve seul avec lui.
+      layer.points.material.opacity =
+        this.starOpacity[layer.index] * this._dur.etoiles * (1 - w * 0.9);
       layer.streaks.visible = w > 0.02;
       if (!layer.streaks.visible) continue;
 

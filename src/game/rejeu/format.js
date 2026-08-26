@@ -27,7 +27,8 @@ import {
 //   1 — première version
 //   2 — les ennemis ne tirent plus depuis le dos du vaisseau, ni à plat
 //       (noFireBehind, minShotSlope)
-export const VERSION = 2;
+//   3 — les boss combattent en trois phases (BOSS_PHASES)
+export const VERSION = 3;
 
 // --- Écriture ---------------------------------------------------------------
 

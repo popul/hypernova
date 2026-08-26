@@ -261,36 +261,240 @@ function createBrute() {
   return g;
 }
 
+// KORN, en trois états. Le combat se joue en trois actes, et personne ne compte des
+// points de vie au milieu d'une nappe de balles : on regarde la SILHOUETTE. Chaque
+// acte casse donc d'abord quelque chose qui change le contour — la couronne, puis un
+// pod — et ne change une teinte qu'ensuite. C'est ce qui reste lisible à la taille
+// où le boss apparaît sur un téléphone, c'est-à-dire minuscule.
+//
+// Les matériaux sont créés UNE fois et seulement réassignés. createEnemyShip clone
+// un gabarit, et un clone partage ses matériaux par référence : une teinte posée en
+// place sur la coque suivrait le boss suivant dès son entrée en scène.
+//
+// La coque S'ÉTEINT d'un acte à l'autre — c'est elle qui occupe le plus de pixels,
+// c'est donc elle qui porte le message. L'émissif tombe avec elle : une coque
+// « incandescente de rage » monterait en luminosité et se lirait comme une montée
+// en puissance, exactement l'inverse de ce qu'on raconte. Ce qui brille à la fin,
+// ce n'est plus le vaisseau, c'est ce qui sort de ses trous.
+//
+// L'anneau, lui, reste allumé aux trois actes : c'est sa BRÈCHE qui informe, et une
+// couronne éteinte n'a plus de brèche — elle a juste disparu.
+const BOSS_ETATS = [
+  {
+    hull: mat(0xff4757, { emissive: 0xff4757, emissiveIntensity: 0.4, roughness: 0.45 }),
+    anneau: mat(0xffc857, { emissive: 0xffc857, emissiveIntensity: 0.5, metalness: 0.9 }),
+    oeil: glow(0xffe066),
+  },
+  {
+    // Le métal baisse en même temps que la peinture brûle : sans carte
+    // d'environnement, une coque métallique ne renvoie que trois reflets et vire au
+    // noir. C'est le diffus qui doit reprendre la main pour qu'elle reste une coque.
+    hull: mat(0x7a1b26, {
+      emissive: 0x3a0a04,
+      emissiveIntensity: 0.5,
+      roughness: 0.6,
+      metalness: 0.3,
+    }),
+    anneau: mat(0xc07030, { emissive: 0xff7a1e, emissiveIntensity: 0.45, metalness: 0.9 }),
+    oeil: glow(0xff6a1e),
+  },
+  {
+    // La cendre. Éteinte, mais pas effacée : sous une coque vraiment noire il ne
+    // reste qu'un bouquet de lueurs qui flottent, et on a perdu le vaisseau. Le gris
+    // change aussi la TEINTE et pas seulement la valeur — rouge vif, sang brûlé,
+    // cendre : trois actes qu'on distingue même à travers un écran de balles.
+    // L'émissif ne sert pas à faire briller la coque, il sert à la RENDRE VISIBLE :
+    // les trois lampes du secteur sont volontairement faibles pendant le combat, et
+    // sans cet appoint la cendre tombe à un noir indistinct du vide. Il est gris et
+    // non rouge — une lueur chaude se lirait comme un vaisseau qui repart.
+    hull: mat(0x4d3b40, {
+      emissive: 0x6a5a66,
+      emissiveIntensity: 0.75,
+      roughness: 0.85,
+      metalness: 0.15,
+    }),
+    anneau: mat(0x7a4a24, { emissive: 0xff4a10, emissiveIntensity: 0.3, metalness: 0.9 }),
+    oeil: glow(0xff1e2e),
+  },
+];
+
+// Une seule teinte de tôle arrachée pour tous les morceaux qui pendent ou qui
+// restent en moignon : on doit les lire comme une même carène éventrée, pas comme
+// des pièces rapportées. Assez claire pour attraper le contre-jour — sur fond noir,
+// une tôle vraiment noire est une tôle qu'on n'a pas dessinée.
+const BOSS_TOLE = mat(0x4a1620, { metalness: 0.85, roughness: 0.6 });
+const BOSS_BRAISE = glow(0xff7a2a);
+const BOSS_BRAISE_VIVE = glow(0xffc061);
+const BOSS_NOYAU = glow(0xfff2d0);
+const BOSS_HALO = new THREE.MeshBasicMaterial({
+  color: 0xff8a4a,
+  transparent: true,
+  opacity: 0.16,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  toneMapped: false,
+});
+
+// Une brèche est un bulbe incandescent à demi ENFONCÉ dans la coque : ses bords
+// s'effilent et disparaissent sous la carène, seule sa calotte ressort. Une plaque
+// plate, elle, flotterait au-dessus d'une coque bombée dès qu'on la regarde de côté.
+const BOSS_BRECHE = new THREE.SphereGeometry(1, 6, 5);
+
+function bossBreche(taille, pos, ry, matiere) {
+  const m = new THREE.Mesh(BOSS_BRECHE, matiere);
+  m.scale.set(...taille);
+  m.position.set(...pos);
+  m.rotation.y = ry;
+  return m;
+}
+
 function createBoss() {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.SphereGeometry(1.5, 10, 8),
-    mat(0xff4757, { emissive: 0xff4757, emissiveIntensity: 0.4, roughness: 0.45 })
-  );
+  const E = BOSS_ETATS[0];
+
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1.5, 10, 8), E.hull);
   body.scale.set(1.3, 0.7, 1);
+  body.name = 'bossHull';
   g.add(body);
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(2.1, 0.22, 6, 10),
-    mat(0xffc857, { emissive: 0xffc857, emissiveIntensity: 0.5, metalness: 0.9 })
+
+  // Les trois couronnes existent en même temps, une seule est allumée. Reconstruire
+  // une géométrie de tore en plein combat pour la rogner coûterait une allocation
+  // pile au moment où l'écran est le plus chargé ; ici on bascule un booléen.
+  const couronnes = new THREE.Group();
+  couronnes.name = 'bossRings';
+  couronnes.rotation.x = Math.PI / 2;
+  const intacte = new THREE.Group();
+  intacte.add(new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.22, 6, 10), E.anneau));
+  const entamee = new THREE.Group();
+  entamee.visible = false;
+  entamee.add(
+    new THREE.Mesh(
+      new THREE.TorusGeometry(2.1, 0.22, 6, 8, Math.PI * 1.3).rotateZ(Math.PI * 0.45),
+      E.anneau
+    )
   );
-  ring.rotation.x = Math.PI / 2;
-  g.add(ring);
-  for (const side of [-1, 1]) {
-    const pod = new THREE.Mesh(
-      new THREE.ConeGeometry(0.5, 1.6, 5),
-      mat(0x6e1220, { metalness: 0.8 })
+  const moignons = new THREE.Group();
+  moignons.visible = false;
+  // Deux tronçons laissés bâbord et tribord : la brèche s'ouvre devant et derrière,
+  // là où le regard passe. Un anneau rogné n'importe où ne se verrait pas.
+  for (const depart of [-0.17, 0.83]) {
+    moignons.add(
+      new THREE.Mesh(
+        new THREE.TorusGeometry(2.1, 0.2, 5, 3, Math.PI * 0.34).rotateZ(Math.PI * depart),
+        E.anneau
+      )
     );
+  }
+  couronnes.add(intacte, entamee, moignons);
+  g.add(couronnes);
+
+  const podMat = mat(0x6e1220, { metalness: 0.8 });
+  for (const side of [-1, 1]) {
+    const bord = side < 0 ? 'L' : 'R';
+    const pod = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.6, 5), podMat);
     pod.rotation.x = Math.PI / 2;
     pod.position.set(side * 2.3, 0, 0.3);
+    pod.name = `bossPod${bord}`;
     g.add(pod);
     const podGlow = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 6), glow(0xff8080));
     podGlow.position.set(side * 2.3, 0, 1.15);
+    podGlow.name = `bossPodGlow${bord}`;
     g.add(podGlow);
   }
-  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 8), glow(0xffe066));
+
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 8), E.oeil);
   eye.position.set(0, 0.2, 1.1);
+  eye.name = 'bossEye';
   g.add(eye);
+
+  // ACTE II : la coque s'ouvre. Les brèches sont sur le DOS parce que la caméra du
+  // jeu regarde d'en haut — une avarie sous le ventre serait une avarie invisible.
+  // La plaque de flanc, elle, pend sans se détacher : c'est le détail qui dit que le
+  // vaisseau tient encore, mais mal.
+  const degats2 = new THREE.Group();
+  degats2.name = 'bossDmg2';
+  degats2.visible = false;
+  degats2.add(bossBreche([0.34, 0.6, 0.7], [-0.66, 0.62, 0.05], 0.35, BOSS_BRAISE));
+  degats2.add(bossBreche([0.28, 0.5, 0.5], [0.92, 0.55, -0.42], -0.5, BOSS_BRAISE));
+  // La plaque pend DANS la brèche de la couronne, et pas ailleurs : les avaries
+  // groupées au même endroit racontent un coup encaissé, éparpillées elles ne
+  // racontent qu'un vaisseau sale. C'est aussi le seul endroit où l'anneau ne la
+  // masque pas.
+  const plaque = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.11, 0.85), BOSS_TOLE);
+  plaque.position.set(1.95, -0.5, 0.3);
+  plaque.rotation.set(0.1, 0.3, -0.9);
+  degats2.add(plaque);
+  // La ligne d'arrachement rougeoie encore, posée sur l'arête de la coque : sans
+  // elle, la plaque n'est qu'une tôle sombre sur fond noir et rien ne dit qu'elle
+  // a été déchirée de quelque chose.
+  const dechirure = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.95), BOSS_BRAISE);
+  dechirure.position.set(1.86, 0.12, 0.35);
+  degats2.add(dechirure);
+  g.add(degats2);
+
+  // ACTE III : le pod bâbord est arraché et le dos s'ouvre sur le noyau. C'est le
+  // seul moment du jeu où l'on voit ce qu'il y a DEDANS — et il est blanc.
+  const degats3 = new THREE.Group();
+  degats3.name = 'bossDmg3';
+  degats3.visible = false;
+  const trappe = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.12, 5, 8), BOSS_TOLE);
+  trappe.rotation.x = Math.PI / 2;
+  trappe.position.set(0, 0.98, -0.1);
+  degats3.add(trappe);
+  const noyau = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 8), BOSS_NOYAU);
+  noyau.position.set(0, 1, -0.1);
+  degats3.add(noyau);
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.72, 8, 8), BOSS_HALO);
+  halo.position.copy(noyau.position);
+  degats3.add(halo);
+  const moignon = new THREE.Mesh(new THREE.ConeGeometry(0.44, 0.55, 5), BOSS_TOLE);
+  moignon.rotation.x = Math.PI / 2;
+  moignon.position.set(-2.05, 0, -0.15);
+  degats3.add(moignon);
+  const arrachement = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 6), BOSS_BRAISE_VIVE);
+  arrachement.position.set(-2.05, 0, 0.15);
+  degats3.add(arrachement);
+  degats3.add(bossBreche([0.34, 0.5, 0.5], [0.36, 0.55, 0.78], 0.8, BOSS_BRAISE_VIVE));
+  g.add(degats3);
+
   return g;
+}
+
+// Phase 1, 2 ou 3 : l'état de la carène du boss. Rien n'est construit ici — tout
+// dort déjà dans le gabarit, éteint — donc deux appels de suite sur la même phase
+// ne peuvent rien empiler, et une bascule ne coûte pas une allocation.
+export function setBossPhase(group, phase) {
+  const p = Math.min(3, Math.max(1, Math.round(phase) || 1));
+  if (group.userData.bossPhase === p) return;
+  const hull = group.getObjectByName('bossHull');
+  if (!hull) return; // pas un boss : on ne casse rien au passage
+  group.userData.bossPhase = p;
+
+  const E = BOSS_ETATS[p - 1];
+  hull.material = E.hull;
+  const oeil = group.getObjectByName('bossEye');
+  if (oeil) oeil.material = E.oeil;
+
+  const couronnes = group.getObjectByName('bossRings');
+  if (couronnes) {
+    couronnes.children.forEach((niveau, i) => {
+      niveau.visible = i === p - 1;
+      for (const m of niveau.children) m.material = E.anneau;
+    });
+  }
+
+  // Les avaries S'ACCUMULENT : l'acte III garde les brèches de l'acte II. Un boss
+  // qui se répare entre deux phases raconterait l'exact contraire du combat.
+  const d2 = group.getObjectByName('bossDmg2');
+  if (d2) d2.visible = p >= 2;
+  const d3 = group.getObjectByName('bossDmg3');
+  if (d3) d3.visible = p >= 3;
+
+  // Le pod bâbord s'efface au profit du moignon qui occupe sa place exacte.
+  for (const nom of ['bossPodL', 'bossPodGlowL']) {
+    const o = group.getObjectByName(nom);
+    if (o) o.visible = p < 3;
+  }
 }
 
 const BUILDERS = { drone: createDrone, wasp: createWasp, brute: createBrute, boss: createBoss };

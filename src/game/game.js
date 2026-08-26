@@ -44,9 +44,12 @@ import {
   sanitizeName,
 } from './pilots.js';
 import { CARENES, LIVREES } from './ships.js';
+// En namespace : l'habillage des phases du boss vit dans ships.js, et cet appel ne
+// doit pas empêcher le jeu de démarrer si la fonction n'y est pas encore.
+import * as Ships from './ships.js';
 import { Characters } from './characters.js';
 import { Director, romanTier } from './director.js';
-import { SURVIE, DEFAULT_MODS } from './constants.js';
+import { SURVIE, DEFAULT_MODS, BOSS_PHASES } from './constants.js';
 import { alea, semer } from '../core/rng.js';
 import { commandeVide, lireEntrees, EV, quantifieDt, dtDepuis } from './rejeu/commandes.js';
 import { Enregistreur, ouvreReplay } from './rejeu/index.js';
@@ -1555,6 +1558,23 @@ export class Game {
     } else {
       this.overlayRoot.innerHTML = '';
     }
+  }
+
+  // Le boss change d'acte. Tout ce qui se VOIT part d'ici : la coque qui se
+  // dégrade, le secteur qui se durcit, la barre qui change de tronçon. Le combat
+  // n'a que trois moments à raconter, ils doivent s'entendre et se voir.
+  onBossPhase(phase) {
+    this.hud.setBossPhase?.(phase);
+    this.stage?.space?.setBossPhase?.(phase);
+    const boss = this.enemies.boss;
+    if (boss) Ships.setBossPhase?.(boss.group, phase);
+    if (phase <= 1) return;
+    const ph = BOSS_PHASES[phase - 1];
+    this.hud.announce(ph?.nom || '', ph?.dit || '', 2200, true);
+    this.audio.bossAlarm();
+    this.fx.shockwave(boss ? boss.group.position : this.player.position, 0xff4757, 9);
+    this.fx.addShake(0.6);
+    this.characters.onBossHalf?.();
   }
 
   // ---- Commandes, instantanés, enregistrement ----

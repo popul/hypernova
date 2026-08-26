@@ -36,7 +36,7 @@ export class Hud {
         <div class="energy-label" id="energy-label">X</div>
       </div>
       <div class="boss-bar" id="boss-bar">
-        <div class="boss-label">KORN — Dévoreur de Mondes</div>
+        <div class="boss-label">KORN — Dévoreur de Mondes<span class="boss-acte" id="boss-acte"></span></div>
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
       </div>
       <div class="announce" id="announce"></div>
@@ -62,6 +62,7 @@ export class Hud {
         'hud-lives',
         'boss-bar',
         'boss-fill',
+        'boss-acte',
         'announce',
         'credit-pops',
         'hud-energy',
@@ -71,6 +72,7 @@ export class Hud {
     );
     this._cache = {};
     this._announceTimer = null;
+    this._announceJusqua = 0;
   }
 
   _set(id, value) {
@@ -153,18 +155,43 @@ export class Hud {
   showBossBar() {
     this.el['boss-bar'].classList.add('visible');
     this.setBossHp(1);
+    this.setBossPhase(1);
   }
 
   setBossHp(frac) {
     this.el['boss-fill'].style.transform = `scaleX(${Math.max(0, frac)})`;
   }
 
+  // 1, 2 ou 3 — et 0 quand il n'y a plus de boss. Les deux repères de la barre
+  // annoncent les trois actes DÈS la première seconde du combat : une jauge qui ne
+  // révélerait ses tronçons qu'en les franchissant n'aurait rien annoncé du tout.
+  // Le reste (teinte, halo, battement) dit lequel on joue, pour le joueur qui n'a
+  // pas le temps d'estimer une longueur restante.
+  setBossPhase(phase) {
+    const p = Math.min(3, Math.max(0, Math.round(phase) || 0));
+    if (this._cache.bossPhase === p) return;
+    this._cache.bossPhase = p;
+    const bar = this.el['boss-bar'];
+    bar.classList.remove('phase-1', 'phase-2', 'phase-3');
+    if (p >= 1) bar.classList.add(`phase-${p}`);
+    this._set('boss-acte', p >= 1 ? ` · ACTE ${['I', 'II', 'III'][p - 1]}` : '');
+  }
+
   hideBossBar() {
     this.el['boss-bar'].classList.remove('visible');
+    this.setBossPhase(0);
   }
 
   // title/sub sont échappés : ils peuvent venir des JSON de campagne (noms de systèmes).
-  announce(title, sub = '', duration = 2200) {
+  // `priorite` protège une annonce : tant qu'elle est à l'écran, rien ne l'écrase.
+  //
+  // Sans ça, le changement d'acte d'un boss — le moment fort du combat — se faisait
+  // effacer par un « Combo ×2 » arrivé un dixième de seconde plus tard. Mesuré en
+  // jeu : c'est même le cas le PLUS fréquent, puisqu'on enchaîne les touches
+  // précisément quand on entame un tiers de sa coque.
+  announce(title, sub = '', duration = 2200, priorite = false) {
+    if (!priorite && this._announceJusqua > performance.now()) return;
+    this._announceJusqua = priorite ? performance.now() + duration : 0;
     const el = this.el['announce'];
     el.innerHTML = `<div class="announce-title">${esc(title)}</div>${
       sub ? `<div class="announce-sub">${esc(sub)}</div>` : ''

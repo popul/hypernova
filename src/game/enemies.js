@@ -4,7 +4,16 @@
 
 import * as THREE from 'three';
 import { createEnemyShip } from './ships.js';
-import { ENEMY_TYPES, ENEMY, BOSS, WAVES, DIVES, ARENA } from './constants.js';
+import {
+  ENEMY_TYPES,
+  ENEMY,
+  BOSS,
+  BOSS_PHASES,
+  BOSS_BASCULE,
+  WAVES,
+  DIVES,
+  ARENA,
+} from './constants.js';
 import { slotBasePosition, difficulty, pickDiveStyle, pickWeighted } from './waves.js';
 import { alea, entre, ecart } from '../core/rng.js';
 
@@ -290,41 +299,7 @@ export class Enemies {
         break;
       }
       case 'bossing': {
-        // Phase 2 sous 60 % de PV : il bouge plus vite et double ses éventails.
-        const enraged = e.hp <= e.maxHp * 0.6;
-        const moveMul = enraged ? 1.4 : 1;
-        e.group.position.x = Math.sin(e.time * 0.55 * moveMul) * 8.5;
-        e.group.position.z = -13 + Math.sin(e.time * 0.31 * moveMul) * 2.2;
-        e.group.position.y = Math.sin(e.time * 1.2) * 0.4;
-        e.group.rotation.y = Math.sin(e.time * 0.4) * 0.2;
-
-        const fanInterval = Math.max(1.4, BOSS.fanInterval - this.waveNumber * 0.02) / moveMul;
-        e.fanTimer = (e.fanTimer ?? fanInterval) - dt;
-        if (e.fanTimer <= 0) {
-          e.fanTimer = fanInterval;
-          // Une salve sur deux décale la maille d'un demi-pas : deux salves
-          // consécutives n'offrent jamais le même couloir de fuite.
-          e.fanPhase = ((e.fanPhase || 0) + 1) % 2;
-          this._fireFan(e, game, e.fanPhase ? BOSS.fanSpacingU * 0.5 : 0);
-          if (enraged && this.waveNumber >= BOSS.enragedFromWave) {
-            e.fanFollowup = BOSS.fanSecondDelay;
-          }
-        }
-        // Nappe enragée : différée dans le TEMPS, décalée d'un demi-pas dans l'espace.
-        if (e.fanFollowup > 0) {
-          e.fanFollowup -= dt;
-          if (e.fanFollowup <= 0) {
-            this._fireFan(e, game, e.fanPhase ? 0 : BOSS.fanSpacingU * 0.5);
-            e.fanFollowup = 0;
-          }
-        }
-        const burstInterval = Math.max(2.2, BOSS.aimedBurstInterval - this.waveNumber * 0.03);
-        e.burstTimer = (e.burstTimer ?? burstInterval) - dt;
-        if (e.burstTimer <= 0) {
-          e.burstTimer = burstInterval;
-          // Rafale visée : chaque balle avec une anticipation différente.
-          for (const role of BOSS.burstRoles) this._fireAimed(e, game, role);
-        }
+        this._bossPhase(e, dt, game);
         break;
       }
     }
@@ -573,18 +548,131 @@ export class Enemies {
 
   // Éventail du boss : l'écart entre branches est mesuré EN UNITÉS au plan du
   // joueur. En radians, toutes les branches sauf une sortaient de l'écran.
-  _fireFan(e, game, offsetU = 0) {
+  // Le combat en trois actes. Chaque phase change le VERBE du boss — patrouiller,
+  // bondir, traquer — et pas seulement ses nombres.
+  _bossPhase(e, dt, game) {
+    const frac = e.maxHp > 0 ? e.hp / e.maxHp : 0;
+    const voulue = BOSS_PHASES.reduce((n, p, i) => (frac <= p.seuil ? i : n), 0);
+    if (e.phase === undefined) {
+      e.phase = 0;
+      e.bascule = 0;
+      game.onBossPhase?.(1);
+    }
+    // BASCULE. Le boss se cabre, cesse de tirer, et l'on comprend qu'on vient de
+    // gagner quelque chose. Sans cette respiration, la phase suivante commencerait
+    // au milieu d'une nappe et personne ne verrait qu'elle a changé.
+    if (voulue > e.phase && e.bascule <= 0) {
+      e.phase = voulue;
+      e.bascule = BOSS_BASCULE;
+      e.fanTimer = BOSS_BASCULE + 0.3;
+      e.burstTimer = BOSS_BASCULE + 0.8;
+      e.ancre = null;
+      game.onBossPhase?.(e.phase + 1);
+    }
+    const ph = BOSS_PHASES[e.phase];
+
+    if (e.bascule > 0) {
+      e.bascule -= dt;
+      // Le cabrage : il se redresse, recule d'un pas et tremble. Aucun tir.
+      const k = 1 - Math.abs(e.bascule / BOSS_BASCULE - 0.5) * 2;
+      e.group.position.z = -13 - k * 3.5;
+      e.group.rotation.x = -k * 0.45;
+      e.group.position.y = Math.sin(e.time * 34) * 0.22 * k;
+      return;
+    }
+    e.group.rotation.x = 0;
+
+    this._bossMouvement(e, dt, game, ph);
+    this._bossTirs(e, dt, game, ph);
+  }
+
+  // Trois façons d'occuper l'espace. C'est ce que le joueur lit en premier, avant
+  // même de voir une balle.
+  _bossMouvement(e, dt, game, ph) {
+    const p = e.group.position;
+    if (ph.style === 'patrouille') {
+      p.x = Math.sin(e.time * 0.55 * ph.vitesse) * 8.5;
+      p.z = -13 + Math.sin(e.time * 0.31 * ph.vitesse) * 2.2;
+      p.y = Math.sin(e.time * 1.2) * 0.4;
+      e.group.rotation.y = Math.sin(e.time * 0.4) * 0.2;
+      return;
+    }
+
+    if (ph.style === 'bonds') {
+      // Il se pose, attend, puis se jette ailleurs. Le temps d'arrêt est ce qui
+      // rend la chose jouable : c'est là qu'on tire, et c'est là qu'il tire.
+      if (!e.ancre || (e.ancreTimer -= dt) <= 0) {
+        const cote = e.ancre && e.ancre.x > 0 ? -1 : 1;
+        e.ancre = {
+          x: cote * entre(4, 11),
+          z: -13 + entre(-2, 2.5),
+        };
+        e.ancreTimer = entre(1.1, 1.8);
+      }
+      const k = Math.min(1, 7 * ph.vitesse * dt);
+      p.x += (e.ancre.x - p.x) * k;
+      p.z += (e.ancre.z - p.z) * k;
+      p.y = Math.sin(e.time * 2.4) * 0.3;
+      // Il pointe le nez vers où il va : le bond s'annonce d'un dixième de seconde.
+      e.group.rotation.y = THREE.MathUtils.clamp((e.ancre.x - p.x) * 0.06, -0.5, 0.5);
+      return;
+    }
+
+    // TRAQUE. Il descend et suit le joueur en x, sans jamais l'atteindre tout à
+    // fait — le retard est ce qui laisse une chance de le semer.
+    const cible = THREE.MathUtils.clamp(game.player.position.x, -10, 10);
+    p.x += (cible - p.x) * Math.min(1, 1.35 * ph.vitesse * dt);
+    p.z += (-8.5 - p.z) * Math.min(1, 0.9 * dt);
+    p.y = Math.sin(e.time * 3.1) * 0.25;
+    e.group.rotation.y = THREE.MathUtils.clamp((cible - p.x) * 0.05, -0.4, 0.4);
+  }
+
+  _bossTirs(e, dt, game, ph) {
+    const fanInterval =
+      (Math.max(1.4, BOSS.fanInterval - this.waveNumber * 0.02) * ph.fanMul) / ph.vitesse;
+    e.fanTimer = (e.fanTimer ?? fanInterval) - dt;
+    if (e.fanTimer <= 0) {
+      e.fanTimer = fanInterval;
+      // Une salve sur deux décale la maille d'un demi-pas : deux salves
+      // consécutives n'offrent jamais le même couloir de fuite.
+      e.fanPhase = ((e.fanPhase || 0) + 1) % 2;
+      const pas = BOSS.fanSpacingU * ph.ecartMul;
+      this._fireFan(e, game, e.fanPhase ? pas * 0.5 : 0, ph);
+      if (ph.nappes > 1) e.fanFollowup = BOSS.fanSecondDelay;
+    }
+    if (e.fanFollowup > 0) {
+      e.fanFollowup -= dt;
+      if (e.fanFollowup <= 0) {
+        const pas = BOSS.fanSpacingU * ph.ecartMul;
+        this._fireFan(e, game, e.fanPhase ? 0 : pas * 0.5, ph);
+        e.fanFollowup = 0;
+      }
+    }
+
+    const burstInterval =
+      Math.max(2.2, BOSS.aimedBurstInterval - this.waveNumber * 0.03) * ph.burstMul;
+    e.burstTimer = (e.burstTimer ?? burstInterval) - dt;
+    if (e.burstTimer <= 0) {
+      e.burstTimer = burstInterval;
+      for (const role of ph.roles) this._fireAimed(e, game, role);
+    }
+  }
+
+  _fireFan(e, game, offsetU = 0, ph = BOSS_PHASES[0]) {
     const from = this._tmp.copy(e.group.position);
     from.z += 1.2;
     const dz = Math.max(1, game.player.position.z - from.z);
-    const span = Math.min(
-      BOSS.fanSpanMax,
-      BOSS.fanSpanBase + BOSS.fanSpanPerWave * this.waveNumber
-    );
-    const count = Math.min(BOSS.fanCountMax, 1 + Math.round(span / BOSS.fanSpacingU));
+    // La maille se resserre à la dernière phase, mais l'éventail se raccourcit
+    // d'autant : un mur plus dense ET plus large ne serait plus une difficulté,
+    // seulement une impasse.
+    const pas = BOSS.fanSpacingU * ph.ecartMul;
+    const span =
+      Math.min(BOSS.fanSpanMax, BOSS.fanSpanBase + BOSS.fanSpanPerWave * this.waveNumber) *
+      (ph.portee ?? 1);
+    const count = Math.min(BOSS.fanCountMax, 1 + Math.round(span / pas));
     const centerX = this._predictPoint(from.z, game, 0.5);
     for (let i = 0; i < count; i++) {
-      const aimX = centerX + (i - (count - 1) / 2) * BOSS.fanSpacingU + offsetU;
+      const aimX = centerX + (i - (count - 1) / 2) * pas + offsetU;
       const dir = new THREE.Vector3(aimX - from.x, 0, dz).normalize();
       dir.multiplyScalar(this.diff.bulletSpeed);
       this._spawnShot(from, dir, 'straight', game);
@@ -614,6 +702,7 @@ export class Enemies {
       this.boss = null;
       this.bossDefeatedThisWave = true; // le saut suivant a droit à sa réplique
       game.hud.hideBossBar();
+      game.onBossPhase?.(0); // le secteur reprend ses couleurs
       game.fx.explosionBig(e.group.position, EXPLOSION_COLORS.boss);
       game.audio.explosionBig();
       game.audio.setMode('play');

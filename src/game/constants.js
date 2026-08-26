@@ -182,6 +182,78 @@ export const DIVES = {
   squad: { speedMul: 1, shots: 1, t1: [0.35, 0.45], spread: 0.05, count: 3, offsets: [-3, 0, 3] },
 };
 
+// LES TROIS PHASES DE L'AMIRAL.
+//
+// Un boss à deux vitesses — normal, puis « enragé » sous 60 % — se comprend en dix
+// secondes et ne surprend plus jamais. Trois phases, oui, mais à condition qu'elles
+// demandent trois choses DIFFÉRENTES : un combat dont seule la cadence augmente
+// n'est pas un combat en trois actes, c'est le même combat joué trois fois.
+//
+//   I  — L'AMIRAL. Il patrouille de long en large et pose des nappes larges. On
+//        apprend à lire l'éventail, on cherche le couloir. Le joueur a le temps.
+//   II — LA MEUTE. Il ne patrouille plus : il BONDIT d'un point à l'autre et se
+//        fige. Ses nappes partent en biais depuis l'endroit où il vient d'arriver,
+//        donc le couloir appris à la phase I ne vaut plus rien — il faut suivre
+//        le boss des yeux au lieu de suivre les balles.
+//   III — LA GUEULE. Il descend et colle le joueur en x. Le duel devient un
+//        corps-à-corps où l'espace manque : les nappes sont serrées, mais courtes,
+//        et c'est la POSITION qui tue, plus la lecture.
+export const BOSS_PHASES = [
+  {
+    nom: 'AMIRAL',
+    // Ce que l'annonce dit au moment de la bascule. Pas « phase 2 » — ce qui
+    // CHANGE, en cinq mots : le joueur doit savoir quoi regarder, pas quel numéro
+    // il vient d'atteindre.
+    dit: 'Il ouvre le feu',
+    // Sous quelle fraction de points de vie la phase commence.
+    seuil: 1,
+    // Déplacement : balancement large et lent, la lecture est possible.
+    style: 'patrouille',
+    vitesse: 1,
+    // Cadence des nappes et des rafales visées, en multiplicateur d'intervalle :
+    // au-dessus de 1, il tire moins souvent qu'au réglage de base.
+    fanMul: 1,
+    burstMul: 1,
+    // Nappes simultanées, et écart entre les branches (au plan du joueur).
+    nappes: 1,
+    ecartMul: 1,
+    // Balles de la rafale visée : chacune avec sa propre anticipation.
+    roles: [1.0, 0.6, 0.2],
+  },
+  {
+    nom: 'MEUTE',
+    dit: 'Il ne patrouille plus — il bondit',
+    seuil: 0.66,
+    style: 'bonds',
+    vitesse: 1.35,
+    fanMul: 0.78,
+    burstMul: 0.8,
+    nappes: 2, // la seconde part décalée d'un demi-pas, un instant plus tard
+    ecartMul: 1.1,
+    roles: [1.0, 0.75, 0.45, 0.15],
+  },
+  {
+    nom: 'GUEULE',
+    dit: 'Il descend sur vous',
+    seuil: 0.33,
+    style: 'traque',
+    vitesse: 1.7,
+    fanMul: 0.62,
+    burstMul: 0.62,
+    nappes: 2,
+    // Maille resserrée : l'éventail devient un mur, mais il est plus court —
+    // sinon la phase finale serait injouable plutôt que difficile.
+    ecartMul: 0.78,
+    portee: 0.72,
+    roles: [1.0, 0.8, 0.55, 0.3, 0.05],
+  },
+];
+
+// Le temps que dure la bascule d'une phase à l'autre : le boss se cabre, ne tire
+// pas, et le décor bascule. C'est la respiration qui rend le passage lisible — et
+// la récompense d'avoir entamé un tiers de sa coque.
+export const BOSS_BASCULE = 1.35;
+
 export const BOSS = {
   hpPerWave: 13,
   fanInterval: 2.1,
