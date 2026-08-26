@@ -3,7 +3,341 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HYPERNOVA — les thèmes</title>
+    <title>Les quatre thèmes</title>
+    <style>
+      /* Un livret de disque, pas une interface de jeu.
+         La page ne cherche pas à ressembler à HYPERNOVA : elle en parle. D'où le
+         parti pris éditorial — une colonne, une grande respiration, des chiffres
+         en chasse fixe, et le néon réduit à deux accents. Ce qui brille ici, c'est
+         ce qu'on écoute, pas la page. */
+      :root {
+        --nuit: #05070f;
+        --nuit-2: #080c1a;
+        --encre: #0c1225;
+        --trait: rgba(120, 200, 255, 0.16);
+        --trait-vif: rgba(120, 200, 255, 0.5);
+        --cyan: #6fe8ff;
+        --or: #f5c451;
+        --texte: #d7e3f4;
+        --gris: #7f90ab;
+        --display: 'Futura', 'Avenir Next Condensed', 'Helvetica Neue', sans-serif;
+        --corps: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+        --chiffres: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--nuit);
+        color: var(--texte);
+        font-family: var(--corps);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* Le fond : deux lueurs froides très diffuses et un grain. Sans le grain,
+         les grands aplats sombres se cerclent en bandes sur les écrans OLED. */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(60vw 60vw at 12% -10%, rgba(60, 140, 200, 0.16), transparent 65%),
+          radial-gradient(50vw 50vw at 92% 8%, rgba(120, 80, 200, 0.13), transparent 60%),
+          linear-gradient(180deg, var(--nuit-2), var(--nuit) 60%);
+        z-index: -2;
+      }
+
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        opacity: 0.32;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+      }
+
+      #app {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: clamp(38px, 9vw, 90px) clamp(20px, 5vw, 36px) 90px;
+      }
+
+      /* ---- En-tête ---- */
+
+      .sur-titre {
+        margin: 0;
+        font-family: var(--display);
+        font-size: 12px;
+        letter-spacing: 0.62em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        opacity: 0.75;
+      }
+
+      .titre {
+        margin: 6px 0 0;
+        font-family: var(--display);
+        font-weight: 400;
+        font-size: clamp(40px, 11vw, 78px);
+        line-height: 0.95;
+        letter-spacing: -0.01em;
+        color: #fff;
+      }
+
+      .chapo {
+        margin: 22px 0 0;
+        font-size: 16.5px;
+        color: var(--gris);
+        max-width: 60ch;
+      }
+
+      .entete {
+        padding-bottom: 44px;
+        border-bottom: 1px solid var(--trait);
+        margin-bottom: 8px;
+      }
+
+      /* ---- Les cartes ---- */
+
+      .theme {
+        position: relative;
+        padding: 34px 0 30px;
+        border-bottom: 1px solid var(--trait);
+        transition: opacity 0.4s;
+      }
+
+      .theme-tete {
+        display: flex;
+        align-items: baseline;
+        gap: 18px;
+      }
+
+      /* Le numéro est un repère, pas un titre : il reste en retrait, et c'est lui
+         qui s'allume quand le thème joue. */
+      .theme-num {
+        font-family: var(--chiffres);
+        font-size: 13px;
+        color: var(--gris);
+        opacity: 0.55;
+        padding-top: 6px;
+        transition:
+          color 0.3s,
+          opacity 0.3s;
+      }
+
+      .theme-nom {
+        margin: 0;
+        font-family: var(--display);
+        font-weight: 400;
+        font-size: clamp(26px, 6vw, 38px);
+        line-height: 1.1;
+        color: #fff;
+      }
+
+      .theme-ou {
+        margin: 3px 0 0;
+        font-family: var(--display);
+        font-size: 11.5px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--or);
+        opacity: 0.8;
+      }
+
+      /* Quatre colonnes, chacune portant son intitulé AU-DESSUS de sa valeur.
+         Sans `grid-auto-flow: column`, les dt et dd d'une liste de définitions se
+         rangent à la file et l'on obtient deux colonnes de paires côte à côte,
+         ce qui se lit de travers. */
+      .theme-meta {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        grid-template-rows: auto auto;
+        grid-auto-flow: column;
+        gap: 2px 14px;
+        margin: 22px 0 0;
+        padding: 14px 0;
+        border-top: 1px solid var(--trait);
+        border-bottom: 1px solid var(--trait);
+      }
+
+      .theme-meta dt {
+        font-family: var(--display);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--gris);
+        opacity: 0.7;
+      }
+
+      .theme-meta dd {
+        margin: 2px 0 0;
+        font-family: var(--chiffres);
+        font-size: 14px;
+        color: var(--texte);
+      }
+
+      .theme-ecoute {
+        margin: 20px 0 0;
+        font-size: 16px;
+        color: var(--gris);
+        max-width: 58ch;
+      }
+
+      /* ---- La jauge de tour ---- */
+
+      .theme-barre {
+        height: 2px;
+        margin: 26px 0 20px;
+        background: var(--trait);
+        overflow: hidden;
+      }
+
+      .theme-jauge {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, var(--cyan), var(--or));
+        box-shadow: 0 0 14px rgba(111, 232, 255, 0.6);
+      }
+
+      /* ---- Le bouton ---- */
+
+      .theme-play {
+        display: inline-flex;
+        align-items: center;
+        gap: 13px;
+        padding: 11px 26px 11px 13px;
+        background: transparent;
+        border: 1px solid var(--trait-vif);
+        border-radius: 999px;
+        color: var(--texte);
+        font-family: var(--display);
+        font-size: 12.5px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition:
+          background 0.2s,
+          border-color 0.2s,
+          transform 0.15s;
+      }
+
+      .theme-play:hover {
+        background: rgba(111, 232, 255, 0.09);
+        border-color: var(--cyan);
+      }
+
+      .theme-play:active {
+        transform: scale(0.98);
+      }
+
+      .theme-play-icone {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--cyan);
+        position: relative;
+        flex: none;
+        transition: background 0.2s;
+      }
+
+      /* Triangle en CSS pur : aucune image à charger, et il reste net partout. */
+      .theme-play-icone::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 54%;
+        transform: translate(-50%, -50%);
+        border-left: 8px solid var(--nuit);
+        border-top: 5.5px solid transparent;
+        border-bottom: 5.5px solid transparent;
+      }
+
+      .joue .theme-play-icone {
+        background: var(--or);
+      }
+
+      /* Deux barres de pause, obtenues sans changer de balise. */
+      .joue .theme-play-icone::before {
+        left: 50%;
+        border: 0;
+        width: 3px;
+        height: 10px;
+        background: var(--nuit);
+        box-shadow: 5px 0 0 var(--nuit);
+        margin-left: -4px;
+      }
+
+      .joue .theme-num {
+        color: var(--or);
+        opacity: 1;
+      }
+
+      .joue .theme-nom {
+        text-shadow: 0 0 30px rgba(111, 232, 255, 0.35);
+      }
+
+      /* Quand un thème joue, les autres s'effacent : on écoute une chose à la fois. */
+      #app:has(.joue) .theme:not(.joue) {
+        opacity: 0.42;
+      }
+
+      /* ---- Pied ---- */
+
+      .pied {
+        margin-top: 40px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 22px;
+        align-items: center;
+      }
+
+      .lien {
+        background: none;
+        border: 0;
+        border-bottom: 1px solid var(--trait-vif);
+        padding: 3px 0;
+        color: var(--cyan);
+        font-family: var(--display);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      .lien:hover {
+        color: #fff;
+        border-color: #fff;
+      }
+
+      .pied-note {
+        flex-basis: 100%;
+        margin: 6px 0 0;
+        font-size: 14px;
+        color: var(--gris);
+        opacity: 0.8;
+        max-width: 58ch;
+      }
+
+      @media (max-width: 560px) {
+        .theme-meta {
+          grid-template-columns: repeat(2, 1fr);
+          grid-template-rows: auto auto auto auto;
+          gap: 12px 14px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>

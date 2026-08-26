@@ -3,7 +3,9 @@ import js from '@eslint/js';
 export default [
   js.configs.recommended,
   {
-    files: ['src/**/*.js'],
+    // La salle d'écoute embarque le moteur audio du jeu : c'est du code
+    // navigateur, au même titre que `src`.
+    files: ['src/**/*.js', 'tools/**/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
