@@ -1716,6 +1716,9 @@ export class Game {
   _showRouteChoice() {
     if (this.rejeu) return;
     this.state = 'route';
+    // Le HUD n'apporte rien pendant une décision — le score et les commandes
+    // tactiles se contentaient de traverser le texte qu'on demande de lire.
+    this.hud.root.classList.add('hidden');
     this.audio.setMode('shop');
     const idx = STAGES.indexOf(stageForWave(this.wave));
     const r = routesForStage(idx, this.seed);
@@ -1738,12 +1741,40 @@ export class Game {
           ]
         : ['À dépenser tout de suite au hangar'];
 
+    // LA PROGRESSION SE VOIT, elle ne se lit pas.
+    //
+    // Tout était déjà écrit — combien de fragments, pour quel palier, pour quel
+    // effet — mais en une phrase grise en pied de page, et « il en faut trois »
+    // demande de retenir de tête où l'on en est d'une décision à l'autre, à dix
+    // vagues d'intervalle. Une rangée de pastilles répond à la seule question qu'on
+    // se pose devant ce choix : est-ce que ce détour-ci débloque quelque chose ?
+    const jauge = () => {
+      if (!vise) return '';
+      const dejaLa = this.fragments;
+      const total = vise.fragments;
+      const cases = Array.from(
+        { length: total },
+        (_, i) => `<i class="${i < dejaLa ? 'plein' : i === dejaLa ? 'suivant' : ''}"></i>`
+      ).join('');
+      const encore = total - dejaLa;
+      return `
+        <span class="route-jauge">
+          <span class="route-jauge-cases">${cases}</span>
+          <span class="route-jauge-txt">${
+            encore === 1
+              ? `celui-ci débloque la coque ${vise.chiffre}`
+              : `encore ${encore} pour la coque ${vise.chiffre}`
+          }</span>
+        </span>`;
+    };
+
     const carte = (o) => `
       <button class="route" data-type="${o.type}">
         <span class="route-kind">${o.type === 'longue' ? 'Détour' : 'Direct'}</span>
         <span class="route-name">${esc(o.nom)}</span>
         <span class="route-desc">${esc(o.desc)}</span>
         <span class="route-gain">${esc(o.gain)}</span>
+        ${o.fragment ? jauge() : ''}
         <ul class="route-effets">${effets(o)
           .map((e) => `<li>${e}</li>`)
           .join('')}</ul>
@@ -1776,6 +1807,7 @@ export class Game {
   }
 
   _takeRoute(choix, stageIdx) {
+    this.hud.root.classList.remove('hidden');
     this.credits += choix.credits;
     this.hud.setCredits(this.credits);
     this.routeMods = choix.risque ? choix.risque.mods : null;

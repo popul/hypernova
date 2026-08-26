@@ -745,8 +745,10 @@ body.touch .btn-energy-touch {
 /* ---------- Boutique ---------- */
 
 .shop {
-  background: radial-gradient(ellipse at center, rgba(5, 4, 15, 0.55), rgba(5, 4, 15, 0.88));
-  backdrop-filter: blur(3px);
+  /* Même correction que sur le choix de trajectoire, et pour la même raison : le
+     hangar s'ouvre en orbite basse, donc devant la Terre éclairée. */
+  background: radial-gradient(ellipse at center, rgba(5, 4, 15, 0.86), rgba(5, 4, 15, 0.96));
+  backdrop-filter: blur(5px) brightness(0.75);
   /* Trois bandes : en-tête, liste défilante, pied. En centrant tout le contenu,
      l'ancienne version poussait « Lancer la vague » sous la ligne de flottaison dès
      que la grille passait sur une colonne — c'est-à-dire sur tout téléphone en
@@ -2263,8 +2265,13 @@ body.touch .key-hint {
   /* Un voile, comme la boutique : sans lui, les explosions de la vague qu'on vient
      de finir continuent de traverser le texte, et le pied de page devient illisible
      au pire moment — celui où l'on demande une décision. */
-  background: radial-gradient(ellipse at center, rgba(5, 4, 15, 0.6), rgba(5, 4, 15, 0.9));
-  backdrop-filter: blur(3px);
+  /* Le voile était à 0,6 au centre, c'est-à-dire au point le plus lumineux : quand
+     la destination est une planète en pleine lumière, le titre et les deux cartes
+     passaient dessous. Ce n'est pas un détail de goût — c'est ce qui a fait dire
+     deux fois « je ne comprends pas ce choix » à quelqu'un qui n'arrivait
+     simplement pas à le LIRE. */
+  background: radial-gradient(ellipse at center, rgba(5, 4, 15, 0.88), rgba(5, 4, 15, 0.97));
+  backdrop-filter: blur(5px) brightness(0.75);
   gap: 20px;
   padding: 4vh 4vw;
 }
@@ -2308,7 +2315,9 @@ body.touch .key-hint {
   align-items: flex-start;
   gap: 8px;
   padding: 20px 20px 18px;
-  background: var(--panel);
+  /* Opaque, pas translucide : une carte qu'on doit comparer à sa voisine ne peut
+     pas avoir un fond qui change selon ce qui passe derrière. */
+  background: rgba(7, 11, 26, 0.96);
   border: 1px solid var(--cyan-dim);
   clip-path: polygon(
     0 0,
@@ -3490,4 +3499,56 @@ body.touch .btn-call-touch {
   .coque-go {
     margin-top: 2px;
   }
+}
+
+/* La progression du Registre, en pastilles. Elle existait déjà en toutes lettres
+   au pied de l'écran, mais lire « encore 3 » oblige à retenir de tête où l'on en
+   est d'un choix à l'autre — c'est-à-dire à dix vagues d'intervalle. Une rangée
+   qui se remplit répond d'un coup d'œil à la seule question qu'on se pose ici :
+   est-ce que ce détour-ci débloque quelque chose ? */
+.route-jauge {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.route-jauge-cases {
+  display: flex;
+  gap: 5px;
+}
+
+.route-jauge-cases i {
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--gold);
+  opacity: 0.4;
+  transform: rotate(45deg);
+}
+
+.route-jauge-cases i.plein {
+  background: var(--gold);
+  opacity: 1;
+}
+
+/* Celle que ce détour remplirait. Elle bat doucement : c'est la case qu'on vient
+   chercher en prenant cette route. */
+.route-jauge-cases i.suivant {
+  opacity: 1;
+  animation: route-case 1.5s ease-in-out infinite;
+}
+
+@keyframes route-case {
+  50% {
+    background: var(--gold);
+  }
+}
+
+.route-jauge-txt {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.9;
 }
