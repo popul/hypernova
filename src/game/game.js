@@ -1116,12 +1116,17 @@ export class Game {
   //
   // Le temps du hangar, il vient au centre, grandit et tourne sur lui-même. Rien
   // de tout cela n'est simulé : c'est un présentoir, pas une partie.
-  _vitrine(actif) {
+  // `fraction` dit OÙ le vaisseau doit tomber dans la largeur de l'écran : 0,5 au
+  // centre, 0,27 au quart gauche. On ne peut pas le poser en dur en unités de jeu —
+  // le rapport unités/pixels dépend de l'aspect de la fenêtre, et il change du
+  // simple au double entre un téléphone à la verticale et le même à l'horizontale.
+  // On le mesure donc à chaque fois, en projetant deux points connus.
+  _vitrine(actif, fraction = 0.5) {
     this.vitrine = actif;
     const g = this.player.group;
     if (actif) {
       g.visible = true;
-      g.position.set(0, 0, 1.5);
+      g.position.set(this._xPourFraction(fraction), 0, 1.5);
       g.rotation.set(-0.35, 0, 0);
       g.scale.setScalar(2.4);
     } else {
@@ -1129,6 +1134,16 @@ export class Game {
       g.rotation.set(0, 0, 0);
       g.position.set(0, 0, ARENA.playerZMax * 0.8);
     }
+  }
+
+  _xPourFraction(fraction) {
+    if (!this.camera || fraction === 0.5) return 0;
+    const cible = fraction * 2 - 1; // fraction d'écran -> coordonnée normalisée
+    const zero = this._tmp.set(0, 0, 1.5).project(this.camera).x;
+    const dix = this._tmp.set(10, 0, 1.5).project(this.camera).x;
+    const parUnite = (dix - zero) / 10;
+    if (!parUnite) return 0;
+    return (cible - zero) / parUnite;
   }
 
   // Le vaisseau se reconstruit à chaque clic : on voit ce qu'on choisit, tout de
@@ -1327,44 +1342,145 @@ export class Game {
   // LE CHOIX DE COQUE, À CHAQUE PARTIE. Pas à la création du pilote : il faut
   // pouvoir essayer. Trois coques qu'on ne peut comparer qu'en les jouant, et un
   // engagement qui ne dure que le temps d'une partie.
+  // UNE COQUE À LA FOIS, ET ON LA VOIT.
+  //
+  // Les trois fiches côte à côte ne marchaient pas, pour deux raisons qui se
+  // voyaient à l'écran. Le vaisseau de démonstration est dessiné au centre par la
+  // caméra du jeu, donc EXACTEMENT sur la fiche du milieu — et on ne peut pas le
+  // déplacer : la caméra est presque au zénith, monter le vaisseau de quatre unités
+  // ne le remonte que de trente-sept pixels. C'est l'écran qui doit s'écarter, pas
+  // le vaisseau.
+  //
+  // Surtout, la fiche ne se montrait qu'au SURVOL. Sur un téléphone il n'y a pas de
+  // survol : le premier joueur du jeu, celui pour qui il est écrit, n'aurait jamais
+  // vu que la première des trois coques. C'est le même défaut que sur l'écran de
+  // profil, et la même correction — on choisit ce qu'on voit.
   showChoixCoque(mode, onDone) {
     this.state = 'coques';
     this.hud.root.classList.add('hidden');
     const el = this._screen(`
       <div class="screen coques">
-        <h2 class="shop-title">Quelle coque ?</h2>
-        <div class="coque-sous">${mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie rapide'}</div>
-        <div class="coque-grid">
-          ${COQUES.map(
-            (c, i) => `
-            <button class="coque-carte" data-coque="${i}">
-              <span class="coque-nom">${esc(c.nom)}</span>
-              <span class="coque-titre">${esc(c.titre)}</span>
-              <span class="coque-arme">${esc(c.arme)}</span>
-              <span class="coque-jauge">${esc(c.resume)}</span>
-            </button>`
-          ).join('')}
+        <div class="coque-haut">
+          <h2 class="shop-title">Quelle coque ?</h2>
+          <div class="coque-sous">${mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie rapide'}</div>
         </div>
-        <button class="btn-ghost" id="coques-back">← Retour</button>
+        <div class="coque-bas">
+          <div class="coque-nav">
+            <button class="coque-fleche" data-pas="-1" aria-label="Coque précédente">‹</button>
+            <span class="coque-nom"></span>
+            <button class="coque-fleche" data-pas="1" aria-label="Coque suivante">›</button>
+          </div>
+          <div class="coque-fiche">
+            <span class="coque-titre"></span>
+            <span class="coque-phrase"></span>
+            <span class="coque-arme"></span>
+            <span class="coque-jauge"></span>
+          </div>
+          <div class="coque-points">
+            ${COQUES.map((_, i) => `<i data-point="${i}"></i>`).join('')}
+          </div>
+          <button class="btn-primary coque-go">Lancer</button>
+          <button class="btn-ghost" id="coques-back">← Retour</button>
+        </div>
       </div>
     `);
-    el.querySelector('#coques-back').addEventListener('click', () => this.showTitle());
-    // Le vaisseau au centre montre la coque survolée : on choisit ce qu'on voit.
-    const montre = (c) => {
-      this._vitrine(true);
-      this.player.rebuild({ ...this._fiche(), carene: c.carene });
-      this._vitrine(true);
+
+    let index = 0;
+    const nom = el.querySelector('.coque-nom');
+    const titre = el.querySelector('.coque-titre');
+    const phrase = el.querySelector('.coque-phrase');
+    const arme = el.querySelector('.coque-arme');
+    const jauge = el.querySelector('.coque-jauge');
+    const points = [...el.querySelectorAll('[data-point]')];
+
+    // En paysage court — un téléphone tenu à l'horizontale — il n'y a pas assez de
+    // hauteur pour empiler titre, vaisseau et fiche : le panneau finit par recouvrir
+    // le vaisseau qu'il est censé décrire. On passe alors en deux colonnes, fiche à
+    // droite et vaisseau décalé à gauche.
+    const etroit = () => window.innerHeight < 520 && window.innerWidth > window.innerHeight;
+    const dispose = () => {
+      const cote = etroit();
+      el.classList.toggle('coques-cote', cote);
+      return cote ? 0.27 : 0.5;
     };
-    montre(COQUES[0]);
-    el.querySelectorAll('.coque-carte').forEach((b, i) => {
-      const c = COQUES[i];
-      b.addEventListener('mouseenter', () => montre(c));
-      b.addEventListener('click', () => {
-        this.audio.buy();
-        this._vitrine(false);
-        onDone(c.id);
-      });
+
+    const montre = (i, avecSon = true) => {
+      index = (i + COQUES.length) % COQUES.length;
+      const c = COQUES[index];
+      nom.textContent = c.nom;
+      titre.textContent = c.titre;
+      phrase.textContent = c.phrase;
+      arme.textContent = c.arme;
+      jauge.textContent = c.resume;
+      points.forEach((p, k) => p.classList.toggle('on', k === index));
+      // rebuild remet une échelle neuve : on repose la pose de vitrine après.
+      const f = dispose();
+      this._vitrine(true, f);
+      this.player.rebuild({ ...this._fiche(), carene: c.carene });
+      this._vitrine(true, f);
+      if (avecSon) this.audio.uiTick?.();
+      // Une bascule courte : on voit que quelque chose a changé même en un clin
+      // d'œil, ce qui compte quand on fait défiler vite.
+      el.querySelector('.coque-bas')?.classList.remove('bascule');
+      void el.offsetWidth;
+      el.querySelector('.coque-bas')?.classList.add('bascule');
+    };
+
+    const lance = () => {
+      this.audio.buy();
+      quitte();
+      this._vitrine(false);
+      onDone(COQUES[index].id);
+    };
+
+    const clavier = (e) => {
+      if (this.state !== 'coques') return;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') montre(index - 1);
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') montre(index + 1);
+      else if (e.key === 'Enter' || e.key === ' ') lance();
+      else if (e.key === 'Escape') {
+        quitte();
+        this.showTitle();
+      } else return;
+      e.preventDefault();
+    };
+    // Le listener vit le temps de l'écran, pas plus : le laisser courir ferait
+    // changer de coque pendant la partie suivante.
+    // Tourner le téléphone change la disposition ET la place du vaisseau : les deux
+    // se recalculent, sinon le vaisseau resterait décalé sur un écran redevenu haut.
+    const replace = () => this._vitrine(true, dispose());
+    const quitte = () => {
+      window.removeEventListener('keydown', clavier);
+      window.removeEventListener('resize', replace);
+    };
+    window.addEventListener('keydown', clavier);
+    window.addEventListener('resize', replace);
+
+    el.querySelectorAll('.coque-fleche').forEach((b) =>
+      b.addEventListener('click', () => montre(index + Number(b.dataset.pas)))
+    );
+    points.forEach((p, i) => p.addEventListener('click', () => montre(i)));
+    el.querySelector('.coque-go').addEventListener('click', lance);
+    el.querySelector('#coques-back').addEventListener('click', () => {
+      quitte();
+      this.showTitle();
     });
+
+    // Le glissé horizontal, parce que c'est le geste qu'on essaie d'instinct devant
+    // un carrousel sur un téléphone.
+    let x0 = null;
+    const bas = el.querySelector('.coque-bas');
+    bas.addEventListener('pointerdown', (e) => {
+      x0 = e.clientX;
+    });
+    bas.addEventListener('pointerup', (e) => {
+      if (x0 === null) return;
+      const d = e.clientX - x0;
+      x0 = null;
+      if (Math.abs(d) > 40) montre(index + (d < 0 ? 1 : -1));
+    });
+
+    montre(0, false);
   }
 
   startRun(mode = 'arcade', coque = null) {

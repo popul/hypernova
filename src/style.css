@@ -3285,3 +3285,209 @@ body.touch .btn-call-touch {
     min-height: 0;
   }
 }
+
+/* ---- Le choix de coque : un carrousel, pas une grille -------------------- */
+/* Le vaisseau de démonstration est dessiné au centre de l'écran par la caméra du
+   jeu, et il n'est pas déplaçable — la caméra étant presque au zénith, le monter
+   de quatre unités ne le remonte que de trente-sept pixels. C'est donc l'écran
+   qui lui laisse le milieu : le titre en haut, la fiche en bas, rien entre les
+   deux. C'est aussi ce qui rend l'écran tenable en portrait, où la grille de
+   trois cartes recouvrait le vaisseau de part en part. */
+.screen.coques {
+  justify-content: space-between;
+  overflow: hidden;
+  padding-block: clamp(14px, 4vh, 34px);
+}
+
+.screen.coques > :first-child,
+.screen.coques > :last-child {
+  margin: 0;
+}
+
+.coque-haut,
+.coque-bas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.coque-haut {
+  gap: 4px;
+}
+
+.coque-bas {
+  gap: 8px;
+  width: min(460px, 92vw);
+  padding: 14px 16px 12px;
+  /* Le panneau est opaque : le vaisseau passe derrière lui, et le texte reste
+     lisible quelle que soit la couleur de la coque affichée. */
+  background: linear-gradient(180deg, rgba(6, 10, 20, 0.82), rgba(6, 10, 20, 0.96));
+  border: 1px solid var(--cyan-dim);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 18px) 0,
+    100% 18px,
+    100% 100%,
+    18px 100%,
+    0 calc(100% - 18px)
+  );
+}
+
+.coque-bas.bascule .coque-fiche,
+.coque-bas.bascule .coque-nom {
+  animation: coque-entre 0.22s ease-out;
+}
+
+@keyframes coque-entre {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.coque-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+}
+
+.coque-fleche {
+  font-family: var(--display);
+  font-size: 30px;
+  line-height: 1;
+  /* Quarante-quatre pixels : la cible tactile en dessous de laquelle un pouce
+     d'enfant rate une fois sur trois. */
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--cyan);
+  background: transparent;
+  border: 1px solid var(--cyan-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.coque-fleche:hover,
+.coque-fleche:active {
+  background: rgba(79, 242, 255, 0.14);
+  border-color: var(--cyan);
+}
+
+.coque-fiche {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  width: 100%;
+}
+
+/* La phrase de la coque : c'est elle qui lui donne un caractère, donc elle a le
+   droit d'être en italique et de ne pas ressembler au reste. */
+.coque-phrase {
+  font-size: 12px;
+  line-height: 1.35;
+  font-style: italic;
+  color: var(--gold);
+  opacity: 0.85;
+}
+
+.coque-points {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.coque-points i {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--cyan-dim);
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.coque-points i.on {
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.coque-go {
+  width: 100%;
+  margin-top: 4px;
+}
+
+@media (max-width: 760px) {
+  .coque-bas {
+    gap: 6px;
+    padding: 11px 13px 10px;
+  }
+
+  .coque-arme {
+    min-height: 0;
+  }
+}
+
+/* Paysage court : la fiche prend la droite, le vaisseau garde la gauche. Empiler
+   n'y tient pas — le panneau recouvrirait le vaisseau qu'il décrit. */
+.screen.coques.coques-cote {
+  display: grid;
+  grid-template-columns: 1fr minmax(300px, 42%);
+  grid-template-rows: auto 1fr;
+  align-items: center;
+  justify-content: stretch;
+  gap: 0 16px;
+  padding-inline: clamp(12px, 3vw, 30px);
+}
+
+.coques-cote .coque-haut {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.coques-cote .coque-bas {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  gap: 5px;
+  padding: 10px 13px 9px;
+}
+
+.coques-cote .coque-nom {
+  font-size: 21px;
+}
+
+/* Portrait court — un iPhone SE, la tablette la moins haute. Le vaisseau tombe à
+   54 % de la hauteur : sur 668 px, il est à 359, et un panneau de 250 px lui monte
+   dessus. On récupère la trentaine de pixels qui manque sur les marges, plutôt que
+   sur le texte : la fiche reste entière, c'est elle qu'on est venu lire. */
+@media (max-height: 720px) and (orientation: portrait) {
+  .screen.coques {
+    padding-block: 10px;
+  }
+
+  .coque-bas {
+    gap: 4px;
+    padding: 9px 12px 8px;
+  }
+
+  .coque-nom {
+    font-size: 18px;
+  }
+
+  .coque-fleche {
+    font-size: 25px;
+    min-height: 40px;
+  }
+
+  .coque-go {
+    margin-top: 2px;
+  }
+}
