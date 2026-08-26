@@ -213,6 +213,19 @@ export class AudioEngine {
   // Changer de thème. La boucle en cours va au bout de sa mesure, la suivante
   // s'écrit avec la nouvelle partition. Les quatre partagent la même fondamentale,
   // donc la jonction ne heurte pas.
+  // L'onde de la nappe tenue du thème en cours. Elle n'est plus la même partout :
+  // un chœur doux au départ, un grain mordant dans la ceinture, des quintes
+  // creuses dans le froid, des cordes amples dehors. C'est le fond du tableau, et
+  // il ne peut pas être le même sur les quatre.
+  _ondeNappe() {
+    // Les tables d'ondes ne sont bâties qu'au déverrouillage de l'audio, et le jeu
+    // choisit son thème dès la première vague — donc parfois avant le premier
+    // geste du joueur. Sans cette garde, lancer une partie sans avoir touché
+    // l'écran lève une erreur et coupe le son de toute la session.
+    if (!this.W) return null;
+    return this.W[this.theme.nappe] || this.W.vox;
+  }
+
   setTheme(id) {
     const t = THEMES.find((x) => x.id === id);
     if (!t || t === this.theme) return this.themeId;
@@ -220,6 +233,13 @@ export class AudioEngine {
     this.themeId = t.id;
     this.sig = t.signature;
     this.sigBoss = this.sig.map((n) => darken(n) - 12);
+    // Les voix de la nappe sont des oscillateurs PERSISTANTS, allumés une fois
+    // pour toute la partie. On leur change leur onde en marche : un oscillateur
+    // accepte une nouvelle table sans s'interrompre, donc la couleur du fond
+    // bascule sans le moindre trou — exactement ce qu'il faut sous le flash du
+    // saut lumière.
+    const onde = this._ondeNappe();
+    if (onde) for (const v of this.padVoices || []) for (const o of v.oscs) o.setPeriodicWave(onde);
     return this.themeId;
   }
 
@@ -338,12 +358,19 @@ export class AudioEngine {
     // Cuivres doux : plus de fondamentale, moins d'aigu que le brass existant. Le
     // caractère de cuivre vient du FILTRE qui s'ouvre avec la nuance, pas du spectre.
     const horn = [0, 1, 0.6, 0.36, 0.22, 0.13, 0.08, 0.05, 0.03];
+    // Métal frappé. Ce qui distingue une lame de métal d'une corde, ce sont ses
+    // harmoniques IMPAIRES dominantes : le clavecin, le carillon et l'enclume ont
+    // tous ce spectre creux entre les partiels, et c'est lui qu'on entend comme
+    // « métallique » avant même que l'attaque n'ait fini.
+    const metal = [0];
+    for (let n = 1; n <= 24; n++) metal[n] = n % 2 ? 1 / Math.pow(n, 0.72) : 0.12 / n;
     this.W = {
       strings: mk(strings),
       vox: mk(vox),
       growl: mk(growl),
       organ: mk(organ),
       horn: mk(horn),
+      metal: mk(metal),
       hollow: mk([0, 1, 0, 0.5, 0, 0.3, 0, 0.18, 0, 0.1]),
       brass: mk([0, 1, 0.82, 0.72, 0.6, 0.45, 0.32, 0.22, 0.15, 0.1, 0.06, 0.04]),
     };
@@ -1275,7 +1302,7 @@ export class AudioEngine {
       // le rend vivant plutôt que mathématique.
       const pair = [-7, 7].map((det) => {
         const o = this.ctx.createOscillator();
-        o.setPeriodicWave(this.W.organ);
+        o.setPeriodicWave(this._ondeNappe() || this.W.vox);
         o.detune.value = det;
         o.frequency.value = 110;
         o.connect(g);
@@ -1451,27 +1478,132 @@ export class AudioEngine {
 
   // Orgue percussif : la note de l'ostinato. Attaque quasi instantanée, coupure
   // franche — un tuyau s'ouvre et se ferme, il ne se fond pas.
-  _organ(when, semi, dur = 0.3, gain = 0.06) {
+  // L'OSTINATO, ET POURQUOI CE N'EST PLUS UN ORGUE.
+  //
+  // Ce motif tourne SANS ARRÊT — huit notes par mesure, du lancement jusqu'à la
+  // dernière vague. C'est, de très loin, le son qu'on entend le plus dans ce jeu.
+  // Il était joué à l'orgue, et au même orgue du premier palier au onzième : le
+  // reproche est tombé tout seul au bout de quelques heures de jeu, « je commence
+  // à me lasser », et il était mérité. Ce n'est pas le motif qui fatigue, ni
+  // l'harmonie : c'est un timbre invariable répété dix mille fois.
+  //
+  // Chaque thème a donc maintenant SON instrument, et ils n'ont rien en commun —
+  // ni l'attaque, ni la décroissance, ni le spectre. Le voyage change de matière
+  // en même temps qu'il change de lieu, et c'est exactement ce qu'on voulait de
+  // ces quatre partitions dès le départ.
+  _ostinato(when, semi, dur = 0.3, gain = 0.06, timbre = 'pincee') {
     if (!this.ctx) return;
+    const ctx = this.ctx;
     const t0 = when;
-    const o = this.ctx.createOscillator();
-    o.setPeriodicWave(this.W.organ);
-    o.frequency.value = hz(semi - 12);
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.linearRampToValueAtTime(gain, t0 + 0.012);
-    g.gain.setValueAtTime(gain, t0 + dur * 0.8);
-    g.gain.exponentialRampToValueAtTime(0.0004, t0 + dur);
-    o.connect(g);
-    g.connect(this.musicBus);
+    const f = hz(semi - 12);
+    const sortie = ctx.createGain();
+    sortie.connect(this.musicBus);
     if (this.revSend) {
-      const s = this.ctx.createGain();
-      s.gain.value = 0.35;
-      g.connect(s);
+      const s = ctx.createGain();
+      // Une note percussive a besoin de PLUS de réverbération qu'une note tenue :
+      // sans queue, elle sonne comme un clic dans une pièce sourde.
+      s.gain.value = timbre === 'cristal' ? 0.6 : 0.42;
+      sortie.connect(s);
       s.connect(this.revSend);
     }
+
+    const enveloppe = (g, attaque, tenue, fin) => {
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(gain, t0 + attaque);
+      if (tenue > 0) g.gain.setValueAtTime(gain, t0 + tenue);
+      g.gain.exponentialRampToValueAtTime(0.0004, t0 + fin);
+    };
+
+    if (timbre === 'cristal') {
+      // CELESTA. Deux sinus, dont un partiel NON ENTIER — c'est l'inharmonicité
+      // qui fait entendre du métal frappé plutôt qu'une flûte, et 2,76 est le
+      // rapport des barreaux de celesta et des cloches tubulaires. Longue queue :
+      // la note doit encore sonner quand la suivante arrive.
+      const longue = dur * 3.4;
+      for (const [rapport, part] of [
+        [1, 1],
+        [2.76, 0.32],
+        [5.4, 0.09],
+      ]) {
+        const o = ctx.createOscillator();
+        o.frequency.value = f * rapport;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(gain * part, t0 + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0004, t0 + longue * (part === 1 ? 1 : 0.55));
+        o.connect(g);
+        g.connect(sortie);
+        o.start(t0);
+        o.stop(t0 + longue + 0.05);
+      }
+      return;
+    }
+
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const filtre = ctx.createBiquadFilter();
+    filtre.type = 'lowpass';
+    o.connect(filtre);
+    filtre.connect(g);
+    g.connect(sortie);
+
+    if (timbre === 'metal') {
+      // CLAVECIN DUR. Harmoniques impaires, attaque instantanée, et un filtre qui
+      // se ferme vite : c'est la fermeture qui fait le « ping », pas le spectre.
+      o.setPeriodicWave(this.W.metal);
+      o.frequency.value = f;
+      filtre.Q.value = 1.6;
+      filtre.frequency.setValueAtTime(Math.min(9000, f * 14), t0);
+      filtre.frequency.exponentialRampToValueAtTime(Math.max(320, f * 2.6), t0 + dur * 1.5);
+      enveloppe(g, 0.003, 0, dur * 1.7);
+      o.start(t0);
+      o.stop(t0 + dur * 1.75 + 0.05);
+      return;
+    }
+
+    if (timbre === 'souffle') {
+      // CORDE GRAVE PINCÉE, avec le bruit de l'ongle sur la corde. Le souffle ne
+      // s'entend pas comme un bruit : il s'entend comme une MAIN, et c'est ce qui
+      // empêche le grave d'être une simple pédale de synthétiseur.
+      o.setPeriodicWave(this.W.hollow);
+      o.frequency.value = f / 2;
+      filtre.Q.value = 0.7;
+      filtre.frequency.setValueAtTime(Math.min(2600, f * 6), t0);
+      filtre.frequency.exponentialRampToValueAtTime(Math.max(160, f * 1.4), t0 + dur * 2);
+      enveloppe(g, 0.02, dur * 0.5, dur * 2.4);
+      o.start(t0);
+      o.stop(t0 + dur * 2.5 + 0.05);
+
+      if (this.noiseBuffer) {
+        const n = ctx.createBufferSource();
+        n.buffer = this.noiseBuffer;
+        const nf = ctx.createBiquadFilter();
+        nf.type = 'bandpass';
+        nf.frequency.value = f * 4;
+        nf.Q.value = 1.2;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(gain * 0.5, t0);
+        ng.gain.exponentialRampToValueAtTime(0.0004, t0 + 0.05);
+        n.connect(nf);
+        nf.connect(ng);
+        ng.connect(sortie);
+        n.start(t0);
+        n.stop(t0 + 0.06);
+      }
+      return;
+    }
+
+    // PINCÉE — le défaut. Corde de harpe : spectre plein à l'attaque, qui s'éteint
+    // en se ternissant. Sec, en avant, et surtout : il RESPIRE entre deux notes,
+    // là où le son tenu de l'orgue remplissait tout sans jamais laisser d'air.
+    o.setPeriodicWave(this.W.strings);
+    o.frequency.value = f;
+    filtre.Q.value = 0.9;
+    filtre.frequency.setValueAtTime(Math.min(7000, f * 11), t0);
+    filtre.frequency.exponentialRampToValueAtTime(Math.max(260, f * 2.2), t0 + dur * 1.6);
+    enveloppe(g, 0.005, 0, dur * 1.9);
     o.start(t0);
-    o.stop(t0 + dur + 0.05);
+    o.stop(t0 + dur * 1.95 + 0.05);
   }
 
   // Jeu de flûte. Une registration douce de l'orgue — presque une sinusoïde avec
@@ -2207,14 +2339,21 @@ export class AudioEngine {
       const ost = this.theme.ostinato;
       const deg = ost[(step / 2) % ost.length];
       const semi = chord.pad[deg % chord.pad.length] + (deg >= chord.pad.length ? 12 : 0);
-      this._organ(when, semi + 12, 0.34, peak ? 0.075 : 0.05);
+      const tim = this.theme.timbre || 'pincee';
+      this._ostinato(when, semi + 12, 0.34, peak ? 0.075 : 0.05, tim);
       // Au sommet, l'ostinato est doublé à l'octave : c'est ce qui le fait passer
       // de motif à déferlante, sans changer une seule note.
-      if (peak) this._organ(when, semi + 24, 0.3, 0.035);
+      if (peak) this._ostinato(when, semi + 24, 0.3, 0.035, tim);
     }
     // Sur les écrans calmes, l'ostinato tourne au ralenti, une note par temps.
     if (quiet && step % 4 === 0) {
-      this._organ(when, chord.pad[(step / 4) % chord.pad.length] + 12, 0.6, 0.04);
+      this._ostinato(
+        when,
+        chord.pad[(step / 4) % chord.pad.length] + 12,
+        0.6,
+        0.04,
+        this.theme.timbre || 'pincee'
+      );
     }
 
     // --- TIMBALES.

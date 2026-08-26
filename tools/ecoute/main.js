@@ -15,6 +15,17 @@ const audio = new AudioEngine();
 
 // Ce qu'il faut savoir de chaque thème pour l'écouter, et qui ne se lit pas dans
 // les données : où on l'entend, et à quoi tendre l'oreille.
+// L'ostinato tourne huit fois par mesure du début à la fin d'une partie : c'est le
+// son le plus entendu du jeu. Il était joué au même orgue sur les quatre thèmes,
+// et c'est ce qui a fini par lasser — pas le motif, le timbre invariable. Chaque
+// thème a maintenant sa matière.
+const MATIERE = {
+  pincee: 'harpe pincée',
+  metal: 'métal frappé',
+  cristal: 'celesta',
+  souffle: 'corde grave',
+};
+
 const NOTES = {
   depart: {
     ou: 'Orbite terrestre · Lagrange · Transit',
@@ -102,7 +113,7 @@ function carte(theme) {
   for (const [k, v] of [
     ['Tempo', `${theme.tempo} BPM`],
     ['Mode', n.mode || '—'],
-    ['Notes', String(theme.melodie.length)],
+    ['Ostinato', MATIERE[theme.timbre] || theme.timbre || '—'],
     ['Tour', `${Math.round((32 * 16 * 60) / theme.tempo / 4)} s`],
   ]) {
     meta.appendChild(el('dt', null, k));
@@ -133,7 +144,7 @@ function construis() {
     el(
       'p',
       'chapo',
-      'Rien n’est enregistré : tout est synthétisé au moment où vous appuyez. Cette page embarque le moteur audio du jeu et ses partitions, donc ce que vous entendez ici est exactement ce que le jeu joue. Le thème suit le voyage — il change quatre fois entre l’orbite terrestre et l’espace interstellaire.'
+      'Rien n’est enregistré : tout est synthétisé au moment où vous appuyez. Cette page embarque le moteur audio du jeu et ses partitions, donc ce que vous entendez ici est exactement ce que le jeu joue. Le thème suit le voyage — il change quatre fois entre l’orbite terrestre et l’espace interstellaire, et depuis peu la MATIÈRE change avec lui : l’ostinato n’est plus joué au même orgue d’un bout à l’autre, mais à la harpe, au métal, au celesta, puis à la corde grave.'
     )
   );
   app.appendChild(entete);

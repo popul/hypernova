@@ -120,6 +120,13 @@ const DEPART = {
   nom: 'Le dernier en vol',
   tempo: 84,
 
+  // La matière du thème. L'ostinato tourne huit fois par mesure du début à la fin
+  // d'une partie : c'est le son le plus entendu du jeu, et le garder identique
+  // d'un bout à l'autre du voyage finissait par lasser. Ici :
+  // la harpe de bord, sèche et proche — on part, et chaque note avance.
+  timbre: 'pincee',
+  nappe: 'vox',
+
   melodie: [
     // — Question. On entre sur le contretemps, ce qui donne l'élan.
     { b: 0, s: 4, n: 43, d: 4 }, // la4
@@ -209,6 +216,13 @@ const CEINTURE = {
   id: 'ceinture',
   nom: 'La route se durcit',
   tempo: 92,
+
+  // La matière du thème. L'ostinato tourne huit fois par mesure du début à la fin
+  // d'une partie : c'est le son le plus entendu du jeu, et le garder identique
+  // d'un bout à l'autre du voyage finissait par lasser. Ici :
+  // le métal frappé : la route se durcit, la matière aussi.
+  timbre: 'metal',
+  nappe: 'growl',
 
   melodie: [
     // — Question. Le marteau, puis la quinte.
@@ -314,6 +328,13 @@ const FROID = {
   nom: 'La longue nuit',
   tempo: 60,
 
+  // La matière du thème. L'ostinato tourne huit fois par mesure du début à la fin
+  // d'une partie : c'est le son le plus entendu du jeu, et le garder identique
+  // d'un bout à l'autre du voyage finissait par lasser. Ici :
+  // le celesta et son partiel inharmonique — du givre qui sonne.
+  timbre: 'cristal',
+  nappe: 'hollow',
+
   melodie: [
     // — Question. Un petit arc autour de ré5, qui retombe dans le vide.
     { b: 0, s: 4, n: 48, d: 8 }, // ré5   (2 s)
@@ -413,6 +434,13 @@ const DEHORS = {
   id: 'dehors',
   nom: 'Plus rien derrière',
   tempo: 50,
+
+  // La matière du thème. L'ostinato tourne huit fois par mesure du début à la fin
+  // d'une partie : c'est le son le plus entendu du jeu, et le garder identique
+  // d'un bout à l'autre du voyage finissait par lasser. Ici :
+  // une corde grave pincée à la main, et le bruit de l'ongle avec.
+  timbre: 'souffle',
+  nappe: 'strings',
 
   melodie: [
     // — Question. Elle entre au milieu de la mesure, sur un accord vide.
