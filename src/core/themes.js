@@ -398,10 +398,10 @@ const FROID = {
 // espace au-dessus de lui ; un thème aigu donne l'impression d'un plafond.
 //
 // L'HARMONIE GLISSE D'UN DEMI-TON. De ré mineur à sol mineur, deux voix
-// bougent d'un demi-ton et deux ne bougent pas. De si♭ à la mineur, trois voix
-// descendent d'un demi-ton ensemble. On n'entend jamais un accord se poser à
-// côté d'un autre : on entend le sol se dérober sous des notes qui, elles, ne
-// changent pas. Et au retour de la boucle, les quatre voix remontent en quartes
+// montent d'un demi-ton (la → si♭) et les deux autres ne bougent pas. De si♭ à
+// la mineur, deux voix descendent d'un demi-ton et les deux autres tombent
+// d'une quarte. On n'entend jamais un accord se poser à côté d'un autre : on
+// entend le sol se dérober sous des notes qui, elles, ne changent pas. Et au retour de la boucle, les quatre voix remontent en quartes
 // parallèles — un procédé qu'on interdit à un choral, et qui est exactement le
 // son de l'organum : ça ne dit pas « accord », ça dit « espace ».
 //
@@ -420,8 +420,11 @@ const DEHORS = {
     { b: 1, s: 0, n: 39, d: 6 }, // fa4   ← c'est la mélodie qui fait le mineur
     { b: 1, s: 6, n: 41, d: 2 }, // sol4
     { b: 1, s: 8, n: 43, d: 8 }, // la4
-    { b: 2, s: 0, n: 41, d: 8 }, // sol4  ← la même hauteur, mais sol mineur
-    { b: 2, s: 8, n: 39, d: 8 }, //          est passé dessous : le sol se dérobe
+    { b: 2, s: 0, n: 41, d: 8 }, // sol4  ← ici la mélodie descend son la en sol
+    //                                      pendant que la nappe monte le sien en
+    //                                      si♭ : les deux voix se croisent, et
+    //                                      c'est ça, le sol qui se dérobe
+    { b: 2, s: 8, n: 39, d: 8 }, // fa4
     { b: 3, s: 0, n: 44, d: 16 }, // si♭4  ← une mesure entière, en l'air (4,8 s)
     // — Réponse. Le seul vrai mouvement du morceau, et il ne va qu'une fois au bout.
     { b: 4, s: 0, n: 39, d: 8 }, // fa4
@@ -432,7 +435,9 @@ const DEHORS = {
     { b: 6, s: 8, n: 43, d: 8 }, // la4
     { b: 7, s: 0, n: 41, d: 4 }, // sol4
     { b: 7, s: 4, n: 38, d: 4 }, // mi4
-    { b: 7, s: 8, n: 36, d: 8 }, // ré4   ← la tonique, sur un accord qui n'est pas le sien
+    { b: 7, s: 8, n: 36, d: 8 }, // ré4   ← la tonique : sur la mineur dans la
+    //                                      section A, où elle ne se résout pas ;
+    //                                      sur ré mineur au sommet, où elle se pose
   ],
 
   // De ré mineur à sol mineur, DEUX VOIX BOUGENT D'UN DEMI-TON et les deux

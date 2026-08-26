@@ -1651,6 +1651,10 @@ export class Game {
     // flash du saut. Ce setBiome n'agit donc qu'au tout premier lancement, ou après
     // un saut escamoté.
     this.stage.space?.setBiome(this._biomeFor(n), { instant: this.wave <= 1 });
+    // La musique appartient au SECTEUR, pas à la vague : on s'éloigne de la Terre,
+    // et le thème s'éloigne avec. Le palier de boss garde celui de son secteur —
+    // c'est `darken()` qui l'assombrit, pas un changement de partition.
+    this.audio.setThemePourPalier?.(stageForWave(n).id);
     if (!def.boss) this.audio.waveStart();
   }
 
@@ -1679,6 +1683,10 @@ export class Game {
       dialogue,
       onSwap: () => {
         this.stage.space?.setBiome(nextBiome);
+        // Le thème bascule SOUS LE FLASH du saut, en même temps que le décor : c'est
+        // le seul instant où l'oreille accepte un changement de tempo sans l'entendre
+        // comme une coupure.
+        this.audio.setThemePourPalier?.(stageForWave(nextWave).id);
         this.hud.announce(nextBiome.name, nextBiome.sub, 2400);
       },
       onDone: () => {

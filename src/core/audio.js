@@ -8,6 +8,7 @@
 // citations littérales du même thème de cinq notes.
 
 import { STORAGE_KEYS } from '../game/constants.js';
+import { THEMES, themePourPalier } from './themes.js';
 
 // ---- Théorie ----
 //
@@ -20,68 +21,6 @@ import { STORAGE_KEYS } from '../game/constants.js';
 const ROOT = 36.708; // ré1
 const hz = (s) => ROOT * Math.pow(2, s / 12);
 
-// Tempo UNIQUE : changer de tempo entre les écrans casserait l'illusion d'un seul
-// morceau. Mais 150 BPM avec une grosse caisse à quatre temps, c'était un morceau
-// de club — aucun rapport avec un voyage de plusieurs mois vers l'extérieur du
-// système. 84 BPM, c'est un pas d'orchestre, et surtout le temps y tombe à
-// 0,714 s : la seconde d'horloge à un cheveu près. C'est ce tic-là qui porte la
-// pulsation, pas une caisse.
-const TEMPO = 84;
-
-// ---- LA MÉLODIE ----
-//
-// Ce qui précédait était un motif de cinq notes : un jingle, pas un thème. Une
-// mélodie, ça n'est pas une suite de notes justes — il lui faut quatre choses, et
-// aucune n'est facultative :
-//
-//  1. UNE PHRASE ET SA RÉPONSE. Quatre mesures qui posent une question et
-//     s'arrêtent en suspens, quatre mesures qui répondent et se posent.
-//  2. UN SOMMET, UN SEUL. Ici le fa5 de la mesure 5. La note la plus haute de tout
-//     le morceau ne se joue qu'une fois : c'est ce qui en fait un sommet.
-//  3. DES DURÉES INÉGALES. Des notes longues, des notes brèves. Une mélodie en
-//     valeurs égales est un exercice de solfège.
-//  4. DES DEGRÉS CONJOINTS, ET DEUX SAUTS. On monte et on descend par pas, sauf
-//     deux fois : la quarte du début et la quarte du sommet. Un saut n'existe que
-//     s'il est rare.
-//
-// Huit mesures en ré mineur sur la grille Dm–Dm–Bb–Bb–F–F–C–C. La dernière note
-// est un ré tenu par-dessus l'accord de do : il ne se résout pas tout seul, c'est
-// l'accord qui bouge dessous à la reprise. La boucle est donc sans couture.
-//
-// Notation : { b: mesure (0-7), s: pas (0-15), n: demi-tons depuis ré1, d: durée }.
-const MELODY = [
-  // — Question. On entre sur le contretemps, ce qui donne l'élan.
-  { b: 0, s: 4, n: 43, d: 4 }, // la4
-  { b: 0, s: 8, n: 48, d: 6 }, // ré5   ← premier saut : la quarte
-  { b: 0, s: 14, n: 46, d: 2 }, // do5
-  { b: 1, s: 0, n: 44, d: 6 }, // si♭4  ← le doute
-  { b: 1, s: 6, n: 43, d: 6 }, // la4
-  { b: 1, s: 12, n: 39, d: 4 }, // fa4
-  { b: 2, s: 0, n: 41, d: 4 }, // sol4
-  { b: 2, s: 4, n: 43, d: 4 }, // la4
-  { b: 2, s: 8, n: 44, d: 8 }, // si♭4  ← on remonte
-  { b: 3, s: 0, n: 43, d: 8 }, // la4
-  { b: 3, s: 8, n: 41, d: 8 }, // sol4  ← en suspens : la question reste ouverte
-
-  // — Réponse. Même contour, mais elle va plus haut et elle se pose.
-  { b: 4, s: 4, n: 46, d: 4 }, // do5
-  { b: 4, s: 8, n: 51, d: 6 }, // fa5   ← LE SOMMET, une seule fois dans tout le morceau
-  { b: 4, s: 14, n: 50, d: 2 }, // mi5
-  { b: 5, s: 0, n: 48, d: 6 }, // ré5
-  { b: 5, s: 6, n: 46, d: 6 }, // do5
-  { b: 5, s: 12, n: 43, d: 4 }, // la4
-  { b: 6, s: 0, n: 44, d: 4 }, // si♭4
-  { b: 6, s: 4, n: 43, d: 4 }, // la4
-  { b: 6, s: 8, n: 41, d: 8 }, // sol4
-  { b: 7, s: 0, n: 38, d: 8 }, // mi4
-  { b: 7, s: 8, n: 36, d: 8 }, // ré4   ← la tonique, tenue par-dessus l'accord de do
-];
-
-// La signature : les cinq premières notes de la mélodie, rien d'autre. Les
-// indicatifs de NOVA et de KORN, l'appel de début de vague et l'escalier de combo
-// citent donc littéralement le thème — et le joueur les relie sans y penser.
-const SIGNATURE = [43, 48, 46, 44, 43];
-
 // Le mode du boss. On n'écrit pas une seconde mélodie : on abaisse la QUINTE et la
 // SECONDE de celle du joueur. Ré mineur devient ré phrygien à quinte diminuée —
 // la même ligne, le même contour, un monde qui a tourné. C'est aussi pour ça que
@@ -93,75 +32,6 @@ function darken(semi) {
 }
 
 // Compat : plusieurs effets citaient l'ancien motif.
-const THEME = SIGNATURE;
-const THEME_BOSS = SIGNATURE.map((n) => darken(n) - 12);
-
-// Accords, en demi-tons depuis ré1 — donc le degré 0 est un RÉ.
-//
-// C'est ici que se logeait le défaut le plus grave de toute la partition. La table
-// avait été écrite en prenant le DO comme degré 0, par réflexe : chaque accord
-// sonnait donc un ton au-dessus de son nom. « Dm » jouait mi mineur, « C » jouait
-// ré MAJEUR — avec un fa# qui n'existe pas en ré mineur et qui heurtait au demi-ton
-// le fa naturel de la mélodie. Comme la mélodie, elle, était juste, le morceau était
-// bitonal d'un bout à l'autre : mélodie en ré mineur, harmonie en mi mineur.
-// C'est ce décalage d'un ton, et rien d'autre, qui rendait la musique désagréable.
-//
-// Trois champs, trois registres, et ils ne sont pas interchangeables :
-//   pad  — les quatre voix tenues (orgue et chœur), enchaînées en conduite serrée :
-//          d'un accord au suivant, une ou deux voix bougent, jamais les quatre.
-//   bass — les notes de contrebasse DE CET ACCORD, dans l'ordre fondamentale,
-//          quinte, tierce. Les motifs pointent dessus par leur indice : un
-//          intervalle fixe donnerait une tierce mineure sur un accord majeur.
-//   sub  — la pédale de 32 pieds, et la hauteur des timbales (sub + 14).
-const CHORDS = {
-  Dm: { sub: 0, pad: [24, 27, 31, 36], bass: [12, 19, 15] },
-  Bb: { sub: 8, pad: [24, 27, 32, 36], bass: [8, 15, 12] },
-  F: { sub: 3, pad: [22, 27, 31, 34], bass: [15, 22, 19] },
-  C: { sub: 10, pad: [22, 26, 29, 34], bass: [10, 17, 14] },
-  Gm: { sub: 5, pad: [24, 29, 32, 36], bass: [17, 24, 20] },
-};
-
-// La forme, en mesures. 32 mesures = 51,2 s, et la boucle repart à la mesure 4 :
-// l'intro ne se réentend jamais. Chaque section porte sa propre grille d'accords,
-// à raison d'un accord toutes les deux mesures — c'est ce qui fait qu'on entend
-// UN morceau qui avance, et non une boucle de deux secondes.
-const FORM = [
-  // Quatre mesures de nappe seule, le temps que le kick arrive.
-  { name: 'intro', from: 0, grid: ['Dm', 'Bb'] },
-  // La cadence qui tourne : elle appelle toujours la suite, elle ne se pose jamais.
-  { name: 'A', from: 4, grid: ['Dm', 'Bb', 'F', 'C'] },
-  // La montée. Se termine sur do : l'accord qui NE PEUT PAS rester en l'air.
-  { name: 'lift', from: 12, grid: ['Bb', 'C'] },
-  // Le drop résout sur la tonique — c'est l'arrivée, pas une étape.
-  { name: 'drop', from: 16, grid: ['Gm', 'Bb', 'C', 'Dm'] },
-  // La respiration. Sans elle, le drop suivant ne fait plus rien.
-  { name: 'breakdown', from: 24, grid: ['Dm', 'Bb'] },
-  // Le retour, qui recale sur do pour retomber sur ré à la boucle.
-  { name: 'retour', from: 28, grid: ['F', 'C'] },
-];
-
-// L'ostinato : le motif d'orgue qui tourne sans fin sous tout le morceau. Ce n'est
-// pas un arpège décoratif, c'est le moteur — il occupe la place qu'avait la grosse
-// caisse. Degrés dans l'accord courant, en croches.
-const OSTINATO = [0, 2, 4, 2, 3, 2, 4, 2];
-
-// Le tic. Un temps sur quatre, sec, sans réverbération : l'horloge qui continue de
-// tourner pendant qu'on s'éloigne. Un enfant ne saura pas pourquoi ça l'inquiète,
-// mais ça l'inquiétera.
-const TICK = [0, 4, 8, 12];
-
-// Timbales. Jamais sur tous les temps : ce qui fait la gravité d'un orchestre,
-// c'est ce qu'il ne joue PAS.
-const TIMPANI = [0, 6, 8, 14];
-const TIMPANI_HEAVY = [0, 3, 6, 8, 11, 14]; // 3+3+2, réservé au sommet
-
-// Contrebasses. Deux ou trois notes TENUES par mesure au lieu de huit notes
-// piquées : un pupitre de contrebasses ne joue pas une ligne de basse électronique.
-// Les valeurs sont des INDICES dans chord.bass (0 fondamentale, 1 quinte, 2 tierce)
-// et non des intervalles : un intervalle fixe plaquerait une tierce mineure sur un
-// accord majeur, ce qui était l'autre moitié du problème.
-const BASS_EVEN = { 0: { i: 0, len: 8 }, 8: { i: 1, len: 8 } };
-const BASS_ODD = { 0: { i: 0, len: 6 }, 6: { i: 2, len: 4 }, 10: { i: 1, len: 6 } };
 
 // Voyelles françaises par triplet de formants (F1, F2, F3). Le morphing entre ces
 // triplets EST l'articulation : c'est lui qui fabrique l'illusion d'une bouche.
@@ -218,6 +88,19 @@ const boss = (mode) => mode === 'boss';
 
 export class AudioEngine {
   constructor() {
+    // LA PARTITION EST UNE DONNÉE, PAS DU CODE.
+    //
+    // Elle vivait en dur au milieu du moteur : une seule musique, du premier
+    // palier au dernier. Or le voyage en compte onze et s'éloigne de la Terre —
+    // garder le même thème d'un bout à l'autre revenait à dire que rien ne change,
+    // quand c'est précisément le sujet du jeu. Le moteur ne fait plus que LIRE.
+    this.theme = THEMES[0];
+    this.themeId = this.theme.id;
+    // Les indicatifs CITENT les premières notes de la partition en cours : c'est
+    // ce qui fait entendre qu'un personnage et la musique de son secteur
+    // appartiennent au même monde. Calculés au changement, jamais dans le flux.
+    this.sig = this.theme.signature;
+    this.sigBoss = this.sig.map((n) => darken(n) - 12);
     this.ctx = null;
     this.muted = localStorage.getItem(STORAGE_KEYS.muted) === '1';
     this.mode = 'off';
@@ -318,6 +201,33 @@ export class AudioEngine {
 
     this.nextStepTime = this.ctx.currentTime + 0.1;
     this._scheduler();
+  }
+
+  // Le tempo de la partition en cours. Les instruments comptent leurs durées en
+  // PAS de partition, pas en secondes : sans ça, une noire de « La longue nuit »
+  // (60 BPM) durerait le temps d'une noire à 84, soit 40 % trop court.
+  get tempo() {
+    return this.theme.tempo;
+  }
+
+  // Changer de thème. La boucle en cours va au bout de sa mesure, la suivante
+  // s'écrit avec la nouvelle partition. Les quatre partagent la même fondamentale,
+  // donc la jonction ne heurte pas.
+  setTheme(id) {
+    const t = THEMES.find((x) => x.id === id);
+    if (!t || t === this.theme) return this.themeId;
+    this.theme = t;
+    this.themeId = t.id;
+    this.sig = t.signature;
+    this.sigBoss = this.sig.map((n) => darken(n) - 12);
+    return this.themeId;
+  }
+
+  // Le thème que ce palier du voyage doit jouer. C'est `themes.js` qui décide de
+  // la correspondance, pas le moteur.
+  setThemePourPalier(palier) {
+    // `themePourPalier` rend le thème lui-même, pas son identifiant.
+    return this.setTheme(themePourPalier(palier)?.id);
   }
 
   toggleMute() {
@@ -1052,7 +962,7 @@ export class AudioEngine {
   waveStart() {
     const t0 = this.ctx?.currentTime;
     if (t0 == null) return;
-    [THEME[0], THEME[1], THEME[1] + 12].forEach((semi, i) =>
+    [this.sig[0], this.sig[1], this.sig[1] + 12].forEach((semi, i) =>
       this._horn(t0 + i * 0.16, semi - 12, 3, 0.9)
     );
     this._timpani(t0, 14, 0.55);
@@ -1087,7 +997,7 @@ export class AudioEngine {
     // Coup de timbale, cymbale, et le souffle qui s'éloigne.
     this._timpani(t0, 14, 1.3);
     this._cymbal(t0, 1.5, 2.6);
-    this._horn(t0, THEME[0] - 24, 5, 1.2);
+    this._horn(t0, this.sig[0] - 24, 5, 1.2);
     this._noise({ dur: 1.1, gain: 0.2, filterFreq: 8000, filterEnd: 150 });
   }
 
@@ -1262,8 +1172,8 @@ export class AudioEngine {
     if (t0 == null) return;
     for (let i = 0; i < 3; i++) {
       const w = t0 + i * 0.5;
-      this._horn(w, THEME_BOSS[0] - 12, 7, 1.1);
-      this._horn(w, THEME_BOSS[2] - 13, 7, 0.85);
+      this._horn(w, this.sigBoss[0] - 12, 7, 1.1);
+      this._horn(w, this.sigBoss[2] - 13, 7, 0.85);
       this._timpani(w, 12, 0.9);
     }
     this._cymbal(t0, 1.3, 3);
@@ -1289,7 +1199,7 @@ export class AudioEngine {
   _scheduler() {
     if (!this.ctx) return;
     const lookahead = 0.12;
-    const stepDur = 60 / TEMPO / 4; // 0,100 s pile : toutes les transitions sont calées
+    const stepDur = 60 / this.tempo / 4;
     while (this.nextStepTime < this.ctx.currentTime + lookahead) {
       if (this.mode !== 'off' && this.mode !== 'cinematic' && !this.muted) {
         this._playStep(this.step, this.bar, this.nextStepTime);
@@ -1308,8 +1218,8 @@ export class AudioEngine {
 
   // Section de la forme à la mesure donnée.
   _form(bar) {
-    let f = FORM[0];
-    for (const s of FORM) if (bar >= s.from) f = s;
+    let f = this.theme.forme[0];
+    for (const s of this.theme.forme) if (bar >= s.from) f = s;
     return f;
   }
 
@@ -1317,7 +1227,7 @@ export class AudioEngine {
   // chaque section commence donc sur son premier accord, pas au milieu de la grille.
   _chordAt(bar) {
     const f = this._form(bar);
-    return CHORDS[f.grid[Math.floor((bar - f.from) / 2) % f.grid.length]];
+    return this.theme.accords[f.grid[Math.floor((bar - f.from) / 2) % f.grid.length]];
   }
 
   // Hachage déterministe : on veut une variation musicale reproductible, pas du bruit.
@@ -1571,7 +1481,7 @@ export class AudioEngine {
   // sait qu'il sonne juste.
   _flute(when, semi, steps, gain = 1) {
     if (!this.ctx) return;
-    const dur = (steps * 60) / TEMPO / 4;
+    const dur = (steps * 60) / this.tempo / 4;
     const t0 = when;
     for (const [mul, amp, det] of [
       [1, 1, 0],
@@ -1609,7 +1519,7 @@ export class AudioEngine {
   // l'enveloppe d'amplitude, et un sawtooth devient un cor.
   _horn(when, semi, steps, gain = 1) {
     if (!this.ctx) return;
-    const dur = (steps * 60) / TEMPO / 4;
+    const dur = (steps * 60) / this.tempo / 4;
     const t0 = when;
     for (const det of [-6, 6]) {
       const o = this.ctx.createOscillator();
@@ -1660,7 +1570,7 @@ export class AudioEngine {
   // Contrebasses : archet, donc attaque molle et note tenue. Aucune percussion.
   _bass(when, semi, steps = 8) {
     if (!this.ctx) return;
-    const dur = (steps * 60) / TEMPO / 4;
+    const dur = (steps * 60) / this.tempo / 4;
     const t0 = when;
     const o = this.ctx.createOscillator();
     o.setPeriodicWave(this.W.strings);
@@ -1693,7 +1603,7 @@ export class AudioEngine {
   // l'archet, aucune percussion, et un léger désaccord entre pupitres.
   _strings(when, semis, steps, gain = 1) {
     if (!this.ctx) return;
-    const dur = (steps * 60) / TEMPO / 4;
+    const dur = (steps * 60) / this.tempo / 4;
     const t0 = when;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t0);
@@ -2286,7 +2196,7 @@ export class AudioEngine {
     // --- L'HORLOGE. Un temps sur quatre, du début à la fin, y compris sur les
     // écrans calmes. C'est le seul élément qui ne s'arrête jamais : le voyage
     // continue même quand le joueur regarde un menu.
-    if (TICK.includes(step)) {
+    if (this.theme.tic.includes(step)) {
       const vel = quiet ? 0.45 : sec === 'intro' ? 0.6 : sec === 'breakdown' ? 0.38 : 1;
       this._tick(when, vel);
     }
@@ -2294,7 +2204,8 @@ export class AudioEngine {
     // --- OSTINATO d'orgue. Le moteur du morceau. Il entre à la section A et ne
     // s'arrête qu'à la respiration.
     if (!quiet && sec !== 'intro' && sec !== 'breakdown' && step % 2 === 0) {
-      const deg = OSTINATO[(step / 2) % OSTINATO.length];
+      const ost = this.theme.ostinato;
+      const deg = ost[(step / 2) % ost.length];
       const semi = chord.pad[deg % chord.pad.length] + (deg >= chord.pad.length ? 12 : 0);
       this._organ(when, semi + 12, 0.34, peak ? 0.075 : 0.05);
       // Au sommet, l'ostinato est doublé à l'octave : c'est ce qui le fait passer
@@ -2308,7 +2219,7 @@ export class AudioEngine {
 
     // --- TIMBALES.
     if (full) {
-      const pattern = peak ? TIMPANI_HEAVY : TIMPANI;
+      const pattern = peak ? this.theme.timbalesLourdes : this.theme.timbales;
       if (pattern.includes(step)) {
         this._timpani(when, chord.sub + 14, step === 0 ? 1 : 0.62);
       }
@@ -2318,7 +2229,7 @@ export class AudioEngine {
 
     // --- CONTREBASSES, en notes tenues.
     if (full) {
-      const note = (bar % 2 === 0 ? BASS_EVEN : BASS_ODD)[step];
+      const note = (bar % 2 === 0 ? this.theme.basse.pair : this.theme.basse.impair)[step];
       if (note) this._bass(when, chord.bass[note.i], note.len);
     } else if (sec === 'breakdown' && !quiet && step === 0 && bar % 2 === 0) {
       // Une seule contrebasse, tous les deux temps de mesure : la respiration doit
@@ -2332,7 +2243,7 @@ export class AudioEngine {
     // précisément parce qu'on l'a déjà entendue que leur reprise fait de l'effet.
     if (!quiet && sec === 'A') {
       const local = bar - 4; // 0..7 : la phrase entière, une fois
-      for (const ev of MELODY) {
+      for (const ev of this.theme.melodie) {
         if (ev.b === local && ev.s === step) this._flute(when, ev.n, ev.d + 2, 0.85);
       }
     }
@@ -2347,7 +2258,7 @@ export class AudioEngine {
     // --- CORDES EN TRÉMOLO : la montée, et rien d'autre. Les employer partout
     // les userait ; elles ne servent qu'à annoncer.
     if (!quiet && sec === 'lift' && step === 0) {
-      const dur = (16 * 60) / TEMPO / 4;
+      const dur = (16 * 60) / this.tempo / 4;
       this._tremolo(
         when,
         [chord.pad[1] + 12, chord.pad[2] + 12, chord.pad[3] + 12],
@@ -2357,7 +2268,7 @@ export class AudioEngine {
     }
     // Roulement de timbale sur les deux dernières mesures avant le sommet.
     if (!quiet && sec === 'lift' && bar === 14 && step === 0) {
-      this._roll(when, (32 * 60) / TEMPO / 4);
+      this._roll(when, (32 * 60) / this.tempo / 4);
     }
 
     // --- CYMBALE aux charnières : elle marque la coupe, elle ne rythme rien.
@@ -2370,7 +2281,7 @@ export class AudioEngine {
     // même contour, quinte et seconde abaissées.
     if (sec === 'drop' && !quiet) {
       const local = bar - 16; // 0..7, les huit mesures de la phrase
-      for (const ev of MELODY) {
+      for (const ev of this.theme.melodie) {
         if (ev.b !== local || ev.s !== step) continue;
         const n = isBoss ? darken(ev.n) - 12 : ev.n;
         this._horn(when, n - 12, ev.d, 1.9);
@@ -2387,7 +2298,7 @@ export class AudioEngine {
     // ses trois premières notes seulement. Citer la phrase entière ici gâcherait
     // l'arrivée — on n'a le droit de la jouer en entier qu'une fois.
     if (!quiet && sec === 'lift' && step === 0 && bar % 2 === 0) {
-      this._horn(when, SIGNATURE[((bar - 12) / 2) % 3] - 12, 6, 0.6);
+      this._horn(when, this.theme.signature[((bar - 12) / 2) % 3] - 12, 6, 0.6);
     }
 
     // --- LA MÉLODIE NUE. C'est la seule fois du morceau où on l'entend sans
@@ -2395,7 +2306,7 @@ export class AudioEngine {
     // mesures de respiration pour les quatre premières mesures de la phrase.
     if (sec === 'breakdown' && !quiet) {
       const local = bar - 24; // 0..3 : la question, sans sa réponse
-      for (const ev of MELODY) {
+      for (const ev of this.theme.melodie) {
         if (ev.b !== local || ev.s !== step) continue;
         // Célesta doublée d'une corde solo : le métal donne l'attaque, l'archet
         // donne la tenue. À deux, ils font ce que le piano devait faire seul.
@@ -2409,7 +2320,7 @@ export class AudioEngine {
     // améliorations, et la reconnaît plus tard quand les cuivres la reprennent.
     if (quiet) {
       const local = Math.floor((bar % 8) / 1);
-      for (const ev of MELODY) {
+      for (const ev of this.theme.melodie) {
         if (ev.b !== local || ev.s !== step) continue;
         this._bell(when, ev.n + (this.mode === 'shop' ? 0 : 12), 2.8);
       }
@@ -2424,8 +2335,8 @@ export class AudioEngine {
   novaSting() {
     const t0 = this.ctx?.currentTime;
     if (t0 == null) return;
-    this._bell(t0, THEME[0] + 12, 0.9);
-    this._bell(t0 + 0.11, THEME[1] + 12, 1.4);
+    this._bell(t0, this.sig[0] + 12, 0.9);
+    this._bell(t0 + 0.11, this.sig[1] + 12, 1.4);
   }
 
   // KORN : la même quarte, mais DIMINUÉE, et deux octaves plus bas. Le thème du
@@ -2433,7 +2344,7 @@ export class AudioEngine {
   kornSting() {
     const t0 = this.ctx?.currentTime;
     if (t0 == null) return;
-    this._horn(t0, THEME_BOSS[0] - 24, 3, 0.9);
-    this._horn(t0 + 0.13, THEME_BOSS[1] - 25, 5, 0.7);
+    this._horn(t0, this.sigBoss[0] - 24, 3, 0.9);
+    this._horn(t0 + 0.13, this.sigBoss[1] - 25, 5, 0.7);
   }
 }
