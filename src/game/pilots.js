@@ -77,6 +77,21 @@ export function createPilot(rawName, pin = '', apparence = {}) {
   return { ok: true, name };
 }
 
+// Modifier un pilote existant : son vaisseau, et éventuellement son code.
+// L'apparence est attachée au pilote et non à la partie — la changer doit donc
+// être possible ailleurs qu'au moment de la création, sinon un choix fait une
+// fois à la va-vite est définitif.
+export function majPilote(nom, { livree, carene, pin } = {}) {
+  const pilots = listPilots();
+  const p = pilots.find((x) => x.name === nom);
+  if (!p) return { ok: false, error: 'inconnu' };
+  if (livree) p.livree = livree;
+  if (carene) p.carene = carene;
+  if (pin != null && /^\d{4}$/.test(pin)) p.pinHash = hashPin(nom, pin);
+  savePilots(pilots);
+  return { ok: true };
+}
+
 export function hasPin(pilot) {
   return !!pilot?.pinHash;
 }

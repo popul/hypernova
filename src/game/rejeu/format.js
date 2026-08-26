@@ -15,7 +15,19 @@ import {
   posDepuis,
 } from './commandes.js';
 
-export const VERSION = 1;
+// LA VERSION DES RÈGLES, pas celle du format d'octets.
+//
+// Un replay ne contient pas des images mais des commandes : il ne redonne la même
+// partie que rejoué par le MÊME jeu. Changer une règle — la portée d'un tir, la
+// vitesse d'une balle — fait diverger la relecture de la partie enregistrée, et le
+// replay se met à raconter autre chose. On l'incrémente donc à chaque changement
+// de règles, et on refuse de lire ce qui vient d'une autre version : mieux vaut
+// dire « enregistré par une version antérieure » que montrer une partie fausse.
+//
+//   1 — première version
+//   2 — les ennemis ne tirent plus depuis le dos du vaisseau, ni à plat
+//       (noFireBehind, minShotSlope)
+export const VERSION = 2;
 
 // --- Écriture ---------------------------------------------------------------
 

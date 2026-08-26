@@ -147,6 +147,12 @@ export function fitPlayZone(camera) {
     const zBottom = camera.position.z + _ray.z * t;
     if (t > 0 && zBottom > ARENA.playerZMin + 4) {
       ARENA.playerZMax = zBottom - ARENA.playerZMargin;
+      // Les projectiles s'effacent APRÈS le bas de l'écran, jamais devant. La borne
+      // était fixe (26) alors que le champ visible, lui, dépend du cadrage : en
+      // portrait il descend plus bas, et l'on voyait les tirs ennemis s'évaporer en
+      // plein vol derrière le vaisseau. Une balle doit sortir du champ, pas
+      // disparaître dedans.
+      ARENA.bulletCullZMax = zBottom + 10;
       return ARENA.playerZMax;
     }
   }

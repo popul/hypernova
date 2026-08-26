@@ -159,6 +159,9 @@ export class LecteurReplay {
 }
 
 export async function ouvreReplay(partie) {
+  // Une partie enregistrée par une autre version des règles ne se rejoue pas : la
+  // simulation d'aujourd'hui ne referait pas celle d'hier.
+  if (partie.version !== VERSION) return { obsolete: true, version: partie.version };
   const octets = await depaquete(partie.flux);
   if (!octets) return null;
   return new LecteurReplay(partie, octets);

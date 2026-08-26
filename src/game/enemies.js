@@ -439,6 +439,18 @@ export class Enemies {
   // arriverait en moins de minReactionTime n'est pas une difficulté, c'est une
   // perte de vie annoncée — on ne le tire pas.
   _spawnShot(from, dir, kind, game) {
+    // DANS LE DOS, JAMAIS. Un ennemi qui a dépassé le vaisseau tire vers l'avant :
+    // sa balle arrive par en dessous, hors du regard, sur un joueur qui surveille
+    // le haut de l'écran. Ce n'est pas une difficulté, c'est une embuscade — et
+    // l'esquive n'y sert à rien puisqu'on ne voit rien venir.
+    if (from.z > game.player.position.z - ENEMY.noFireBehind) return false;
+    // NI À PLAT. Un ennemi très à l'écart mais à peine plus haut envoie une balle
+    // qui traverse l'écran presque à l'horizontale : elle arrive par le côté, dans
+    // la direction où l'on esquive justement, et le seul mouvement qui y échappe
+    // est celui qu'on ne fait jamais — reculer. On exige donc que la balle descende
+    // au moins six dixièmes de ce qu'elle dérive : au-dessus de trente degrés, elle
+    // se lit comme un tir venu d'en haut.
+    if (Math.abs(dir.z) < Math.abs(dir.x) * ENEMY.minShotSlope) return false;
     const speed = dir.length();
     if (speed > 1e-3) {
       const dist = from.distanceTo(game.player.position);

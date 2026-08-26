@@ -1,6 +1,0 @@
-{
-  "campaigns": [
-    { "id": "orion-2026-w35", "title": "Le Bras d’Orion", "file": "orion-2026-w35.json" },
-    { "id": "persee-2026-w36", "title": "Le Bras de Persée", "file": "persee-2026-w36.json" }
-  ]
-}

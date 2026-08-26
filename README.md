@@ -3,8 +3,8 @@
 > Shoot'em up spatial 3D — vagues d'ennemis en formation, plongées kamikazes, crédits à ramasser
 > et boutique d'améliorations entre chaque vague. Three.js + Vite, zéro asset externe : tous les
 > vaisseaux sont des meshes low-poly générés en code, tous les sons sont synthétisés en WebAudio.
-> Jouable au clavier **et au tactile** (PWA installable), avec un panthéon local pour se défier
-> entre copains et des **campagnes hebdomadaires dans la Voie lactée**.
+> Jouable au clavier **et au tactile** (PWA installable), avec un **panthéon partagé** où
+> chaque ligne s'ouvre sur le **replay** de la partie, et un mode **Survie** de cent vagues.
 
 ![statut](https://img.shields.io/badge/statut-jouable-4ff2ff) ![licence](https://img.shields.io/badge/licence-MIT-ffc857)
 
@@ -19,14 +19,14 @@ Build de production : `npm run build` puis `npm run preview`.
 
 ## Contrôles
 
-| Action | Clavier | Tactile |
-| --- | --- | --- |
-| Déplacement | ← → ou Q / D (AZERTY) ou A / D | glisser le doigt |
-| Tir | Espace ou clic (maintenu = tir auto) | automatique tant qu'on touche |
-| **Nova Bomb** (50 d'énergie) | **X** (appui bref) | bouton ✦ (appui bref) |
-| **Overdrive** (100 d'énergie) | **X** (maintenir 0,35 s) | bouton ✦ (maintenir) |
-| Boutique / menus | Souris ou 1-9 + Entrée | tap |
-| Pause / son | P ou Échap · M | boutons ⏸ / ♪ en bas à droite |
+| Action                        | Clavier                              | Tactile                       |
+| ----------------------------- | ------------------------------------ | ----------------------------- |
+| Déplacement                   | ← → ou Q / D (AZERTY) ou A / D       | glisser le doigt              |
+| Tir                           | Espace ou clic (maintenu = tir auto) | automatique tant qu'on touche |
+| **Nova Bomb** (50 d'énergie)  | **X** (appui bref)                   | bouton ✦ (appui bref)         |
+| **Overdrive** (100 d'énergie) | **X** (maintenir 0,35 s)             | bouton ✦ (maintenir)          |
+| Boutique / menus              | Souris ou 1-9 + Entrée               | tap                           |
+| Pause / son                   | P ou Échap · M                       | boutons ⏸ / ♪ en bas à droite |
 
 ## Lire les tirs : deux couleurs, deux dangers
 
@@ -46,9 +46,9 @@ façon de tenir les paliers ×6 à ×8, dont la fenêtre se resserre de 2,5 s à
 
 L'énergie se dépense sur **une seule touche**, deux usages :
 
-- **appui bref à 50** — *Nova Bomb* : efface tous les tirs à l'écran, frappe les ennemis
+- **appui bref à 50** — _Nova Bomb_ : efface tous les tirs à l'écran, frappe les ennemis
   proches, renvoie les plongeurs. Le bouton panique.
-- **maintien à 100** — *Overdrive* (4 s) : cadence ×1,5, balles perforantes, tirs ennemis
+- **maintien à 100** — _Overdrive_ (4 s) : cadence ×1,5, balles perforantes, tirs ennemis
   au ralenti et **score ×2**. Le bouton panache.
 
 ## Boucle de jeu
@@ -62,24 +62,45 @@ L'énergie se dépense sur **une seule touche**, deux usages :
 4. Toutes les 4 vagues : **vaisseau-amiral** (mini-boss). Le meilleur score et la meilleure vague
    sont sauvegardés en `localStorage`.
 
+## Deux modes
+
+- **Partie rapide** — l'arcade : les vagues s'enchaînent sans fin, on joue pour le score.
+- **Survie · 100 vagues** — un marathon avec une ligne d'arrivée. La difficulté y monte deux
+  fois moins vite (sans quoi tout serait saturé dès la vingtième vague), les boss tombent tous
+  les dix, et le classement répond à _jusqu'où es-tu allé ?_ — la vague d'abord, le score
+  ensuite.
+
+Chaque mode a son propre tableau et ses propres enregistrements.
+
 ## Compétition entre copains
 
-À la fin d'une partie rapide, chaque pilote inscrit son nom au **panthéon local** (top 10,
-`localStorage`, affiché à l'écran titre) — parfait pour se départager sur le même appareil.
-Le bouton **« Défier les copains »** partage le score (Web Share sur mobile, presse-papier
-sinon) pour lancer le défi à distance.
+Chaque partie s'inscrit au panthéon sous le nom du pilote. **Cliquer une ligne rejoue la
+partie** : contrôles de pause, vitesse ×0,5 à ×4, barre d'avancement.
 
-## Campagnes — la Voie lactée
+Le replay n'est pas une vidéo. On enregistre ce que le pilote a demandé, et le jeu refait
+tourner la même simulation avec les mêmes commandes — **une partie de vingt secondes pèse deux
+cents octets**. Cela suppose trois choses, qui sont des invariants du code :
 
-Le mode **Campagne** ouvre une carte de la galaxie : chaque système (Sol, Proxima, Sirius,
-Bételgeuse… jusqu'à Sagittarius A★) est une mission courte avec ses modificateurs (PV,
-densité de tir, plongées, crédits) et parfois un vaisseau-amiral final. La progression et le
-record par système sont sauvegardés.
+1. tout le hasard de la simulation passe par `core/rng.js`, semé à chaque vague ;
+2. les commandes sont exprimées **dans le monde** et arrondies des deux côtés (`rejeu/commandes.js`),
+   pour qu'une partie jouée au doigt en portrait se rejoue sur un écran large ;
+3. **toute modification des règles incrémente `VERSION`** dans `rejeu/format.js` — un
+   enregistrement d'une autre version est refusé plutôt que rejoué de travers.
 
-**Publier une campagne chaque semaine** : déposer un JSON dans `public/campaigns/` + une entrée
-dans `index.json`, déployer — rien d'autre. Voir [`public/campaigns/PUBLIER.md`](public/campaigns/PUBLIER.md).
-Les joueurs voient un badge « Nouveau » et, s'ils ont activé les alertes, reçoivent une
-notification.
+### Le panthéon partagé (optionnel)
+
+Un petit serveur (`server/`, Node + `node:sqlite`, aucune dépendance npm) met les scores et
+les replays en commun entre appareils. Le jeu reste **hors-ligne d'abord** : une partie s'écrit
+en local, puis part dans une file d'envoi qui se vide dès que le réseau répond.
+
+```bash
+node server/index.js          # PORT=8081, DB_PATH=/data/hypernova.db
+npm run dev                   # le proxy Vite envoie /api au serveur
+```
+
+Un pilote publie sous un pseudo protégé par un code à quatre chiffres ; une adresse est
+demandée à la création pour pouvoir récupérer un code oublié — elle n'apparaît jamais dans le
+classement. Le déploiement se fait par le même chart (`api.enabled=true`).
 
 ## PWA
 
@@ -87,8 +108,10 @@ Le jeu est installable (manifest + service worker, icônes générées par
 `node scripts/make-icons.mjs`) et jouable hors-ligne après la première visite. Les alertes de
 nouvelle campagne utilisent **Periodic Background Sync** quand il est disponible
 (Chrome/Android, PWA installée) ; ailleurs, la vérification a lieu à chaque ouverture du jeu.
-Pour des notifications *push* même application fermée sur toutes les plateformes, il faudrait
-un petit serveur Web Push (non inclus).
+
+Les appels à `/api` ne passent **jamais** par le cache : un classement servi depuis le disque
+afficherait des scores d'hier sans le dire. Hors ligne, l'appel échoue et le jeu retombe sur le
+panthéon local — c'est le comportement voulu, pas une panne.
 
 ## Architecture
 

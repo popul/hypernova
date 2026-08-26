@@ -34,7 +34,7 @@ jobs:
       - name: Lint, format et build
         run: |
           npm ci
-          npx eslint src scripts vite.config.js
+          npx eslint src scripts vite.config.js server
           npx prettier --check "src/**/*.{js,css}" index.html
           npm run build
           echo "✅ lint + format + build"
@@ -115,6 +115,43 @@ jobs:
           docker rm -f essai >/dev/null
           [ "$echec" = "0" ] && echo "✅ image conforme" || exit 1
 
+      - name: Test de fumée de l'image API
+        run: |
+          docker build -f server/Dockerfile -t hypernova-api:essai .
+          # /data en tmpfs mode 1777 : sans ce mode, un tmpfs appartient à root et
+          # l'utilisateur non privilégié ne peut pas y créer la base. En production
+          # c'est fsGroup qui joue ce rôle (voir le chart).
+          docker run -d --name essai-api -p 8138:8081 \
+            --read-only --tmpfs /tmp --tmpfs /data:rw,mode=1777 \
+            --security-opt no-new-privileges:true hypernova-api:essai
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8138/api/sante >/dev/null && break || sleep 1
+          done
+          echec=0
+          # Le parcours complet d'un joueur : réclamer un pseudo, publier une
+          # partie avec le jeton reçu, se retrouver au classement. Si `node:sqlite`
+          # venait à manquer dans une future image de base, c'est ici que ça casse.
+          jeton=$(curl -sf -X POST http://localhost:8138/api/pilotes \
+            -H 'content-type: application/json' \
+            -d '{"nom":"essai","code":"1234","email":"essai@exemple.fr"}' \
+            | sed -n 's/.*"jeton":"\([^"]*\)".*/\1/p')
+          [ -n "$jeton" ] || { echo "❌ pas de jeton"; echec=1; }
+          curl -sf -X POST http://localhost:8138/api/parties \
+            -H "authorization: Bearer $jeton" -H 'content-type: application/json' \
+            -d '{"score":4200,"vague":7,"mode":"arcade"}' >/dev/null \
+            || { echo "❌ publication refusée"; echec=1; }
+          curl -s http://localhost:8138/api/classement | grep -q '"score":4200' \
+            || { echo "❌ partie absente du classement"; echec=1; }
+          # Le préfixe /api est facultatif côté serveur : la passerelle ne le retire
+          # pas, mais on ne veut pas que ça devienne une dépendance silencieuse.
+          curl -sf http://localhost:8138/sante >/dev/null \
+            || { echo "❌ /sante sans préfixe indisponible"; echec=1; }
+          uid=$(docker exec essai-api id -u)
+          echo "uid dans le conteneur : $uid"
+          [ "$uid" != "0" ] || { echo "❌ conteneur en root"; echec=1; }
+          docker rm -f essai-api >/dev/null
+          [ "$echec" = "0" ] && echo "✅ image API conforme" || exit 1
+
   image:
     name: Image de conteneur
     needs: verifier
@@ -161,9 +198,60 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  image-api:
+    name: Image de conteneur (API)
+    needs: verifier
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion au registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        # Exactement les mêmes règles de tag que l'image du jeu : les deux sortent
+        # du même commit et le chart les référence par une seule appVersion. Un
+        # jour où elles ne porteraient pas le même numéro, le chart désignerait
+        # une image qui n'existe pas.
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}-api
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Construction et publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
   chart:
     name: Chart Helm (OCI)
-    needs: image
+    # Les deux images d'abord : publier un chart qui pointe des tags encore
+    # absents du registry donnerait un déploiement en ImagePullBackOff.
+    needs: [image, image-api]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:

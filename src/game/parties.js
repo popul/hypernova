@@ -71,10 +71,19 @@ export function toutesLesParties() {
 // pilotes — un même pilote peut occuper plusieurs lignes, et c'est ce qu'on veut :
 // chaque ligne est une partie qu'on peut rouvrir, et n'en garder qu'une par pilote
 // reviendrait à jeter les autres.
-export function classement(max = 10) {
+//
+// Un tableau PAR MODE. L'arcade se classe au score, la survie à la vague atteinte :
+// ce ne sont pas les mêmes parties, et « jusqu'où es-tu allé » ne se compare pas à
+// « combien as-tu marqué ».
+export function classement(max = 10, mode = 'arcade') {
+  const m = mode === 'survie' ? 'survie' : 'arcade';
+  const tri =
+    m === 'survie'
+      ? (a, b) => (b.wave || 0) - (a.wave || 0) || b.score - a.score
+      : (a, b) => b.score - a.score || (b.wave || 0) - (a.wave || 0);
   return migre()
-    .slice()
-    .sort((a, b) => b.score - a.score || (b.wave || 0) - (a.wave || 0))
+    .filter((p) => (p.mode || 'arcade') === m)
+    .sort(tri)
     .slice(0, max);
 }
 
@@ -83,14 +92,14 @@ export function partieParId(id) {
 }
 
 // Le rang d'une partie dans le classement, ou -1.
-export function rangDe(id) {
-  const i = classement(10).findIndex((p) => p.id === id);
+export function rangDe(id, mode = 'arcade') {
+  const i = classement(10, mode).findIndex((p) => p.id === id);
   return i === -1 ? -1 : i + 1;
 }
 
 // Enregistre une partie terminée. `replay` est l'objet produit par l'Enregistreur,
 // ou null. Renvoie { id, rang, classement }.
-export function enregistrePartie({ name, score, wave, duree, replay }) {
+export function enregistrePartie({ name, score, wave, duree, mode = 'arcade', replay }) {
   const parties = migre();
   const id = `p${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
   parties.push({
@@ -104,14 +113,14 @@ export function enregistrePartie({ name, score, wave, duree, replay }) {
     etats: replay?.etats || null,
     controles: replay?.controles || null,
     version: replay?.version || 0,
-    mode: replay?.mode || 'arcade',
+    mode: mode === 'survie' ? 'survie' : 'arcade',
     seed: replay?.seed ?? 0,
     pilote: replay?.pilote || null,
   });
   localStorage.setItem(NAME_KEY, name);
   elague(parties);
   sauveEnFaisantDeLaPlace(parties);
-  return { id, rang: rangDe(id), classement: classement(10) };
+  return { id, rang: rangDe(id, mode), classement: classement(10, mode) };
 }
 
 // On garde les scores longtemps et les enregistrements peu : ce sont eux qui
@@ -119,14 +128,18 @@ export function enregistrePartie({ name, score, wave, duree, replay }) {
 // mais restent au tableau.
 function elague(parties) {
   if (parties.length > MAX_PARTIES) parties.splice(0, parties.length - MAX_PARTIES);
-  const avecReplay = parties
-    .filter((p) => p.flux)
-    .sort((a, b) => b.score - a.score)
-    .slice(MAX_REPLAYS);
-  for (const p of avecReplay) {
-    p.flux = null;
-    p.etats = null;
-    p.controles = null;
+  // Par mode : un marathon de survie ne doit pas chasser les enregistrements
+  // d'arcade, ce sont deux collections que le joueur consulte séparément.
+  for (const m of ['arcade', 'survie']) {
+    const trop = parties
+      .filter((p) => p.flux && (p.mode || 'arcade') === m)
+      .sort((a, b) => b.score - a.score)
+      .slice(MAX_REPLAYS);
+    for (const p of trop) {
+      p.flux = null;
+      p.etats = null;
+      p.controles = null;
+    }
   }
 }
 

@@ -224,6 +224,16 @@ export class Characters {
     this.nameEl = this.el.querySelector('#comm-name');
     this.textEl = this.el.querySelector('#comm-text');
     this.lastShown = -Infinity;
+    // Un écran étroit n'a pas la place d'afficher un dialogue par-dessus l'action.
+    // La règle se réévalue à la rotation : un téléphone tourné en paysage garde le
+    // même problème, un iPad ne l'a jamais eu.
+    this._mq = window.matchMedia('(max-width: 900px), (max-height: 520px)');
+    this.exigeCalme = this._mq.matches;
+    this._mq.addEventListener?.('change', (e) => {
+      this.exigeCalme = e.matches;
+    });
+    this.calme = true;
+    this._enAttente = null;
     this.hideTimer = null;
     this.talkTimer = null;
 
@@ -237,6 +247,17 @@ export class Characters {
     this.current = 'nova';
   }
 
+  // Le jeu dit à chaque frame si l'instant se prête à une réplique. Ce n'est pas
+  // aux personnages de le deviner : eux ne savent rien de la formation ennemie.
+  setCalme(v) {
+    if (this.calme === v) return;
+    this.calme = v;
+    if (!v || !this._enAttente) return;
+    const { text, opts } = this._enAttente;
+    this._enAttente = null;
+    this.sayText(text, opts);
+  }
+
   // Appelé chaque frame par la boucle de rendu.
   update(dt) {
     this.rigs.nova.update(dt);
@@ -244,6 +265,21 @@ export class Characters {
   }
 
   sayText(text, { speaker = 'nova', priority = false, emotion = null, duration = null } = {}) {
+    // SUR PETIT ÉCRAN, NOVA ATTEND SON TOUR.
+    //
+    // Le panneau de dialogue occupe le quart bas d'un téléphone en portrait —
+    // c'est-à-dire précisément la zone où l'on pilote. Le rétrécir n'aurait fait
+    // que le rendre illisible sans cesser de gêner : quatre lignes de récit n'ont
+    // pas leur place par-dessus une esquive.
+    //
+    // La réplique est donc mise de côté et dite au prochain moment CALME : début
+    // de vague, vague nettoyée, vaisseau détruit, ou n'importe quel écran. On ne
+    // garde que la dernière en attente — trois répliques qui se déversent d'un
+    // coup à la fin d'une vague seraient pires que le silence.
+    if (this.exigeCalme && !this.calme) {
+      this._enAttente = { text, opts: { speaker, priority, emotion, duration } };
+      return;
+    }
     const now = performance.now();
     if (!priority && now - this.lastShown < QUIET_TIME) return;
     this.lastShown = now;
@@ -341,8 +377,8 @@ export class Characters {
   }
 
   // Hooks sémantiques appelés par le jeu.
-  onRunStart(isCampaign) {
-    this.say(isCampaign ? 'missionStart' : 'runStart', { priority: true });
+  onRunStart(survie) {
+    this.say(survie ? 'missionStart' : 'runStart', { priority: true });
   }
 
   onComboUp(mult) {

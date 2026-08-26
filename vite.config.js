@@ -21,4 +21,15 @@ function swVersionPlugin() {
 
 export default defineConfig({
   plugins: [swVersionPlugin()],
+  // En développement, l'API du panthéon tourne à côté ; en production, c'est le
+  // routeur d'entrée qui envoie /api au bon service. Le jeu ne connaît donc qu'un
+  // seul chemin, le même dans les deux cas — et jamais de CORS à desserrer.
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.API_URL || 'http://localhost:8099',
+        changeOrigin: true,
+      },
+    },
+  },
 });

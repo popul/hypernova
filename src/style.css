@@ -215,21 +215,24 @@ body {
    et passe devant (z-index 36). La jauge de furie y était donc invisible dès que
    NOVA ou KORN parlait — c'est-à-dire précisément aux moments de tension, quand
    on a le plus besoin de savoir si la bombe est chargée. */
+
+/* Troisième étage de la colonne d'action, et la même hauteur pour tout le monde :
+   l'Appel étant visible aussi à la souris, la jauge le surplombait au tactile
+   mais lui passait DESSUS sur ordinateur, où elle était restée collée à 64 px du
+   bas. Un seul empilement, et le décalage disparaît. */
 .hud-energy {
   position: absolute;
-  right: max(28px, env(safe-area-inset-right));
-  bottom: 64px;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 150px);
+  /* Largeur de la colonne, pas de son contenu : centrée dessus, la jauge s'aligne
+     sur les boutons ronds, et « MAINTIENS » — l'étiquette la plus longue — reste
+     dans la colonne au lieu de s'étaler vers la gauche sur le dialogue. */
+  width: 64px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 5px;
   z-index: 30;
-}
-
-/* Au tactile, les deux boutons ronds occupent le coin : on remonte la jauge
-   au-dessus d'eux plutôt que de la superposer. */
-body.touch .hud-energy {
-  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 150px);
 }
 
 .energy-track {
@@ -274,10 +277,14 @@ body.touch .hud-energy {
   }
 }
 
+/* Taillée pour « MAINTIENS ». C'est le mot le plus long que la jauge affiche, et
+   en corps 10 il dépassait de la colonne des deux côtés : au moment précis où
+   l'Overdrive est prêt, l'étiquette allait toucher la fenêtre de dialogue. */
 .energy-label {
   font-family: var(--display);
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
   color: var(--text-dim);
 }
 
@@ -328,14 +335,23 @@ body.touch .btn-energy-touch {
   display: block;
 }
 
-/* La colonne d'action, de bas en haut : ✦ énergie, ◉ appel, puis la jauge.
-   Trois éléments empilés à droite, et rien qui empiète sur le dialogue. */
+/* LA COLONNE D'ACTION. Une seule bande de 64 px le long du bord droit, et tout ce
+   qui s'y trouve part du même coin : `max(20px, safe-area-bottom)` pour le bas,
+   `max(18px, safe-area-right)` pour le côté. C'est ce qui rend l'empilement
+   increvable — une encoche qui décale un élément les décale tous ensemble.
+   De bas en haut : ✦ énergie (0), ◉ appel (+76), jauge de furie (+150).
+   Douze pixels d'air entre chaque, et rien d'autre dans la bande : pause et son
+   en sont partis, ils se posaient sur le bouton d'énergie. */
 
 /* Barre de boss */
 
 .boss-bar {
   position: absolute;
-  top: 84px;
+  /* L'encoche pousse le HUD vers le bas, mais pas cette barre : à 84 px fixes, elle
+     venait se poser sur le score et le numéro de vague sur un iPhone en portrait.
+     Elle part maintenant du même bord que le reste du HUD — position identique là
+     où il n'y a pas d'encoche. */
+  top: calc(max(18px, env(safe-area-inset-top)) + 66px);
   left: 50%;
   transform: translateX(-50%);
   width: min(420px, 60vw);
@@ -1408,11 +1424,19 @@ input {
   touch-action: pan-y;
 }
 
+/* HORS de la zone du pouce. Pause et son campaient dans le coin bas-droit, très
+   exactement par-dessus le bouton d'énergie : quarante pixels de recouvrement,
+   donc une partie mise en pause ou le son coupé en visant la bombe. Deux
+   commandes qu'on touche une fois par partie n'ont rien à faire dans le carré
+   qu'on martèle — elles remontent le long du même bord droit, en colonne, assez
+   bas pour ne pas gêner les crédits et assez haut pour laisser passer la barre de
+   boss qui traverse le tiers supérieur. */
 .hud-touch {
   position: absolute;
-  right: max(14px, env(safe-area-inset-right));
-  bottom: max(14px, env(safe-area-inset-bottom));
+  right: calc(max(18px, env(safe-area-inset-right)) + 9px);
+  top: calc(max(18px, env(safe-area-inset-top)) + 108px);
   display: none;
+  flex-direction: column;
   gap: 10px;
 }
 
@@ -1511,7 +1535,7 @@ body.touch .key-hint {
   }
 
   .boss-bar {
-    top: 66px;
+    top: calc(max(10px, env(safe-area-inset-top)) + 56px);
   }
 
   .title-logo {
@@ -2459,6 +2483,31 @@ body.touch .btn-call-touch {
   display: flex;
 }
 
+/* Téléphone couché : la colonne d'action tient encore, mais il n'y a plus un
+   étage de rab au-dessus d'elle. Trois ajustements, et seulement pour cette
+   forme d'écran.
+   Pause et son repassent en rangée, glissés dans la bande vide sous les crédits :
+   en colonne ils redescendaient jusque dans la jauge.
+   La jauge raccourcit — cent douze pixels de rail sur trois cent quatre-vingt-treize
+   de haut, c'est un quart de l'écran pour une barre de charge.
+   Le multiplicateur, lui, sort de la bande : c'est le seul élément du HUD qui
+   vivait déjà par-dessus la jauge, et couché il tombe pile dessus. */
+@media (max-height: 480px) {
+  .hud-touch {
+    right: max(18px, env(safe-area-inset-right));
+    top: calc(max(18px, env(safe-area-inset-top)) + 58px);
+    flex-direction: row;
+  }
+
+  .energy-track {
+    height: 72px;
+  }
+
+  .hud-combo {
+    right: calc(max(18px, env(safe-area-inset-right)) + 78px);
+  }
+}
+
 /* ---------- Relance du tirage ---------- */
 
 .btn-reroll {
@@ -2600,7 +2649,13 @@ body.touch .btn-call-touch {
   .comm {
     flex-direction: column;
     align-items: stretch;
-    width: calc(100vw - 104px);
+    /* Le panneau s'arrête au bord de la colonne d'action, dix pixels avant. La
+       largeur était un forfait de 104 px qui ne laissait que deux pixels : les
+       boutons ronds semblaient collés au dialogue, et la moindre encoche les
+       faisait mordre dedans. */
+    width: calc(
+      100vw - max(20px, env(safe-area-inset-left)) - max(18px, env(safe-area-inset-right)) - 74px
+    );
   }
 
   .comm-portrait {
@@ -2762,4 +2817,87 @@ body.touch .btn-call-touch {
     order: 3;
     flex: 1 0 100%;
   }
+}
+
+/* ---------- Onglets du panthéon ---------- */
+
+/* Deux modes, deux tableaux. Sans onglets, il aurait fallu choisir lequel montrer
+   au menu — et l'autre serait devenu invisible, donc inexistant. */
+.lb-onglets {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.lb-onglet {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-bottom-color: rgba(79, 242, 255, 0.2);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.lb-onglet:hover {
+  color: var(--text);
+}
+
+.lb-onglet.on {
+  color: var(--cyan);
+  border-color: var(--cyan-dim);
+  border-bottom-color: var(--cyan);
+  background: rgba(79, 242, 255, 0.08);
+}
+
+/* ---------- Hangar : modifier un pilote existant ---------- */
+
+/* Le crayon vit À CÔTÉ de la carte et non dedans : imbriqué, son clic aurait été
+   celui de la carte, et choisir son pilote aurait ouvert le hangar une fois sur
+   deux — au doigt, sur une cible de quarante pixels. */
+.pilot-case {
+  position: relative;
+  display: flex;
+}
+
+.pilot-edit {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--cyan);
+  background: rgba(8, 12, 30, 0.95);
+  border: 1px solid var(--cyan-dim);
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.pilot-edit:hover {
+  color: var(--bg);
+  background: var(--cyan);
+}
+
+/* Une phrase d'explication dans un formulaire : elle doit se lire sans concurrencer
+   les champs, donc plus petite et plus sourde qu'eux. */
+.pilot-note {
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.pilot-note b {
+  color: var(--text);
 }

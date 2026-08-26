@@ -25,6 +25,9 @@ export default [
         DecompressionStream: 'readonly',
         btoa: 'readonly',
         atob: 'readonly',
+        AbortController: 'readonly',
+        fetch: 'readonly',
+        matchMedia: 'readonly',
         clearTimeout: 'readonly',
         fetch: 'readonly',
         Notification: 'readonly',
@@ -36,6 +39,32 @@ export default [
       eqeqeq: ['error', 'smart'],
       'prefer-const': 'error',
       'no-var': 'error',
+    },
+  },
+  // La configuration de Vite tourne sous Node, pas dans le navigateur.
+  {
+    files: ['vite.config.js'],
+    languageOptions: {
+      globals: { process: 'readonly' },
+    },
+  },
+  // Le serveur du panthéon : Node, pas navigateur.
+  {
+    files: ['server/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        Buffer: 'readonly',
+        URL: 'readonly',
+        console: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+      },
+    },
+    rules: {
+      'no-console': 'off',
     },
   },
   {

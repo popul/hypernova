@@ -15,6 +15,20 @@ spec:
   hostnames:
     {{- toYaml .Values.httpRoute.hostnames | nindent 4 }}
   rules:
+    {{- if .Values.api.enabled }}
+    # L'API passe devant, et c'est délibéré. La spécification Gateway API départage
+    # normalement sur la longueur du chemin — /api l'emporterait donc sur la règle
+    # du site — mais celle-ci n'a aucun `matches` et attrape tout : plus d'une
+    # passerelle traite ce cas dans l'ordre de déclaration. Écrire l'API en premier
+    # donne le même résultat quelle que soit l'implémentation.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.api.path }}
+      backendRefs:
+        - name: {{ include "hypernova.api.fullname" . }}
+          port: {{ .Values.api.service.port }}
+    {{- end }}
     - backendRefs:
         - name: {{ include "hypernova.fullname" . }}
           port: {{ .Values.service.port }}

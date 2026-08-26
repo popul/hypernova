@@ -1,0 +1,93 @@
+{{- if .Values.api.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hypernova.api.fullname" . }}
+  labels:
+    {{- include "hypernova.api.labels" . | nindent 4 }}
+spec:
+  # Un seul exemplaire, et pas de réglage pour en demander deux : SQLite n'admet
+  # qu'un écrivain à la fois, et le second pod ne verrait pas une base lente mais
+  # une base cassée.
+  replicas: 1
+  strategy:
+    # Recreate et non RollingUpdate : le temps d'un roulement, l'ancien pod et le
+    # nouveau tiendraient le même fichier ouvert. Deux secondes d'API absente
+    # valent mieux qu'un panthéon à réécrire.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hypernova.api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hypernova.api.selectorLabels" . | nindent 8 }}
+        {{- with .Values.api.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+      {{- with .Values.api.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
+      containers:
+        - name: api
+          image: {{ include "hypernova.api.image" . }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.api.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            # Les deux seuls réglages que le serveur lit. On les écrit ici plutôt
+            # que de se fier aux valeurs par défaut du code : le chemin de la base
+            # doit suivre le point de montage, qui, lui, est paramétrable.
+            - name: PORT
+              value: "8081"
+            - name: DB_PATH
+              value: {{ printf "%s/hypernova.db" (trimSuffix "/" .Values.api.persistence.mountPath) | quote }}
+          livenessProbe:
+            {{- toYaml .Values.api.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.api.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: donnees
+              mountPath: {{ .Values.api.persistence.mountPath }}
+            # SQLite sort de la mémoire pour trier ou reconstruire un index, et il
+            # le fait dans /tmp — que la racine en lecture seule lui refuserait.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: donnees
+          {{- if .Values.api.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "hypernova.api.fullname" . }}
+          {{- else }}
+          # Sans volume, le panthéon s'efface au premier redémarrage du pod :
+          # acceptable pour essayer le chart, jamais pour de vrais joueurs.
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.api.tmpDirSize }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -83,3 +83,93 @@ podLabels: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# --- API du panthéon partagé --------------------------------------------------
+# Désactivée par défaut : le jeu se suffit à lui-même, tout tient dans le
+# navigateur, et exiger un volume persistant pour installer un shoot'em up serait
+# une drôle de politesse. On l'allume quand on veut un tableau des scores commun.
+api:
+  enabled: false
+
+  image:
+    repository: ghcr.io/popul/hypernova-api
+    # Vide = appVersion du Chart. Le jeu et son API sont construits par la même
+    # CI, au même commit : les faire diverger n'aurait pas de sens.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  # Le chemin exposé par la passerelle, sous le même nom de domaine que le jeu :
+  # pas de CORS à desserrer, pas de second certificat. Le serveur accepte les
+  # requêtes avec ou sans ce préfixe, il n'y a donc rien à réécrire en amont.
+  path: /api
+
+  persistence:
+    enabled: true
+    # Un score pèse cent octets, un enregistrement de partie quelques kilo-octets,
+    # et le serveur élague au-delà de cent parties par pilote. 1 Gi est déjà large.
+    size: 1Gi
+    # Vide = classe par défaut du cluster ; le homelab utilise `local-path`.
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    # Où le serveur range hypernova.db (il en déduit la variable DB_PATH).
+    mountPath: /data
+    # Garder le volume quand le chart est désinstallé — voir api-pvc.yaml.
+    retain: true
+
+  # Un processus Node qui dort la plupart du temps et se réveille pour écrire
+  # trois lignes. Pas de limite CPU : étrangler le démarrage ne ferait que
+  # rallonger le délai avant la première réponse.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    # L'utilisateur `node` de l'image officielle.
+    runAsUser: 1000
+    runAsGroup: 1000
+    # Sans fsGroup, le volume arrive appartenant à root et le serveur ne peut pas
+    # y créer sa base. `local-path` s'en sort quand même parce qu'il crée son
+    # dossier en 0777, mais on ne veut pas dépendre de ce détail-là.
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  # Le /tmp que réclame readOnlyRootFilesystem : SQLite y écrit ses fichiers
+  # temporaires quand une requête ne tient plus en mémoire.
+  tmpDirSize: 16Mi
+
+  # /sante ouvre la base et compte les lignes : une réponse veut dire que le
+  # service répond ET que le fichier est lisible.
+  livenessProbe:
+    httpGet:
+      path: /sante
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 20
+
+  readinessProbe:
+    httpGet:
+      path: /sante
+      port: http
+    initialDelaySeconds: 2
+    periodSeconds: 10
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

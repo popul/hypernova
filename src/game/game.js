@@ -1,5 +1,5 @@
 // Chef d'orchestre : machine à états (titre → jeu → boutique → game over, carte de
-// campagne, victoire de mission), collisions, score, combo, économie, persistance.
+// survie, victoire), collisions, score, combo, économie, persistance.
 
 import * as THREE from 'three';
 import { Player } from './player.js';
@@ -8,7 +8,6 @@ import { PlayerBullets, EnemyBullets, Missiles } from './bullets.js';
 import { Pickups } from './pickups.js';
 import { Hud } from './hud.js';
 import { Shop } from './shop.js';
-import { GalaxyMap } from './galaxymap.js';
 import { Cinematic } from './cinematic.js';
 import { makeWave, dailySeed } from './waves.js';
 import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
@@ -32,21 +31,14 @@ import {
   PALIERS,
 } from './routes.js';
 import { classement, enregistrePartie, partieParId, challengeText } from './parties.js';
-import {
-  loadCampaigns,
-  unseenCampaigns,
-  markCampaignsSeen,
-  saveMissionResult,
-  loadProgress,
-  enableAlerts,
-  notifyNewCampaigns,
-  DEFAULT_MODS,
-} from './campaign.js';
+import * as reseau from './reseau.js';
+
 import {
   listPilots,
   activePilot,
   setActivePilot,
   createPilot,
+  majPilote,
   hasPin,
   verifyPin,
   sanitizeName,
@@ -54,6 +46,7 @@ import {
 import { CARENES, LIVREES } from './ships.js';
 import { Characters } from './characters.js';
 import { Director, romanTier } from './director.js';
+import { SURVIE, DEFAULT_MODS } from './constants.js';
 import { alea, semer } from '../core/rng.js';
 import { commandeVide, lireEntrees, EV, quantifieDt, dtDepuis } from './rejeu/commandes.js';
 import { Enregistreur, ouvreReplay } from './rejeu/index.js';
@@ -103,12 +96,6 @@ export class Game {
     });
     // La relance est un achat comme un autre : elle se refuse si la bourse est vide.
     this.shop.onReroll = () => this._reroll();
-    this.galaxyMap = new GalaxyMap(overlayRoot, {
-      onLaunch: (campaign, systemIdx) => this.startRun('campaign', { campaign, systemIdx }),
-      onBack: () => this.showTitle(),
-      onEnableAlerts: () => enableAlerts(),
-      audio,
-    });
     this.characters = new Characters(hudRoot.parentElement, audio);
     this.cinematic = new Cinematic({
       scene,
@@ -142,22 +129,14 @@ export class Game {
 
     this.state = 'title';
     this.mode = 'arcade';
-    this.mission = null; // { campaign, systemIdx, system } en mode campagne
     this.paused = false;
     this.hiscore = Number(localStorage.getItem(STORAGE_KEYS.hiscore)) || 0;
     this.bestWave = Number(localStorage.getItem(STORAGE_KEYS.bestWave)) || 0;
     this._tmp = new THREE.Vector3();
 
-    // Campagnes : chargées en tâche de fond (réseau + fallback embarqué).
-    this.campaigns = [];
-    this.unseenIds = [];
-    loadCampaigns().then((campaigns) => {
-      this.campaigns = campaigns;
-      const fresh = unseenCampaigns(campaigns);
-      this.unseenIds = fresh.map((c) => c.id);
-      if (fresh.length) notifyNewCampaigns(fresh);
-      if (this.state === 'title') this.showTitle(); // rafraîchit le badge « nouveau »
-    });
+    // Les parties en attente d'envoi partent dès l'ouverture : une session hors
+    // ligne se rattrape au démarrage suivant, sans que le joueur ait rien à faire.
+    reseau.pousse();
 
     const typing = (e) => e.target instanceof Element && e.target.closest('input, button');
     input.on('Space', (e) => {
@@ -168,7 +147,7 @@ export class Game {
         this.audio.unlock();
         this.playCinematic();
       } else if (this.state === 'title') this.startRun('arcade');
-      else if (this.state === 'gameover' || this.state === 'mission-complete') this._replay();
+      else if (this.state === 'gameover') this._replay();
     });
     // Une seule touche pour les deux dépenses d'énergie : tap = bombe, maintien = Overdrive.
     input.on('KeyX', (e) => {
@@ -323,7 +302,6 @@ export class Game {
     this.state = 'cinematic';
     this.audio.setMode('cinematic');
     this.hud.root.classList.add('hidden');
-    this.galaxyMap.close();
     this.shop.close();
     this.overlayRoot.innerHTML = '';
     this.player.showHitMarkers(false);
@@ -519,7 +497,6 @@ export class Game {
   // ---- Écrans ----
 
   _screen(html) {
-    this.galaxyMap.close();
     this.overlayRoot.innerHTML = '';
     const div = document.createElement('div');
     div.innerHTML = html;
@@ -531,7 +508,7 @@ export class Game {
   // Une ligne de classement n'est plus un affichage : c'est une porte. Quand la
   // partie a été enregistrée, on peut la revoir — et c'est la seule façon de
   // répondre à « comment il a fait ce score ? » autrement qu'en le croyant.
-  _leaderboardHtml(scores, highlightRank = -1) {
+  _leaderboardHtml(scores, highlightRank = -1, mode = 'arcade') {
     if (!scores.length) {
       return '<div class="lb-empty">Aucun pilote au panthéon — soyez le premier !</div>';
     }
@@ -546,13 +523,32 @@ export class Game {
           }>
             <span class="lb-rank">${i + 1}</span>
             <span class="lb-name">${esc(s.name)}</span>
-            <span class="lb-wave">v.${s.wave}</span>
-            <span class="lb-score">${s.score}</span>
+            ${
+              mode === 'survie'
+                ? `<span class="lb-score">v.${s.wave}</span><span class="lb-wave">${s.score} pts</span>`
+                : `<span class="lb-wave">v.${s.wave}</span><span class="lb-score">${s.score}</span>`
+            }
             <span class="lb-play">${revoyable ? '▶' : ''}</span>
           </${balise}>
         </li>`;
       })
       .join('')}</ol>`;
+  }
+
+  // Le tableau commun. Le classement du serveur remplace le local dès qu'il
+  // arrive — jamais avant : un écran qui s'affiche vide en attendant le réseau est
+  // pire qu'un écran qui montre ce qu'on a sous la main.
+  async _rafraichitPantheon(el, selecteur = '#go-lb', mode = 'arcade') {
+    const cible = el?.querySelector?.(selecteur);
+    if (!cible) return;
+    const distant = await reseau.classementDistant(10, mode);
+    if (!distant || !cible.isConnected) return;
+    cible.innerHTML = this._leaderboardHtml(distant, -1, mode);
+    this._brancheRejeux(cible);
+    const titre = cible.parentElement?.querySelector('.lb-title');
+    if (titre) {
+      titre.textContent = mode === 'survie' ? '— Survie · en ligne —' : '— Panthéon commun —';
+    }
   }
 
   // Branche les lignes revoyables d'un tableau déjà inséré dans le document.
@@ -567,9 +563,23 @@ export class Game {
   }
 
   async _lanceRejeu(id) {
-    const partie = partieParId(id);
-    if (!partie || !partie.flux) return;
+    let partie = partieParId(id);
+    // Une ligne venue du serveur ne porte qu'un marqueur : le replay lui-même ne
+    // se télécharge qu'au moment où on le demande. Charger douze enregistrements
+    // pour en regarder un seul serait payer douze fois trop.
+    if (!partie || !partie.flux || partie.flux === 'distant') {
+      this.hud.announce('Chargement…', '', 1200);
+      partie = await reseau.partieDistante(id);
+    }
+    if (!partie || !partie.flux) {
+      this.hud.announce('Enregistrement indisponible', '', 1800);
+      return;
+    }
     const ok = await this.regarde(partie);
+    if (ok === 'obsolete') {
+      this.hud.announce('Partie trop ancienne', 'Les règles ont changé depuis', 2400);
+      return;
+    }
     if (!ok) {
       this.hud.announce('Enregistrement illisible', '', 1800);
       return;
@@ -642,11 +652,12 @@ export class Game {
 
   showTitle() {
     this.state = 'title';
-    this.mission = null;
+    // Quel tableau on regardait la dernière fois : revenir au menu ne doit pas
+    // ramener systématiquement sur l'arcade quand on enchaîne les survies.
+    const mode = this._modeTableau || 'arcade';
     this.audio.setMode('title');
     this.hud.root.classList.add('hidden');
-    const scores = classement(5);
-    const hasNew = this.unseenIds.length > 0;
+    const scores = classement(5, this._modeTableau || 'arcade');
     const pilot = activePilot();
     const el = this._screen(`
       <div class="screen title">
@@ -660,9 +671,8 @@ export class Game {
           <button class="btn-launch" id="btn-arcade">
             Partie rapide${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}
           </button>
-          <button class="btn-secondary" id="btn-campaign">
-            Campagne · Voie lactée
-            ${hasNew ? '<span class="badge-new">Nouveau</span>' : ''}
+          <button class="btn-secondary" id="btn-survie">
+            Survie · ${SURVIE.vagues} vagues
           </button>
         </div>
         <div class="title-controls">
@@ -675,14 +685,36 @@ export class Game {
         <button class="btn-ghost" id="btn-story">◈ Histoire</button>
         ${
           scores.length
-            ? `<div class="title-lb"><div class="lb-title">— Meilleurs pilotes —</div>${this._leaderboardHtml(scores)}</div>`
-            : ''
+            ? `<div class="title-lb">
+                 <div class="lb-onglets">
+                   <button class="lb-onglet${mode === 'arcade' ? ' on' : ''}" data-mode="arcade">Arcade</button>
+                   <button class="lb-onglet${mode === 'survie' ? ' on' : ''}" data-mode="survie">Survie</button>
+                 </div>
+                 <div class="lb-title" id="titre-lb">— Meilleurs pilotes —</div>
+                 <div id="title-lb">${this._leaderboardHtml(scores, -1, mode)}</div>
+               </div>`
+            : `<div class="title-lb">
+                 <div class="lb-onglets">
+                   <button class="lb-onglet${mode === 'arcade' ? ' on' : ''}" data-mode="arcade">Arcade</button>
+                   <button class="lb-onglet${mode === 'survie' ? ' on' : ''}" data-mode="survie">Survie</button>
+                 </div>
+                 <div class="lb-title" id="titre-lb">— Meilleurs pilotes —</div>
+                 <div id="title-lb">${this._leaderboardHtml([], -1, mode)}</div>
+               </div>`
         }
       </div>
     `);
     this._brancheRejeux(el); // le panthéon du menu est cliquable, comme celui de fin
+    this._rafraichitPantheon(el, '#title-lb', mode);
+    for (const b of el.querySelectorAll('.lb-onglet')) {
+      b.addEventListener('click', () => {
+        this._modeTableau = b.dataset.mode;
+        this.audio.uiTick();
+        this.showTitle();
+      });
+    }
     el.querySelector('#btn-arcade').addEventListener('click', () => this.startRun('arcade'));
-    el.querySelector('#btn-campaign').addEventListener('click', () => this.showGalaxy());
+    el.querySelector('#btn-survie').addEventListener('click', () => this.startRun('survie'));
     el.querySelector('#btn-story').addEventListener('click', () => this.playCinematic());
     el.querySelector('#btn-pilot').addEventListener('click', () => this.showPilotSelect());
   }
@@ -701,10 +733,13 @@ export class Game {
           ${pilots
             .map(
               (p, i) => `
-            <button class="pilot-card" data-pilot="${i}">
-              <span class="pilot-avatar big">${esc(p.name[0])}</span>
-              <span class="pilot-card-name">${esc(p.name)}${hasPin(p) ? ' <span class="pin-lock">🔒</span>' : ''}</span>
-            </button>`
+            <div class="pilot-case">
+              <button class="pilot-card" data-pilot="${i}">
+                <span class="pilot-avatar big">${esc(p.name[0])}</span>
+                <span class="pilot-card-name">${esc(p.name)}${hasPin(p) ? ' <span class="pin-lock">🔒</span>' : ''}</span>
+              </button>
+              <button class="pilot-edit" data-edit="${i}" title="Modifier le vaisseau de ${esc(p.name)}" aria-label="Modifier le vaisseau de ${esc(p.name)}">✎</button>
+            </div>`
             )
             .join('')}
           <button class="pilot-card new" id="pilot-new">
@@ -751,6 +786,60 @@ export class Game {
       })
     );
 
+    // Le hangar, après coup. L'apparence appartient au pilote et non à la partie :
+    // il faut donc pouvoir la reprendre plus tard, sinon un choix fait en trois
+    // secondes le jour de l'inscription est définitif.
+    //
+    // C'est aussi ici qu'un pilote créé avant l'arrivée du panthéon commun peut
+    // s'inscrire en ligne : il lui manque un code et une adresse, rien d'autre.
+    el.querySelectorAll('.pilot-edit').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pilot = pilots[Number(b.dataset.edit)];
+        const choix = { livree: pilot.livree || 'flotte', carene: pilot.carene || 'dague' };
+        const enLigne = reseau.estInscrit(pilot.name);
+        zone.innerHTML = `
+          <form class="lb-form pilot-create" id="edit-form">
+            <div class="pilot-note">Le vaisseau de <b>${esc(pilot.name)}</b></div>
+            ${this._pimpHtml(choix)}
+            ${
+              enLigne
+                ? '<div class="pilot-note">Ce pilote publie déjà ses scores en ligne.</div>'
+                : `<input id="edit-pin" type="password" inputmode="numeric" maxlength="4"
+                          placeholder="Code à 4 chiffres" autocomplete="off" aria-label="Code secret" />
+                   <input id="edit-mail" type="email" maxlength="120" placeholder="Adresse d'un parent"
+                          autocomplete="email" aria-label="Adresse électronique" />
+                   <div class="pilot-note">Renseigne-les pour publier tes scores au panthéon commun.</div>`
+            }
+            <button class="btn-launch" type="submit">Enregistrer</button>
+            <div class="pilot-error" id="pilot-error"></div>
+          </form>`;
+        this._branchePimp(zone, choix);
+        zone.querySelector('#edit-form').addEventListener('submit', async (ev) => {
+          ev.preventDefault();
+          const erreur = zone.querySelector('#pilot-error');
+          const code = zone.querySelector('#edit-pin')?.value || '';
+          const mail = zone.querySelector('#edit-mail')?.value || '';
+          majPilote(pilot.name, { ...choix, pin: code });
+          setActivePilot(pilot.name);
+          this._refreshShip();
+          this.audio.buy();
+          if (!enLigne && /^\d{4}$/.test(code) && mail.trim()) {
+            erreur.textContent = 'Inscription…';
+            const r = await reseau.inscris(pilot.name, code, mail.trim());
+            if (!r.ok) {
+              erreur.textContent =
+                r.erreur === 'code'
+                  ? 'Ce nom est déjà pris en ligne par quelqu’un d’autre.'
+                  : 'Pas de réseau : tes scores monteront plus tard.';
+              if (r.erreur === 'code') return;
+            }
+          }
+          done();
+        });
+      })
+    );
+
     el.querySelector('#pilot-new').addEventListener('click', () => {
       // On choisit son nom ET son vaisseau du même geste. Faire le tour du hangar
       // avant de décoller fait partie du plaisir, et un vaisseau qu'on a choisi
@@ -759,97 +848,117 @@ export class Game {
       zone.innerHTML = `
         <form class="lb-form pilot-create" id="create-form">
           <input id="new-name" type="text" maxlength="10" placeholder="TON NOM" autocomplete="off" aria-label="Nom du pilote" />
-          <div class="pimp">
-            <div class="pimp-row">
-              <span class="pimp-label">Carène</span>
-              <div class="pimp-opts" id="pimp-carene">
-                ${CARENES.map(
-                  (c) =>
-                    `<button type="button" class="pimp-opt${c.id === choix.carene ? ' on' : ''}" data-v="${c.id}">${esc(c.nom)}</button>`
-                ).join('')}
-              </div>
-            </div>
-            <div class="pimp-row">
-              <span class="pimp-label">Livrée</span>
-              <div class="pimp-opts" id="pimp-livree">
-                ${LIVREES.map(
-                  (l) =>
-                    `<button type="button" class="pimp-opt swatch${l.id === choix.livree ? ' on' : ''}" data-v="${l.id}"
-                       style="--h:#${l.hull.toString(16).padStart(6, '0')};--a:#${l.accent.toString(16).padStart(6, '0')}"
-                       title="${esc(l.nom)}"><i></i>${esc(l.nom)}</button>`
-                ).join('')}
-              </div>
-            </div>
-          </div>
+          ${this._pimpHtml(choix)}
           <input id="new-pin" type="password" inputmode="numeric" maxlength="4"
-                 placeholder="Code secret (option)" autocomplete="off" aria-label="Code secret optionnel" />
+                 placeholder="Code secret à 4 chiffres" autocomplete="off" aria-label="Code secret" />
+          <input id="new-mail" type="email" maxlength="120" placeholder="Adresse d'un parent"
+                 autocomplete="email" aria-label="Adresse électronique" />
+          <div class="pilot-note">
+            Le code et l'adresse servent à publier tes scores en ligne — et à
+            retrouver ton pilote si tu oublies le code. Sans eux, tu joues quand
+            même : tes parties restent sur cet appareil.
+          </div>
           <button class="btn-launch" type="submit">C'est moi !</button>
           <div class="pilot-error" id="pilot-error"></div>
         </form>`;
       const nameInput = zone.querySelector('#new-name');
       nameInput.focus();
-      // Le vaisseau se reconstruit à chaque clic : on voit ce qu'on choisit.
-      for (const [cle, id] of [
-        ['carene', '#pimp-carene'],
-        ['livree', '#pimp-livree'],
-      ]) {
-        zone.querySelectorAll(`${id} .pimp-opt`).forEach((b) =>
-          b.addEventListener('click', () => {
-            choix[cle] = b.dataset.v;
-            zone.querySelectorAll(`${id} .pimp-opt`).forEach((o) => o.classList.remove('on'));
-            b.classList.add('on');
-            this.player.rebuild(choix);
-            this.player.group.visible = true;
-            this.audio.uiTick();
-          })
-        );
-      }
-      this.player.rebuild(choix);
-      this.player.group.visible = true;
-      zone.querySelector('#create-form').addEventListener('submit', (e) => {
+      this._branchePimp(zone, choix);
+      zone.querySelector('#create-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const result = createPilot(nameInput.value, zone.querySelector('#new-pin').value, choix);
-        if (result.ok) {
-          this.audio.buy();
-          done();
-        } else {
+        const code = zone.querySelector('#new-pin').value;
+        const mail = zone.querySelector('#new-mail').value;
+        const erreur = zone.querySelector('#pilot-error');
+        const result = createPilot(nameInput.value, code, choix);
+        if (!result.ok) {
           this.audio.deny();
-          zone.querySelector('#pilot-error').textContent =
+          erreur.textContent =
             result.error === 'exists'
               ? 'Ce nom est déjà pris sur cet appareil.'
               : result.error === 'full'
                 ? 'Trop de pilotes ! Supprime-en un (à venir).'
                 : 'Choisis un nom (lettres et chiffres).';
+          return;
         }
+        // Le pilote existe déjà sur l'appareil : on peut jouer. L'inscription en
+        // ligne se tente ensuite, et son échec ne coûte que le panthéon commun —
+        // jamais la partie.
+        this.audio.buy();
+        if (/^\d{4}$/.test(code) && mail.trim()) {
+          erreur.textContent = 'Inscription…';
+          const r = await reseau.inscris(result.name, code, mail.trim());
+          if (!r.ok) {
+            erreur.textContent =
+              r.erreur === 'code'
+                ? 'Ce nom est déjà pris en ligne, par quelqu’un qui a un autre code. Choisis-en un autre.'
+                : r.erreur === 'email-requis'
+                  ? 'Il manque une adresse valable pour publier en ligne.'
+                  : 'Pas de réseau : tu joues, et tes scores monteront plus tard.';
+            // Un pseudo déjà pris en ligne est le seul cas où l'on ne passe pas :
+            // il faudrait publier sous un nom qui n'est pas le sien.
+            if (r.erreur === 'code') return;
+          }
+        }
+        done();
       });
     });
   }
 
-  showGalaxy() {
-    if (!this.campaigns.length) return; // chargement pas terminé (rare : clic immédiat)
-    this.state = 'galaxy';
-    this.audio.setMode('title');
-    this.hud.root.classList.add('hidden');
-    this.overlayRoot.innerHTML = '';
-    this.galaxyMap.open({
-      campaigns: this.campaigns,
-      unseenIds: this.unseenIds,
-      selectedId: this.mission?.campaign.id ?? null,
-    });
-    markCampaignsSeen(this.campaigns);
+  // « Rejouer » relance le mode qu'on vient de jouer : celui qui enchaîne les
+  // survies ne veut pas se retrouver en arcade parce qu'il a appuyé trop vite.
+  // Le sélecteur de vaisseau, partagé par la création et la modification. En
+  // double, il aurait fini par diverger — et un joueur qui voit six livrées à la
+  // création et cinq à la modification pense à juste titre que le jeu ment.
+  _pimpHtml(choix) {
+    return `
+      <div class="pimp">
+        <div class="pimp-row">
+          <span class="pimp-label">Carène</span>
+          <div class="pimp-opts" id="pimp-carene">
+            ${CARENES.map(
+              (c) =>
+                `<button type="button" class="pimp-opt${c.id === choix.carene ? ' on' : ''}" data-v="${c.id}">${esc(c.nom)}</button>`
+            ).join('')}
+          </div>
+        </div>
+        <div class="pimp-row">
+          <span class="pimp-label">Livrée</span>
+          <div class="pimp-opts" id="pimp-livree">
+            ${LIVREES.map(
+              (l) =>
+                `<button type="button" class="pimp-opt swatch${l.id === choix.livree ? ' on' : ''}" data-v="${l.id}"
+                   style="--h:#${l.hull.toString(16).padStart(6, '0')};--a:#${l.accent.toString(16).padStart(6, '0')}"
+                   title="${esc(l.nom)}"><i></i>${esc(l.nom)}</button>`
+            ).join('')}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Le vaisseau se reconstruit à chaque clic : on voit ce qu'on choisit, tout de
+  // suite et en trois dimensions. C'est la moitié de l'intérêt de choisir.
+  _branchePimp(zone, choix) {
+    for (const [cle, id] of [
+      ['carene', '#pimp-carene'],
+      ['livree', '#pimp-livree'],
+    ]) {
+      zone.querySelectorAll(`${id} .pimp-opt`).forEach((b) =>
+        b.addEventListener('click', () => {
+          choix[cle] = b.dataset.v;
+          zone.querySelectorAll(`${id} .pimp-opt`).forEach((o) => o.classList.remove('on'));
+          b.classList.add('on');
+          this.player.rebuild(choix);
+          this.player.group.visible = true;
+          this.audio.uiTick();
+        })
+      );
+    }
+    this.player.rebuild(choix);
+    this.player.group.visible = true;
   }
 
   _replay() {
-    if (this.mode === 'campaign' && this.mission) {
-      const next =
-        this.state === 'mission-complete' &&
-        this.mission.systemIdx + 1 < this.mission.campaign.systems.length
-          ? this.mission.systemIdx + 1
-          : this.mission.systemIdx;
-      this.startRun('campaign', { campaign: this.mission.campaign, systemIdx: next });
-    } else {
-      this.startRun('arcade');
-    }
+    this.startRun(this.mode === 'survie' ? 'survie' : 'arcade');
   }
 
   showGameOver() {
@@ -858,25 +967,6 @@ export class Game {
     this.audio.setMode('title');
     this.audio.gameOver();
     this.hud.root.classList.add('hidden');
-
-    if (this.mode === 'campaign') {
-      const el = this._screen(`
-        <div class="screen gameover">
-          <div class="go-title">Mission échouée</div>
-          <div class="go-stats">
-            <div><span class="hud-label">Système</span><b>${esc(this.mission.system.name)}</b></div>
-            <div><span class="hud-label">Score</span><b>${this.score}</b></div>
-          </div>
-          <div class="title-menu">
-            <button class="btn-launch" id="btn-retry">Réessayer${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}</button>
-            <button class="btn-secondary" id="btn-map">Carte de la galaxie</button>
-          </div>
-        </div>
-      `);
-      el.querySelector('#btn-retry').addEventListener('click', () => this._replay());
-      el.querySelector('#btn-map').addEventListener('click', () => this.showGalaxy());
-      return;
-    }
 
     // Arcade : records + inscription au panthéon local.
     const newRecord = this.score > 0 && this.score >= this.hiscore;
@@ -892,7 +982,7 @@ export class Game {
     // L'enregistrement de la partie, lui, se compresse — donc il s'écrit APRÈS
     // l'affichage. On ne fait pas attendre un écran de fin pour un gzip.
     const pilot = activePilot();
-    const scores = classement(10);
+    const scores = classement(10, this.mode);
     const pilotLine =
       this.score > 0 && pilot
         ? `<div class="go-pilot" id="go-pilot">${esc(pilot.name)} — inscription au panthéon…</div>`
@@ -908,12 +998,13 @@ export class Game {
         </div>
         ${pilotLine}
         <div class="title-lb">
-          <div class="lb-title">— Panthéon —</div>
-          <div id="go-lb">${this._leaderboardHtml(scores)}</div>
+          <div class="lb-title">${this.mode === 'survie' ? '— Survie —' : '— Panthéon —'}</div>
+          <div id="go-lb">${this._leaderboardHtml(scores, -1, this.mode)}</div>
         </div>
         <div class="title-menu">
           <button class="btn-secondary" id="btn-share">📣 Défier les copains</button>
           <button class="btn-launch" id="btn-replay">Rejouer${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}</button>
+          <button class="btn-ghost" id="btn-menu">← Menu principal</button>
         </div>
       </div>
     `);
@@ -922,6 +1013,9 @@ export class Game {
       this._share(challengeText(pilot?.name || 'Un pilote', this.score, this.wave));
     });
     el.querySelector('#btn-replay').addEventListener('click', () => this._replay());
+    // Sans cette sortie, changer de mode ou de pilote après une partie obligeait à
+    // recharger la page — c'est-à-dire à quitter le jeu pour naviguer dedans.
+    el.querySelector('#btn-menu')?.addEventListener('click', () => this.showTitle());
     if (this.score > 0 && pilot) this._archive(el, pilot);
   }
 
@@ -946,8 +1040,14 @@ export class Game {
       score: this.score,
       wave: this.wave,
       duree: replay?.duree || 0,
+      mode: this.mode,
       replay,
     });
+    // Le local d'abord, le serveur ensuite : la partie est déjà en sûreté sur
+    // l'appareil quand on tente de la publier, donc une panne réseau ne coûte rien.
+    reseau.enFile(partieParId(id));
+    reseau.pousse().then(() => this._rafraichitPantheon(el, '#go-lb', this.mode));
+
     if (!el.isConnected) return;
     const ligne = el.querySelector('#go-pilot');
     if (ligne) {
@@ -958,50 +1058,56 @@ export class Game {
     }
     const lb = el.querySelector('#go-lb');
     if (lb) {
-      lb.innerHTML = this._leaderboardHtml(table, rang);
+      lb.innerHTML = this._leaderboardHtml(table, rang, this.mode);
       this._brancheRejeux(lb);
     }
     void id;
   }
 
-  showMissionComplete() {
+  // Cent vagues franchies. C'est rare, et ça doit se voir.
+  showVictoire() {
     if (this.rejeu) return;
-    this.state = 'mission-complete';
+    if (this.mode !== 'survie') return this.showMissionComplete();
+    this.state = 'gameover';
     this.audio.setMode('shop');
     this.audio.waveStart();
     this.hud.root.classList.add('hidden');
-    const { campaign, systemIdx, system } = this.mission;
-    saveMissionResult(campaign.id, system.id, this.score, this.levels, this.credits);
-    this.characters.onMissionWon();
-    const isLast = systemIdx + 1 >= campaign.systems.length;
-    const next = isLast ? null : campaign.systems[systemIdx + 1];
+    if (this.score > this.hiscore) {
+      this.hiscore = this.score;
+      localStorage.setItem(STORAGE_KEYS.hiscore, String(this.hiscore));
+    }
+    const pilot = activePilot();
     const el = this._screen(`
-      <div class="screen mission-won">
-        <div class="announce-title">Système libéré</div>
-        <div class="mw-name">${esc(system.name)}</div>
-        ${isLast ? '<div class="go-record">★ Campagne terminée — la galaxie est libre ! ★</div>' : ''}
+      <div class="screen gameover">
+        <div class="go-record">★ ${SURVIE.vagues} VAGUES ★</div>
+        <div class="go-title">Vous êtes passé</div>
         <div class="go-stats">
-          <div><span class="hud-label">Score</span><b>${this.score}</b></div>
-          <div><span class="hud-label">Vagues</span><b>${system.waves}</b></div>
+          <div><span class="hud-label">Score</span><b class="gold">${this.score}</b></div>
+          <div><span class="hud-label">Vagues</span><b>${SURVIE.vagues}</b></div>
+          <div><span class="hud-label">Pilote</span><b>${esc(pilot?.name || '—')}</b></div>
+        </div>
+        <div class="go-pilot" id="go-pilot">Inscription au tableau de survie…</div>
+        <div class="title-lb">
+          <div class="lb-title">— Survie —</div>
+          <div id="go-lb">${this._leaderboardHtml(classement(10, 'survie'))}</div>
         </div>
         <div class="title-menu">
-          ${
-            next
-              ? `<button class="btn-launch" id="btn-next">Cap sur ${esc(next.name)}${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}</button>`
-              : ''
-          }
-          <button class="btn-secondary" id="btn-map">Carte de la galaxie</button>
-          <button class="btn-secondary" id="btn-share">📣 Défier les copains</button>
+          <button class="btn-secondary" id="btn-share">📣 Le dire aux copains</button>
+          <button class="btn-launch" id="btn-replay">Rejouer${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}</button>
+          <button class="btn-ghost" id="btn-menu">← Menu principal</button>
         </div>
       </div>
     `);
-    el.querySelector('#btn-next')?.addEventListener('click', () => this._replay());
-    el.querySelector('#btn-map').addEventListener('click', () => this.showGalaxy());
     el.querySelector('#btn-share').addEventListener('click', () => {
       this._share(
-        `🚀 ${activePilot()?.name || 'Un pilote'} a libéré ${system.name} (${this.score} points) dans la campagne « ${campaign.title} » d’HYPERNOVA ! À ton tour !`
+        `🏁 ${pilot?.name || 'Un pilote'} a franchi les ${SURVIE.vagues} vagues de la Survie sur HYPERNOVA — ${this.score} points. Qui suit ?`
       );
     });
+    el.querySelector('#btn-replay').addEventListener('click', () => this._replay());
+    // Sans cette sortie, changer de mode ou de pilote après une partie obligeait à
+    // recharger la page — c'est-à-dire à quitter le jeu pour naviguer dedans.
+    el.querySelector('#btn-menu')?.addEventListener('click', () => this.showTitle());
+    if (pilot) this._archive(el, pilot);
   }
 
   async _share(text) {
@@ -1019,35 +1125,21 @@ export class Game {
 
   // ---- Cycle de vie d'une partie ----
 
-  startRun(mode = 'arcade', missionRef = null) {
-    // En arcade, chaque partie appartient à un pilote (panthéon automatique).
-    if (mode === 'arcade' && !activePilot()) {
-      this.showPilotSelect(() => this.startRun('arcade'));
+  startRun(mode = 'arcade') {
+    // Toute partie appartient à un pilote : c'est lui qui la publie au panthéon.
+    if (!activePilot()) {
+      this.showPilotSelect(() => this.startRun(mode));
       return;
     }
-    this.mode = mode;
-    this.mission = missionRef
-      ? {
-          campaign: missionRef.campaign,
-          systemIdx: missionRef.systemIdx,
-          system: missionRef.campaign.systems[missionRef.systemIdx],
-        }
-      : null;
+    this.mode = mode === 'survie' ? 'survie' : 'arcade';
 
-    this.galaxyMap.close();
     this.shop.close();
     this.overlayRoot.innerHTML = '';
     this.hud.root.classList.remove('hidden');
 
     this.score = 0;
     this.wave = 0;
-    if (this.mode === 'campaign') {
-      // Le vaisseau se construit au fil de la campagne : améliorations et crédits persistés.
-      const progress = loadProgress(this.mission.campaign.id);
-      this.levels = { ...emptyLevels(), ...(progress.levels || {}) };
-      this.credits = progress.credits || 0;
-      this.lives = Math.min(PLAYER.maxLives, PLAYER.baseLives + (this.levels.hull || 0));
-    } else {
+    {
       this.levels = emptyLevels();
       this.credits = 0;
       this.lives = PLAYER.baseLives;
@@ -1059,6 +1151,9 @@ export class Game {
     this.respawnTimer = 0;
     this.gameOverTimer = 0;
     this.waveEndTimer = 0;
+    // Les premières secondes d'une vague : les ennemis entrent encore en formation,
+    // personne ne tire. C'est le meilleur moment pour dire quelque chose.
+    this.repit = 3.5;
     this.waveBonusGiven = false;
     this.waveGrazes = 0;
     this.energy = 0;
@@ -1081,8 +1176,11 @@ export class Game {
     this._energyPressStart = 0;
     this.director.reset();
     // Graine de la partie : en arcade, celle du jour (mêmes vagues pour tous les
-    // copains) ; en campagne, celle de la mission si elle en définit une.
-    this.seed = this.mode === 'campaign' ? (this.mission.campaign.seed ?? 1) : dailySeed();
+
+    // La graine du jour : les mêmes vagues pour tous les copains le même jour, donc
+    // des scores qui se comparent honnêtement. La survie décale la sienne, sinon
+    // ses cent vagues seraient les vagues d'arcade dans le même ordre.
+    this.seed = dailySeed() + (this.mode === 'survie' ? 613 : 0);
     this.hud.setEnergy(0);
     this.hud.setOverdrive(false);
 
@@ -1104,7 +1202,7 @@ export class Game {
     // Les répliques citent le pilote et le système : NOVA tient un registre nominatif.
     this.characters.setContext({
       pilote: activePilot()?.name || 'pilote',
-      systeme: this.mission?.system?.name || 'Ce secteur',
+      systeme: 'Ce secteur',
     });
     // On n'enregistre que l'arcade. Une partie de campagne dépend d'un fichier de
     // mission chargé à distance : la rejouer supposerait de le retrouver identique
@@ -1122,7 +1220,7 @@ export class Game {
       this.enregistreur.courante = null;
     }
     this.startWave(1);
-    this.characters.onRunStart(this.mode === 'campaign');
+    this.characters.onRunStart(this.mode === 'survie');
   }
 
   startWave(n) {
@@ -1142,6 +1240,9 @@ export class Game {
     this.state = 'playing';
     this.audio.setMode('play');
     this.waveEndTimer = 0;
+    // Les premières secondes d'une vague : les ennemis entrent encore en formation,
+    // personne ne tire. C'est le meilleur moment pour dire quelque chose.
+    this.repit = 3.5;
     this.waveBonusGiven = false;
     this.waveGrazes = 0;
     this.waveDeath = false;
@@ -1152,34 +1253,28 @@ export class Game {
     this.hud.setCall(this.callLeft, this.stats.callCharges);
 
     let def;
-    if (this.mode === 'campaign') {
-      const { system } = this.mission;
-      const diffWave = system.baseWave + n - 1;
-      def = makeWave(diffWave, {
-        forceBoss: !!system.bossFinal && n === system.waves,
-        noBoss: true,
-        seed: this.seed + this.mission.systemIdx * 131,
+    {
+      // En survie, la difficulté suit une pente adoucie : cent vagues à la montée
+      // de l'arcade seraient saturées dès la vingtième, et les quatre-vingts
+      // suivantes se ressembleraient toutes. La GRAINE, elle, suit le vrai numéro
+      // de vague — sinon deux vagues de difficulté égale seraient identiques.
+      const survie = this.mode === 'survie';
+      const nDiff = survie ? Math.max(1, Math.round(n * SURVIE.pente)) : n;
+      const boss = survie ? n % SURVIE.bossTousLes === 0 : undefined;
+      def = makeWave(nDiff, {
+        seed: this.seed + (survie ? n * 977 : 0),
+        forceBoss: boss === true ? true : undefined,
+        noBoss: boss === false ? true : undefined,
       });
-      this.enemies.startWave(
-        def,
-        diffWave,
-        { ...DEFAULT_MODS, ...system.mods },
-        this.director.heat
-      );
-      this.hud.setWave(`${n}/${system.waves}`);
-      if (n === 1) {
-        this.hud.announce(system.name, this.mission.campaign.title, 2600);
-      } else {
-        this.hud.announce(`Vague ${n}/${system.waves}`, def.boss ? '⚠ KORN ⚠' : '');
-      }
-    } else {
-      def = makeWave(n, { seed: this.seed });
       // Le risque choisi sur la route ne vaut que pour UNE vague : on le consomme.
       const mods = this.routeMods ? { ...DEFAULT_MODS, ...this.routeMods } : DEFAULT_MODS;
       this.routeMods = null;
-      this.enemies.startWave(def, n, mods, this.director.heat);
-      this.hud.setWave(n);
-      this.hud.announce(`Vague ${n}`, def.boss ? '⚠ KORN en approche ⚠' : '');
+      this.enemies.startWave(def, nDiff, mods, this.director.heat);
+      this.hud.setWave(survie ? `${n}/${SURVIE.vagues}` : n);
+      this.hud.announce(
+        survie ? `Vague ${n} / ${SURVIE.vagues}` : `Vague ${n}`,
+        def.boss ? '⚠ KORN en approche ⚠' : ''
+      );
     }
     // Le secteur est déjà en place quand la vague démarre : il a basculé sous le
     // flash du saut. Ce setBiome n'agit donc qu'au tout premier lancement, ou après
@@ -1221,7 +1316,7 @@ export class Game {
         // poids à un choix, c'est sa rareté, pas sa fréquence.
         const ici = stageForWave(this.wave);
         const apres = stageForWave(nextWave);
-        if (ici !== apres && this.mode !== 'campaign') this._showRouteChoice();
+        if (ici !== apres) this._showRouteChoice();
         else this.openShop();
       },
     });
@@ -1346,11 +1441,10 @@ export class Game {
   }
 
   _biomeFor(wave) {
-    if (this.mode === 'campaign') {
-      const { system } = this.mission;
-      return biomeForWave(system.baseWave + wave - 1);
-    }
-    return biomeForWave(wave, wave % 4 === 0);
+    // Un boss assombrit son secteur au lieu d'en changer : en survie ils tombent
+    // tous les dix, en arcade tous les quatre.
+    const pas = this.mode === 'survie' ? SURVIE.bossTousLes : 4;
+    return biomeForWave(wave, wave % pas === 0);
   }
 
   launchNextWave() {
@@ -1427,12 +1521,37 @@ export class Game {
     // à chaque reprise, et trois pauses suffiraient à user les quatre premières mesures.
     this.audio.setMode(this.paused ? 'paused' : 'play');
     if (this.paused) {
-      const el = this._screen(
-        `<div class="screen pause"><div class="go-title">Pause</div><div class="title-press">${
-          IS_TOUCH ? 'Touchez pour reprendre' : 'P pour reprendre'
-        }</div></div>`
-      );
+      // Une pause sans sortie oblige à recharger la page pour changer de mode ou
+      // de pilote — c'est-à-dire à quitter le jeu pour naviguer dans le jeu.
+      const el = this._screen(`
+        <div class="screen pause">
+          <div class="go-title">Pause</div>
+          <div class="title-menu">
+            <button class="btn-launch" id="pause-reprendre">Reprendre${
+              IS_TOUCH ? '' : ' <span class="key-hint">P</span>'
+            }</button>
+            <button class="btn-secondary" id="pause-quitter">Abandonner la partie</button>
+          </div>
+          <div class="title-press">${
+            IS_TOUCH ? 'Touchez ailleurs pour reprendre' : 'Échap pour reprendre'
+          }</div>
+        </div>`);
+      // Le fond reprend la partie ; les boutons, eux, doivent garder leur clic.
       el.addEventListener('click', () => this.togglePause());
+      el.querySelector('#pause-reprendre').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.togglePause();
+      });
+      el.querySelector('#pause-quitter').addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Abandonner est une fin de partie comme une autre : le score compte, et
+        // il s'inscrit. Sans quoi la pause deviendrait le moyen d'effacer une
+        // mauvaise partie.
+        this.paused = false;
+        this.audio.setMode('play');
+        this.overlayRoot.innerHTML = '';
+        this.showGameOver();
+      });
     } else {
       this.overlayRoot.innerHTML = '';
     }
@@ -1533,11 +1652,11 @@ export class Game {
   // Lance la relecture d'une partie enregistrée.
   async regarde(partie) {
     const lecteur = await ouvreReplay(partie);
+    if (lecteur?.obsolete) return 'obsolete';
     if (!lecteur || !lecteur.nbVagues) return false;
     this.overlayRoot.innerHTML = '';
     this.hud.root.classList.remove('hidden');
     this.shop.close();
-    this.galaxyMap.close();
     this.characters.hide();
     this.enregistreur.actif = false;
     this.rejeu = { lecteur, vitesse: 1, fini: false, acc: 0, ecarts: 0, partie };
@@ -1597,6 +1716,8 @@ export class Game {
   // ---- Boucle ----
 
   update(dt) {
+    // Hors combat, rien ne gêne : la parole est libre.
+    if (this.state !== 'playing') this.characters.setCalme(true);
     if (this.paused) return;
     // Le pas de temps est arrondi dès l'entrée, en partie comme en relecture. Deux
     // simulations qui ne partagent pas exactement leurs pas de temps divergent en
@@ -1661,6 +1782,14 @@ export class Game {
       this.enemies.setHeat(this.director.heat);
     }
 
+    // Les moments où l'on peut parler sans gêner : l'entrée en formation, la vague
+    // nettoyée, et le vaisseau détruit. Entre les deux, on se tait — sur petit
+    // écran du moins, où le panneau recouvre l'aire de pilotage.
+    if (this.repit > 0) this.repit -= dt;
+    this.characters.setCalme(
+      this.repit > 0 || !this.player.alive || this.enemies.waveCleared() || this.paused
+    );
+
     this.timeScale = this.cmd.echelle;
     this._updateCall(dt);
     this._updateReflex(dt);
@@ -1710,8 +1839,10 @@ export class Game {
 
     // Fin de vague → bonus, puis boutique (ou victoire de mission en campagne).
     if (vacuum && this.player.alive) {
-      const lastMissionWave = this.mode === 'campaign' && this.wave >= this.mission.system.waves;
-      if (!this.waveBonusGiven && !lastMissionWave) {
+      // La survie a une LIGNE D'ARRIVÉE, et c'est ce qui la distingue de l'arcade :
+      // on n'y joue pas jusqu'à la mort, on y va quelque part.
+      const derniereVague = this.mode === 'survie' && this.wave >= SURVIE.vagues;
+      if (!this.waveBonusGiven && !derniereVague) {
         this.waveBonusGiven = true;
         this.director.onWaveCleared(this.waveDeath);
         const bonus = 25 + this.wave * 10;
@@ -1721,7 +1852,7 @@ export class Game {
       }
       this.waveEndTimer += dt;
       if (this.waveEndTimer > 1.2 && this.pickups.activeCount() === 0) {
-        if (lastMissionWave) this.showMissionComplete();
+        if (derniereVague) this.showVictoire();
         else this._startJump();
       }
     }

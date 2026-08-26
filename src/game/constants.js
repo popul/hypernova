@@ -97,6 +97,12 @@ export const ENEMY = {
   // de vie annoncée. La menace du piqué reste entière — c'est la COLLISION qui
   // doit faire peur de près, pas un tir impossible à voir partir.
   minReactionTime: 0.42,
+  // Distance minimale DEVANT le vaisseau pour qu'un tir soit permis. En deçà —
+  // c'est-à-dire à hauteur du joueur ou derrière lui — l'ennemi ne tire pas.
+  noFireBehind: 2.5,
+  // Pente minimale d'un tir : |dz| / |dx|. En dessous, la balle rase l'écran et
+  // n'est pas esquivable — on ne la tire pas.
+  minShotSlope: 0.6,
   // Vitesse des projectiles, abaissée d'environ 12 %. Elle décide seule du temps
   // de lecture : à 13 de base, une balle traversait l'arène plus vite que l'œil
   // ne la suivait. Le budget de balles empêche de son côté la saturation, donc
@@ -349,6 +355,27 @@ export const REFLEX = {
   scale: 0.3, // le monde tourne à 30 % — en dessous, le ralenti se lit comme un gel
   duration: [0, 0.45, 0.6, 0.78], // par niveau d'amélioration
   cooldown: [0, 9, 7, 5.5],
+};
+
+// LE MODE SURVIE. Cent vagues, une ligne d'arrivée, et un classement qui répond à
+// « jusqu'où es-tu allé ? » plutôt qu'à « combien as-tu marqué ? ».
+//
+// La difficulté y monte deux fois moins vite qu'en arcade : sans cette pente
+// adoucie, tout serait saturé dès la vingtième vague et les quatre-vingts
+// suivantes se ressembleraient. Une vague 100 de survie vaut donc à peu près une
+// vague 45 d'arcade — atteignable, mais au bout d'une heure de vol sans faute.
+//
+// Et des boss tous les dix seulement : au rythme de l'arcade, un marathon en
+// compterait vingt-cinq, ce qui n'en ferait plus des événements.
+// Les modificateurs d'une vague : multiplicateurs de points de vie, de cadence de
+// tir, de plongées et de crédits. Ils venaient des missions de campagne ; ils
+// servent aujourd'hui au risque choisi sur une route.
+export const DEFAULT_MODS = { hp: 1, fire: 1, dive: 1, credits: 1 };
+
+export const SURVIE = {
+  vagues: 100,
+  bossTousLes: 10,
+  pente: 0.45,
 };
 
 export const STORAGE_KEYS = {

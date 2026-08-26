@@ -1,0 +1,27 @@
+{{- if and .Values.api.enabled .Values.api.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hypernova.api.fullname" . }}
+  labels:
+    {{- include "hypernova.api.labels" . | nindent 4 }}
+  {{- if .Values.api.persistence.retain }}
+  annotations:
+    # Le panthéon survit à la désinstallation du chart : réinstaller le jeu ne
+    # doit pas effacer les scores. En contrepartie, une réinstallation retrouve
+    # un volume que Helm ne connaît plus — il faut alors le lui réattribuer, ou
+    # le supprimer à la main en connaissance de cause.
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  # ReadWriteOnce et rien d'autre : un seul pod écrit, et le stockage local du
+  # homelab ne sait de toute façon pas faire mieux.
+  accessModes:
+    - {{ .Values.api.persistence.accessMode }}
+  {{- with .Values.api.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.api.persistence.size }}
+{{- end }}
