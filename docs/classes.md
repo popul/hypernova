@@ -163,6 +163,9 @@ avant contact. Je te le dis parce que tu peux encore bouger. »_
 **Son défaut.** Elle croit que mesurer, c'est comprendre. Elle a mesuré la route de
 la fuite sans jamais se demander pourquoi personne ne revenait.
 
+**Ce que ça donne en jeu.** Le frôlement : passer au plus près sans toucher, c'est
+encore une mesure — la dernière qu'elle sache prendre.
+
 ---
 
 ### HÉLIOS — celle qui a regardé le soleil trop longtemps
@@ -186,6 +189,10 @@ silence est la seule chose qui inquiète NOVA.
 Le jour de l'évacuation, elle était en approche d'une étoile. Personne n'est venu
 lui dire de remonter. Elle a fini son cycle.
 
+**Ce que ça donne en jeu.** La chauffe : elle ne récupère de l'énergie qu'en tenant
+sa cible, exactement comme elle ne se remplissait qu'en tenant sa position face au
+soleil. On ne lui a jamais appris autre chose.
+
 ---
 
 ### VULCAIN — celle qui a creusé le monstre
@@ -208,6 +215,9 @@ faut. »_
 **Son défaut.** Elle vit deux secondes en avance et rate ce qui se passe maintenant.
 Et elle sait ce qu'elle a construit. Quand l'amiral apparaît, elle est la seule des
 trois à se taire.
+
+**Ce que ça donne en jeu.** La salve : une charge qui ne prend qu'un ennemi ne lui
+rapporte rien. Elle n'a jamais été payée au trou, mais au chantier.
 
 ---
 
@@ -237,36 +247,41 @@ Chaque mécanique récompense donc exactement le verbe de sa coque. Aucune n'est
 généreuse qu'une autre : le débit visé est le même, seule la façon de l'obtenir
 change.
 
-### ORION → LA JUSTESSE
+### ORION → LE FRÔLEMENT
 
-**Chaque balle qui touche nourrit la jauge. Chaque balle qui sort de l'écran sans
-rien toucher en retire un tiers.**
+**Inchangé** — c'est la mécanique historique du jeu, et elle revient à la coque de
+référence. Laisser une balle passer à moins de deux unités sans être touché remplit
+la jauge, prolonge le combo et recharge le bouclier.
 
-Le tir est automatique : le joueur ne choisit pas _quand_ il tire, il choisit _d'où_.
-Rester sous la formation, aligné sur une colonne, remplit la jauge à toute vitesse.
-Tirer dans le vide en fuyant la vide aussi sûrement — et c'est le même geste.
+Elle lui va, et pas seulement par tradition : ORION est un arpenteur. Frôler, c'est
+mesurer une distance avec son propre fuselage — quatre centimètres, annoncés à la
+décimale. C'est la seule chose qu'elle ait jamais su faire, appliquée à ce qui lui
+tire dessus.
 
-C'est la mécanique la plus dangereuse des trois, et c'est voulu : elle demande de
-rester dans l'axe des ennemis, c'est-à-dire dans l'axe de leurs tirs.
+C'est aussi la coque qu'on prend pour apprendre : celui qui débute apprend donc la
+mécanique fondatrice du jeu, et les deux autres coques deviennent des variations
+qu'on découvre après.
 
-- Ce qu'elle enseigne : **se placer sous sa cible, et y rester.**
-- Son piège : la panique fait fuir, et fuir vide la jauge au moment où l'on en a le
-  plus besoin.
-
-### HÉLIOS → LE FRÔLEMENT
-
-**Inchangé** — c'est la mécanique historique du jeu, et elle lui revient.
-
-Laisser une balle passer à moins de deux unités sans être touché remplit la jauge,
-prolonge le combo et recharge le bouclier.
-
-Elle va parfaitement à cette coque : HÉLIOS doit **rester aligné sur sa cible** pour
-que son rayon monte en puissance, donc rester exposé. Le frôlement transforme cette
-exposition forcée en carburant. Les deux mécaniques se tiennent — c'est la seule
-des trois coques où encaisser le danger EST la stratégie.
-
-- Ce qu'elle enseigne : **tenir sa position quand tout dit de bouger.**
+- Ce qu'elle enseigne : **s'approcher du danger au lieu de le fuir.**
 - Son piège : deux unités, c'est très près.
+
+### HÉLIOS → LA CHAUFFE
+
+**Tenir le rayon sur une même cible remplit la jauge, de plus en plus vite. Le
+lâcher remet le débit à zéro.**
+
+Un dixième de jauge par seconde après un contact d'une seconde, un tiers après
+trois. Changer de cible, ou simplement dériver d'une colonne, et tout est à
+recommencer — la jauge acquise reste, le débit repart de rien.
+
+C'est la même règle que sa montée en dégâts, et c'est délibéré : chez HÉLIOS, une
+seule chose compte, et elle compte deux fois. Le joueur n'a pas deux objectifs à
+tenir, il en a un seul, très exigeant.
+
+- Ce qu'elle enseigne : **rester aligné quand tout dit de bouger.**
+- Son piège : la cible qu'on tient finit par mourir, et il faut alors retrouver
+  l'alignement suivant — les deux secondes qui suivent une mise à mort sont les
+  plus pauvres du jeu.
 
 ### VULCAIN → LA SALVE
 
@@ -304,8 +319,8 @@ c'est aussi voir avec quoi il l'a jouée.
    « je ne bouge jamais », ce qui n'est pas un jeu.
 2. **Les charges de VULCAIN blessent-elles le joueur ?** Ma réponse : non. Ce serait
    réaliste et détestable.
-3. **La JUSTESSE d'ORION doit-elle vraiment PÉNALISER les balles perdues ?** Ma
-   réponse : oui, sinon ce n'est pas une mécanique, c'est un cadeau — la jauge se
-   remplirait toute seule en tirant n'importe où. Mais le tir étant automatique, la
-   pénalité tombe parfois sans qu'on l'ait choisie. À essayer manette en main.
+3. **La CHAUFFE d'HÉLIOS récompense-t-elle deux fois la même chose ?** Tenir sa
+   cible fait monter les dégâts ET remplit la jauge. C'est volontaire — un seul
+   objectif, très exigeant — mais il faudra vérifier manette en main que ça ne rend
+   pas la coque trop forte entre les mains de quelqu'un de patient.
 4. **Faut-il une quatrième coque plus tard ?** Le cadre le permet ; trois suffisent.
