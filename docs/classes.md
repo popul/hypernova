@@ -127,25 +127,162 @@ Ce qui en fait une coque tactique :
 
 ---
 
-## Le tableau qui résume
+## Les trois fiches
 
-|                 | **ORION**             | **HÉLIOS**                  | **VULCAIN**                      |
-| --------------- | --------------------- | --------------------------- | -------------------------------- |
-| Arme            | flux droit + missiles | rayon continu qui monte     | charges à retardement            |
-| Verbe           | viser                 | tenir                       | anticiper                        |
-| Se déplacer     | vital                 | coûteux                     | libre                            |
-| Portée          | devant                | toute la colonne            | là où l'on a semé                |
-| Le bon réflexe  | suivre sa cible       | rester aligné               | tirer devant la cible            |
-| Contre un boss  | régulier              | excellent s'il ne bouge pas | irrégulier, énorme si bien placé |
-| Contre une nuée | moyen                 | bon en largeur              | excellent                        |
+Aucune des trois n'a été construite pour se battre. Les Élides fuyaient : ils ont
+emporté des outils, pas des armes. Ce que le joueur pilote, ce sont trois engins de
+chantier réveillés dix mille ans trop tard et retournés contre celui qui les
+cherche — et c'est précisément ce que KORN ne supporte pas. _« Encore leurs outils.
+Toujours leurs outils, et jamais eux. »_
+
+NOVA les connaît toutes les trois. Elle en parle comme d'anciens collègues : avec
+affection pour l'une, méfiance pour l'autre, et une gêne qu'elle n'explique pas
+pour la troisième.
 
 ---
 
-## Ce qui ne change pas
+### ORION — celle qui a mesuré la route
 
-Le frôlement, la jauge de furie, la bombe, l'Overdrive, la pirouette, l'Appel, le
-Réflexe Chrono : identiques pour les trois. On n'apprend pas trois jeux, on
-réapprend le même.
+**Ce qu'elle était.** Un vaisseau de relevé. Pas un chasseur : un arpenteur. Il
+partait devant la flotte, mesurait la distance entre les étoiles et rentrait avec
+des chiffres. C'est lui qui a tracé la route par laquelle les Élides se sont
+enfuis — et il l'a tracée sans savoir qui resterait derrière.
+
+**Ce qu'elle est devenue.** Ses télémètres tirent. On n'a rien changé d'autre : la
+même optique qui mesurait une naine rouge à quatre années-lumière tient aujourd'hui
+un plongeur à quarante mètres. Un instrument de mesure fait une arme redoutable,
+parce qu'il ne rate pas.
+
+**Son caractère.** Méthodique, sobre, un peu sèche. Elle ne commente pas, elle
+annonce. Quand elle a peur, elle donne des chiffres plus précis que nécessaire —
+c'est à ça qu'on le voit.
+
+**Ce qu'elle dirait.** _« Trois cent quarante mètres. Deux virgule huit secondes
+avant contact. Je te le dis parce que tu peux encore bouger. »_
+
+**Son défaut.** Elle croit que mesurer, c'est comprendre. Elle a mesuré la route de
+la fuite sans jamais se demander pourquoi personne ne revenait.
+
+---
+
+### HÉLIOS — celle qui a regardé le soleil trop longtemps
+
+**Ce qu'elle était.** Une récolteuse de lumière. Elle descendait dans la couronne
+des étoiles, ouvrait son émetteur et remplissait les arches d'énergie. Un travail
+de patience : approcher, se stabiliser, tenir la position pendant des heures
+pendant que tout chauffe.
+
+**Ce qu'elle est devenue.** Son collecteur fonctionne à l'envers. Ce qu'elle
+absorbait, elle le rend — en ligne droite, sur toute la profondeur, jusqu'à ce que
+la cible cède ou qu'elle-même se décroche.
+
+**Son caractère.** Obsessionnelle. Fixe. Elle n'aime pas être interrompue et le
+fait sentir. Quand elle tient quelque chose, elle ne parle plus du tout — et ce
+silence est la seule chose qui inquiète NOVA.
+
+**Ce qu'elle dirait.** _« Ne bouge pas. Encore. Encore. Je l'ai presque. »_
+
+**Son défaut.** Elle ne sait pas s'arrêter, et elle ne sait pas faire deux choses.
+Le jour de l'évacuation, elle était en approche d'une étoile. Personne n'est venu
+lui dire de remonter. Elle a fini son cycle.
+
+---
+
+### VULCAIN — celle qui a creusé le monstre
+
+**Ce qu'elle était.** Un vaisseau de chantier. Elle posait les charges qui ouvraient
+les astéroïdes, et c'est de ce métal-là qu'on a bâti les deux arches. Elle a donc
+creusé, de ses propres bras, la coque dans laquelle KORN a été enfermé.
+
+**Ce qu'elle est devenue.** Rien du tout. Elle fait exactement ce qu'elle a toujours
+fait : elle place une charge, elle attend, elle recule. La seule différence, c'est
+ce qu'il y a en face.
+
+**Son caractère.** Lente, patiente, imperturbable. Elle ne s'énerve jamais parce
+qu'elle a déjà tout calculé. Elle parle au passé et au futur, presque jamais au
+présent — ce qui la rend difficile à suivre.
+
+**Ce qu'elle dirait.** _« Dans deux secondes, il sera là. J'y ai déjà mis ce qu'il
+faut. »_
+
+**Son défaut.** Elle vit deux secondes en avance et rate ce qui se passe maintenant.
+Et elle sait ce qu'elle a construit. Quand l'amiral apparaît, elle est la seule des
+trois à se taire.
+
+---
+
+## Le tableau qui résume
+
+|                  | **ORION**             | **HÉLIOS**                  | **VULCAIN**                         |
+| ---------------- | --------------------- | --------------------------- | ----------------------------------- |
+| Arme             | flux droit + missiles | rayon continu qui monte     | charges à retardement               |
+| Verbe            | viser                 | tenir                       | anticiper                           |
+| Se déplacer      | vital                 | coûteux                     | libre                               |
+| Portée           | devant                | toute la colonne            | là où l'on a semé                   |
+| Le bon réflexe   | suivre sa cible       | rester aligné               | tirer devant la cible               |
+| Contre un boss   | régulier              | excellent s'il ne bouge pas | irrégulier, énorme si bien placé    |
+| Contre une nuée  | moyen                 | bon en largeur              | excellent                           |
+| Remplir la jauge | toucher sans rater    | frôler les balles           | prendre plusieurs ennemis d'un coup |
+
+---
+
+## Trois façons de remplir la jauge
+
+La jauge de furie est la même pour tous — c'est elle qui paie la bombe, l'Overdrive
+et la pirouette. Mais **on ne la remplit pas de la même manière**, et c'est là que
+les trois coques se séparent vraiment. Le frôlement pousse à s'approcher des balles ;
+si les trois le partageaient, les trois joueraient pareil malgré leurs armes.
+
+Chaque mécanique récompense donc exactement le verbe de sa coque. Aucune n'est plus
+généreuse qu'une autre : le débit visé est le même, seule la façon de l'obtenir
+change.
+
+### ORION → LA JUSTESSE
+
+**Chaque balle qui touche nourrit la jauge. Chaque balle qui sort de l'écran sans
+rien toucher en retire un tiers.**
+
+Le tir est automatique : le joueur ne choisit pas _quand_ il tire, il choisit _d'où_.
+Rester sous la formation, aligné sur une colonne, remplit la jauge à toute vitesse.
+Tirer dans le vide en fuyant la vide aussi sûrement — et c'est le même geste.
+
+C'est la mécanique la plus dangereuse des trois, et c'est voulu : elle demande de
+rester dans l'axe des ennemis, c'est-à-dire dans l'axe de leurs tirs.
+
+- Ce qu'elle enseigne : **se placer sous sa cible, et y rester.**
+- Son piège : la panique fait fuir, et fuir vide la jauge au moment où l'on en a le
+  plus besoin.
+
+### HÉLIOS → LE FRÔLEMENT
+
+**Inchangé** — c'est la mécanique historique du jeu, et elle lui revient.
+
+Laisser une balle passer à moins de deux unités sans être touché remplit la jauge,
+prolonge le combo et recharge le bouclier.
+
+Elle va parfaitement à cette coque : HÉLIOS doit **rester aligné sur sa cible** pour
+que son rayon monte en puissance, donc rester exposé. Le frôlement transforme cette
+exposition forcée en carburant. Les deux mécaniques se tiennent — c'est la seule
+des trois coques où encaisser le danger EST la stratégie.
+
+- Ce qu'elle enseigne : **tenir sa position quand tout dit de bouger.**
+- Son piège : deux unités, c'est très près.
+
+### VULCAIN → LA SALVE
+
+**Une explosion qui ne prend qu'un seul ennemi ne donne rien. Deux donnent un peu.
+Cinq remplissent un quart de la jauge d'un coup.**
+
+Pilonner au hasard ne rapporte rien du tout. Attendre que la formation se resserre,
+poser la charge devant elle et la laisser arriver dedans : voilà ce qui paie.
+
+- Ce qu'elle enseigne : **ne pas tirer tout de suite.**
+- Son piège : attendre coûte du temps, et le temps fait descendre les plongeurs.
+
+### Le reste ne change pas
+
+La bombe, l'Overdrive, la pirouette, l'Appel, le Réflexe Chrono : identiques pour
+les trois. On n'apprend pas trois jeux, on réapprend le même.
 
 ---
 
@@ -167,4 +304,8 @@ c'est aussi voir avec quoi il l'a jouée.
    « je ne bouge jamais », ce qui n'est pas un jeu.
 2. **Les charges de VULCAIN blessent-elles le joueur ?** Ma réponse : non. Ce serait
    réaliste et détestable.
-3. **Faut-il une quatrième coque plus tard ?** Le cadre le permet ; trois suffisent.
+3. **La JUSTESSE d'ORION doit-elle vraiment PÉNALISER les balles perdues ?** Ma
+   réponse : oui, sinon ce n'est pas une mécanique, c'est un cadeau — la jauge se
+   remplirait toute seule en tirant n'importe où. Mais le tir étant automatique, la
+   pénalité tombe parfois sans qu'on l'ait choisie. À essayer manette en main.
+4. **Faut-il une quatrième coque plus tard ?** Le cadre le permet ; trois suffisent.
