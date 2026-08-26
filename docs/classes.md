@@ -3,6 +3,11 @@
 Conception à relire et corriger avant implémentation. Elle remplace la version
 précédente, qui datait d'avant le mode Survie et les modules qui tombent.
 
+Les trois noms viennent de la mythologie, et chacun a été choisi pour dire son arme
+sans qu'on ait à l'expliquer : **ORION** le chasseur frappe où il regarde,
+**HÉLIOS** traverse le ciel d'un bout à l'autre, **VULCAIN** forge sous le volcan
+ce qui finira par éclater.
+
 ---
 
 ## Ce que le jeu demande déjà
@@ -25,11 +30,14 @@ Pas « je fais moins de dégâts », mais « je suis au mauvais endroit ».
 
 ---
 
-## I. LAME — ce qu'on connaît
+## I. ORION — le chasseur
 
-> *Coque longue et fine, deux dérives en flèche.*
+> _Coque longue et fine, deux dérives en flèche._
 
 **Verbe : viser.**
+
+Le chasseur céleste, l'arc tendu. Il frappe où il regarde — et c'est tout ce que
+son nom promet.
 
 Le vaisseau actuel, sans changement : flux de projectiles droit devant, missiles à
 tête chercheuse qui s'ajoutent avec les modules. C'est la coque de référence — celle
@@ -41,11 +49,15 @@ tête chercheuse qui s'ajoutent avec les modules. C'est la coque de référence 
 
 ---
 
-## II. FAISCEAU — le laser qui tient
+## II. HÉLIOS — le soleil qui traverse
 
-> *Coque ramassée autour d'un émetteur central. Deux satellites en orbite lente.*
+> _Coque ramassée autour d'un émetteur central. Deux satellites en orbite lente._
 
 **Verbe : tenir.**
+
+Le soleil va d'un bout du ciel à l'autre, chaque jour, sans dévier. C'est
+exactement ce que fait ce vaisseau — et exactement ce qu'il paie : il ne peut pas
+faire les deux, avancer et briller.
 
 Un **rayon continu** part du nez et traverse tout l'écran en profondeur. Il ne
 s'arrête à rien : tout ce qui se trouve dans sa colonne prend des dégâts, en
@@ -56,7 +68,7 @@ Ce qui l'empêche d'être une tondeuse à gazon, et c'est tout l'équilibre :
 - **Ses dégâts sont faibles au contact, et montent tant qu'il ne quitte pas sa
   cible.** De ×1 à ×3,5 en deux secondes. Perdre le contact remet à zéro.
 - Donc **bouger coûte toute la puissance**. Là où l'instinct dit « esquive en
-  permanence », le FAISCEAU dit « reste aligné, encaisse, et ne lâche pas ». Chaque
+  permanence », HÉLIOS dit « reste aligné, encaisse, et ne lâche pas ». Chaque
   esquive est une décision comptable, et c'est ce qui rend la coque difficile.
 
 **Le laser grossit** avec les modules : la largeur du rayon suit le niveau de
@@ -75,11 +87,15 @@ module `missiles` en ajoute (jusqu'à quatre), `firerate` accélère leur cadenc
 
 ---
 
-## III. NOYAU — les charges
+## III. VULCAIN — la forge sous le volcan
 
-> *Coque large et trapue, deux bras de lancement, un ventre plein.*
+> _Coque large et trapue, deux bras de lancement, un ventre plein._
 
 **Verbe : anticiper.**
+
+Le forgeron des dieux travaillait sous l'Etna : ce qui couve en dessous finit
+toujours par sortir. Ses charges montent lentement avant d'éclater — le nom dit le
+délai autant que l'explosion.
 
 Son tir direct est **volontairement faible** — de quoi finir un blessé, pas de quoi
 nettoyer. Sa vraie arme, ce sont les **charges** : le vaisseau en lâche une toutes
@@ -98,12 +114,12 @@ Ce qui en fait une coque tactique :
 
 **Ses modules à lui** — les mêmes objets, d'autres effets :
 
-| Module | Sur le NOYAU |
-| --- | --- |
-| `cannons` | +1 charge lâchée à la fois |
-| `missiles` | rayon d'explosion (+35 % par niveau) |
-| `firerate` | charges lâchées plus souvent |
-| `engine` | les charges montent plus vite (donc frappent plus près) |
+| Module     | Sur VULCAIN                                             |
+| ---------- | ------------------------------------------------------- |
+| `cannons`  | +1 charge lâchée à la fois                              |
+| `missiles` | rayon d'explosion (+35 % par niveau)                    |
+| `firerate` | charges lâchées plus souvent                            |
+| `engine`   | les charges montent plus vite (donc frappent plus près) |
 
 - **Frôler** → amorce immédiatement la charge la plus proche.
 - **Sa difficulté** → tout se joue deux secondes à l'avance, et l'écran ne montre
@@ -113,15 +129,15 @@ Ce qui en fait une coque tactique :
 
 ## Le tableau qui résume
 
-| | **LAME** | **FAISCEAU** | **NOYAU** |
-|---|---|---|---|
-| Arme | flux droit + missiles | rayon continu qui monte | charges à retardement |
-| Verbe | viser | tenir | anticiper |
-| Se déplacer | vital | coûteux | libre |
-| Portée | devant | toute la colonne | là où l'on a semé |
-| Le bon réflexe | suivre sa cible | rester aligné | tirer devant la cible |
-| Contre un boss | régulier | excellent s'il ne bouge pas | irrégulier, énorme si bien placé |
-| Contre une nuée | moyen | bon en largeur | excellent |
+|                 | **ORION**             | **HÉLIOS**                  | **VULCAIN**                      |
+| --------------- | --------------------- | --------------------------- | -------------------------------- |
+| Arme            | flux droit + missiles | rayon continu qui monte     | charges à retardement            |
+| Verbe           | viser                 | tenir                       | anticiper                        |
+| Se déplacer     | vital                 | coûteux                     | libre                            |
+| Portée          | devant                | toute la colonne            | là où l'on a semé                |
+| Le bon réflexe  | suivre sa cible       | rester aligné               | tirer devant la cible            |
+| Contre un boss  | régulier              | excellent s'il ne bouge pas | irrégulier, énorme si bien placé |
+| Contre une nuée | moyen                 | bon en largeur              | excellent                        |
 
 ---
 
@@ -146,9 +162,9 @@ c'est aussi voir avec quoi il l'a jouée.
 
 ## Points à trancher ensemble
 
-1. **Le FAISCEAU peut-il tirer en se déplaçant ?** Ma réponse : oui, mais la montée
+1. **HÉLIOS peut-il tirer en se déplaçant ?** Ma réponse : oui, mais la montée
    en puissance se remet à zéro dès qu'il change de colonne. Sinon la coque devient
    « je ne bouge jamais », ce qui n'est pas un jeu.
-2. **Les charges du NOYAU blessent-elles le joueur ?** Ma réponse : non. Ce serait
+2. **Les charges de VULCAIN blessent-elles le joueur ?** Ma réponse : non. Ce serait
    réaliste et détestable.
 3. **Faut-il une quatrième coque plus tard ?** Le cadre le permet ; trois suffisent.
