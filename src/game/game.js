@@ -25,7 +25,8 @@ import {
   ROLL,
 } from './constants.js';
 import { Jump } from './jump.js';
-import { biomeForWave, stageForWave, STAGES } from './space/biomes.js';
+import { biomeForWave, durcisPourBoss, stageForWave, STAGES } from './space/biomes.js';
+import { A_UNE_ESCALE, escalePourSecteur } from './space/escales.js';
 import {
   routesForStage,
   palierDeCoque,
@@ -1531,6 +1532,10 @@ export class Game {
     this.callLeft = 0; // Appels restants pour la vague en cours
     this.callWave = null; // onde d'Appel en cours d'expansion
     this.fragments = 0; // morceaux du Registre récupérés sur les routes longues
+    // L'escale armée par le dernier détour : { vague, tirage } ou null. Le détour
+    // mène QUELQUE PART — une surface, des anneaux, un champ de débris — et c'est
+    // la vague suivante qui s'y joue. Une seule : c'est une escale, pas un secteur.
+    this.escale = null;
     this.routeMods = null; // risque choisi, appliqué à la vague suivante seulement
     this.bombCooldown = 0;
     this.waveDeath = false;
@@ -1816,6 +1821,15 @@ export class Game {
 
   _takeRoute(choix, stageIdx) {
     this.hud.root.classList.remove('hidden');
+    // Le détour dépose le vaisseau dans un lieu, et la vague suivante s'y joue.
+    // Le tirage sort de la GRAINE et du numéro de vague, jamais d'un hasard vif :
+    // deux parties de même graine doivent passer par les mêmes escales, sinon le
+    // rejeu ne montrerait pas ce que le joueur a vu.
+    const suivante = this.wave + 1;
+    this.escale =
+      choix.fragment && A_UNE_ESCALE(stageForWave(suivante).id)
+        ? { vague: suivante, tirage: (this.seed * 31 + suivante * 7919) % 100003 }
+        : null;
     this.credits += choix.credits;
     this.hud.setCredits(this.credits);
     this.routeMods = choix.risque ? choix.risque.mods : null;
@@ -1850,7 +1864,20 @@ export class Game {
 
     this.overlayRoot.innerHTML = '';
     this.state = 'cinematic';
-    const suite = () => this.openShop();
+    const suite = () => {
+      this.openShop();
+      // LE DÉCOR BASCULE ICI, et pas avant : le saut a déjà eu lieu quand on
+      // choisit sa route, donc l'escale arriverait une vague trop tard si on
+      // attendait `startWave`. On la pose maintenant, en fondu — le joueur voit
+      // le lieu se former pendant qu'il fait ses achats, exactement comme la
+      // boutique s'ouvre déjà dans le secteur où l'on va se battre et non dans
+      // celui qu'on vient de quitter.
+      if (!this.escale) return;
+      const lieu = escalePourSecteur(stageForWave(this.escale.vague), this.escale.tirage);
+      if (!lieu) return;
+      this.stage.space?.setBiome(lieu);
+      this.hud.announce(lieu.name, lieu.sub, 2600);
+    };
     if (!this.cinematic.playSouvenir(stageIdx, suite)) suite();
   }
 
@@ -1858,7 +1885,17 @@ export class Game {
     // Un boss assombrit son secteur au lieu d'en changer : en survie ils tombent
     // tous les dix, en arcade tous les quatre.
     const pas = this.mode === 'survie' ? SURVIE.bossTousLes : 4;
-    return biomeForWave(wave, wave % pas === 0);
+    const boss = wave % pas === 0;
+
+    // L'escale REMPLACE le secteur pour une vague. Un boss qui tombe pendant une
+    // escale ne la renvoie pas dans le vide : il l'assombrit, exactement comme il
+    // assombrit un secteur. Se battre contre KORN dans un champ de débris vaut
+    // mieux que de perdre le lieu au moment le plus spectaculaire.
+    if (this.escale?.vague === wave) {
+      const lieu = escalePourSecteur(stageForWave(wave), this.escale.tirage);
+      if (lieu) return boss ? durcisPourBoss(lieu) : lieu;
+    }
+    return biomeForWave(wave, boss);
   }
 
   launchNextWave() {
@@ -2026,6 +2063,9 @@ export class Game {
       credits: this.credits,
       vies: this.lives,
       fragments: this.fragments,
+      // Sans elle, la relecture d'une escale se jouerait dans le vide : la
+      // simulation serait juste, le lieu serait faux.
+      escale: this.escale ? { ...this.escale } : null,
       energie: this.energy,
       mods: this.routeMods ? { ...this.routeMods } : null,
       heat: this.director.heat,
@@ -2064,6 +2104,7 @@ export class Game {
     this.credits = etat.credits;
     this.lives = etat.vies;
     this.fragments = etat.fragments;
+    this.escale = etat.escale ? { ...etat.escale } : null;
     this.energy = etat.energie;
     this.routeMods = etat.mods ? { ...etat.mods } : null;
     this.director.reset();

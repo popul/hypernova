@@ -258,8 +258,16 @@ export class Space {
     this._applyFraming();
   }
 
+  // Le cadrage rapproche les décors lointains quand l'écran est étroit, pour qu'un
+  // astre garde la même présence en portrait qu'en paysage.
+  //
+  // Il ne doit RIEN faire aux décors proches. Mettre à l'échelle un champ de blocs
+  // divise aussi les distances entre eux : à 0,38 en portrait, des masses calibrées
+  // pour passer à seize unités du vaisseau lui passeraient à six, c'est-à-dire au
+  // travers du couloir de jeu.
   _applyFraming() {
     for (const l of this.landmarks) {
+      if (l.proche) continue;
       const base = l.group.userData.baseScale ?? l.group.scale.x;
       l.group.userData.baseScale = base;
       l.group.scale.setScalar(base * this.framing);
@@ -380,21 +388,37 @@ export class Space {
     this.sunSize = this.sunSize ?? 26;
     for (const spec of specs || []) {
       const l = createLandmark(spec);
+      // LOIN OU PRÈS : ce n'est pas la même chose, et tout ce qui suit en dépend.
+      //
+      // Les trois traitements ci-dessous ont été écrits pour une planète posée à
+      // quatre cents unités. Une ESCALE est l'inverse : un sol, une nappe
+      // d'anneaux, un champ de blocs qui vivent dans la même profondeur que le
+      // combat. Leur appliquer les règles du lointain les casse chacune à sa
+      // façon — d'où ce drapeau, que le décor lève lui-même.
+      const proche = !!l.proche;
       l.group.traverse((o) => {
         o.frustumCulled = false;
-        if (o.renderOrder === 0) o.renderOrder = -15;
-        // Le brouillard NE S'APPLIQUE PAS aux décors lointains. Il existe pour
-        // fondre les éléments de jeu à quelques dizaines d'unités ; appliqué à une
-        // planète placée à quatre cents, il l'effaçait complètement — mesuré,
-        // 99,94 % d'opacité de brouillard. Une planète n'est pas dans la brume :
-        // elle est dans le vide, et le vide est parfaitement transparent.
+        if (o.renderOrder === 0) o.renderOrder = proche ? -5 : -15;
         for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
-          m.fog = false;
-          // Le décor est ASSOMBRI d'un tiers. Règle non négociable du jeu : les
-          // projectiles ennemis sont roses et vifs, et doivent le rester seuls.
-          // Une planète qui remplit le fond à pleine luminosité les noie, et le
-          // joueur perd la seule information dont il a vraiment besoin.
-          if (m.color && !m.userData?.garderVif) m.color.multiplyScalar(0.66);
+          // Le brouillard NE S'APPLIQUE PAS aux décors lointains. Il existe pour
+          // fondre les éléments de jeu à quelques dizaines d'unités ; appliqué à
+          // une planète placée à quatre cents, il l'effaçait complètement —
+          // mesuré, 99,94 % d'opacité de brouillard. Une planète n'est pas dans
+          // la brume : elle est dans le vide, et le vide est transparent.
+          //
+          // Un décor proche, lui, EST dans la brume, et une escale monte
+          // justement la densité : l'en exempter ferait du fond du lieu un mur
+          // net à distance fixe.
+          if (!proche) m.fog = false;
+          // Le décor lointain est ASSOMBRI d'un tiers. Règle non négociable du
+          // jeu : les projectiles ennemis sont roses et vifs, et doivent le
+          // rester seuls. Une planète qui remplit le fond à pleine luminosité les
+          // noie, et le joueur perd la seule information dont il a besoin.
+          //
+          // Un décor proche règle son propre ton : à un tiers de moins, les
+          // masses d'un champ de débris perdent leurs facettes et deviennent une
+          // bouillie sombre, alors que ce sont elles qu'on est venu voir.
+          if (m.color && !proche && !m.userData?.garderVif) m.color.multiplyScalar(0.66);
         }
       });
       this.scene.add(l.group);

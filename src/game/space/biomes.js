@@ -218,18 +218,23 @@ export function stageForWave(wave) {
   return STAGES[Math.min(i, STAGES.length - 1)];
 }
 
-// Compat : le jeu appelle encore biomeForWave. Un palier de boss assombrit le lieu
-// au lieu d'en changer — c'est KORN qui arrive, pas le décor qui se remplace.
+// L'arrivée de KORN assombrit le LIEU, quel qu'il soit — un secteur du voyage
+// comme une escale. C'est lui qui arrive, ce n'est pas le décor qui se remplace,
+// et il ne doit pas faire perdre au joueur l'endroit où il se bat.
+export function durcisPourBoss(lieu) {
+  return {
+    ...lieu,
+    id: `${lieu.id}-boss`,
+    sub: 'Il est là',
+    fog: { color: lieu.fog.color, density: lieu.fog.density * 1.5 },
+    hemi: { ...lieu.hemi, intensity: lieu.hemi.intensity * 0.55 },
+    rim: 0xb060ff,
+    exposure: lieu.exposure * 0.86,
+  };
+}
+
+// Compat : le jeu appelle encore biomeForWave.
 export function biomeForWave(wave, isBoss = false) {
   const stage = stageForWave(wave);
-  if (!isBoss) return stage;
-  return {
-    ...stage,
-    id: `${stage.id}-boss`,
-    sub: 'Il est là',
-    fog: { color: stage.fog.color, density: stage.fog.density * 1.5 },
-    hemi: { ...stage.hemi, intensity: stage.hemi.intensity * 0.55 },
-    rim: 0xb060ff,
-    exposure: stage.exposure * 0.86,
-  };
+  return isBoss ? durcisPourBoss(stage) : stage;
 }

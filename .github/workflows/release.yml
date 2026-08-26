@@ -36,8 +36,13 @@ jobs:
           npm ci
           npx eslint src scripts vite.config.js server
           npx prettier --check "src/**/*.{js,css}" index.html
+          # Un décor se désigne par une chaîne, et un nom qui n'existe pas ne se voit
+          # qu'au changement de secteur — parfois après un détour, vers la vingtième
+          # vague. Ni le lint ni le build ne l'attrapent : le jeu s'arrête net au
+          # milieu d'une partie. Cette vérification-là coûte une seconde.
+          node scripts/verifie-decors.mjs
           npm run build
-          echo "✅ lint + format + build"
+          echo "✅ lint + format + décors + build"
 
       - name: Lint et rendu du chart
         run: |

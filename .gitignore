@@ -3,3 +3,6 @@ dist/
 .DS_Store
 *.local
 .vite/
+
+# La salle d'écoute se construit à la demande : son bundle n'a rien à faire ici.
+dist-ecoute/

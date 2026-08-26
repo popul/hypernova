@@ -10,6 +10,9 @@
 // Chaque fabrique renvoie { group, update(dt) } et rien d'autre.
 
 import * as THREE from 'three';
+import { createAnneaux } from './escales/anneaux.js';
+import { createChamp } from './escales/champ.js';
+import { createSurface } from './escales/surface.js';
 
 // Générateur déterministe : le même secteur doit se ressembler d'une partie à
 // l'autre, sinon ce n'est plus un lieu, seulement du bruit.
@@ -941,12 +944,18 @@ function createAsteroids(count = 90) {
     },
   };
 }
+// Les décors d'ESCALE vivent dans leur propre dossier : ils sont d'une autre
+// nature que ceux d'ici. Ceux de ce fichier se posent à des centaines d'unités et
+// ne servent que de fond ; ceux-là, on les traverse.
 const FACTORIES = {
   planet: createPlanet,
   moon: createMoon,
   hulk: createHulk,
   korn: createKorn,
   asteroids: createAsteroids,
+  anneaux: createAnneaux,
+  champ: createChamp,
+  surface: createSurface,
 };
 
 // Un décor se désigne soit par son nom seul, soit par un objet portant ses
