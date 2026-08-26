@@ -55,7 +55,14 @@ import { CARENES, LIVREES } from './ships.js';
 import * as Ships from './ships.js';
 import { Characters } from './characters.js';
 import { Director, romanTier } from './director.js';
-import { SURVIE, DEFAULT_MODS, BOSS_PHASES, MODULE_RARETE } from './constants.js';
+import {
+  SURVIE,
+  DEFAULT_MODS,
+  BOSS_PHASES,
+  MODULE_RARETE,
+  COQUES,
+  coqueParId,
+} from './constants.js';
 import { alea, semer } from '../core/rng.js';
 import { commandeVide, lireEntrees, EV, quantifieDt, dtDepuis } from './rejeu/commandes.js';
 import { Enregistreur, ouvreReplay } from './rejeu/index.js';
@@ -1135,8 +1142,10 @@ export class Game {
     this._vitrine(true);
   }
 
+  // « Rejouer » relance le même mode AVEC la même coque : celui qui enchaîne les
+  // parties pour améliorer son score ne veut pas repasser par le choix à chaque fois.
   _replay() {
-    this.startRun(this.mode === 'survie' ? 'survie' : 'arcade');
+    this.startRun(this.mode === 'survie' ? 'survie' : 'arcade', this.coque);
   }
 
   showGameOver() {
@@ -1304,12 +1313,62 @@ export class Game {
 
   // ---- Cycle de vie d'une partie ----
 
-  startRun(mode = 'arcade') {
+  // LE CHOIX DE COQUE, À CHAQUE PARTIE. Pas à la création du pilote : il faut
+  // pouvoir essayer. Trois coques qu'on ne peut comparer qu'en les jouant, et un
+  // engagement qui ne dure que le temps d'une partie.
+  showChoixCoque(mode, onDone) {
+    this.state = 'coques';
+    this.hud.root.classList.add('hidden');
+    const el = this._screen(`
+      <div class="screen coques">
+        <h2 class="shop-title">Quelle coque ?</h2>
+        <div class="coque-sous">${mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie rapide'}</div>
+        <div class="coque-grid">
+          ${COQUES.map(
+            (c, i) => `
+            <button class="coque-carte" data-coque="${i}">
+              <span class="coque-nom">${esc(c.nom)}</span>
+              <span class="coque-titre">${esc(c.titre)}</span>
+              <span class="coque-arme">${esc(c.arme)}</span>
+              <span class="coque-jauge">${esc(c.resume)}</span>
+            </button>`
+          ).join('')}
+        </div>
+        <button class="btn-ghost" id="coques-back">← Retour</button>
+      </div>
+    `);
+    el.querySelector('#coques-back').addEventListener('click', () => this.showTitle());
+    // Le vaisseau au centre montre la coque survolée : on choisit ce qu'on voit.
+    const montre = (c) => {
+      this._vitrine(true);
+      this.player.rebuild({ ...this._fiche(), carene: c.carene });
+      this._vitrine(true);
+    };
+    montre(COQUES[0]);
+    el.querySelectorAll('.coque-carte').forEach((b, i) => {
+      const c = COQUES[i];
+      b.addEventListener('mouseenter', () => montre(c));
+      b.addEventListener('click', () => {
+        this.audio.buy();
+        this._vitrine(false);
+        onDone(c.id);
+      });
+    });
+  }
+
+  startRun(mode = 'arcade', coque = null) {
     // Toute partie appartient à un pilote : c'est lui qui la publie au panthéon.
     if (!activePilot()) {
-      this.showPilotSelect(() => this.startRun(mode));
+      this.showPilotSelect(() => this.startRun(mode, coque));
       return;
     }
+    // Et toute partie appartient à une coque : sans elle, on ne sait ni quoi tirer
+    // ni comment remplir la jauge.
+    if (!coque) {
+      this.showChoixCoque(mode, (choisie) => this.startRun(mode, choisie));
+      return;
+    }
+    this.coque = coque;
     this.mode = mode === 'survie' ? 'survie' : 'arcade';
 
     this.shop.close();
@@ -1512,7 +1571,10 @@ export class Game {
     const p = activePilot();
     return {
       livree: p?.livree,
-      carene: p?.carene,
+      // La CARÈNE suit la coque choisie, pas la préférence du pilote : on doit
+      // reconnaître ORION d'HÉLIOS au premier coup d'œil, sans lire un menu. La
+      // livrée, elle, reste au pilote — c'est sa couleur, pas son arme.
+      carene: this.coque ? coqueParId(this.coque).carene : p?.carene,
       tier: palierDeCoque(this.fragments),
       levels: this.levels,
     };
@@ -1783,6 +1845,7 @@ export class Game {
       seed: this.seed,
       mode: this.mode,
       niveaux: { ...this.levels },
+      coque: this.coque,
       surcharge: this.surcharge,
       score: this.score,
       // L'enchaînement en cours fait partie de l'état : il ne s'arrête pas à la
@@ -1817,6 +1880,7 @@ export class Game {
     this.mode = etat.mode || 'arcade';
     this.seed = etat.seed;
     this.levels = { ...etat.niveaux };
+    this.coque = etat.coque || 'orion';
     this.surcharge = etat.surcharge || 0;
     this.stats = computeStats(this.levels, this.surcharge);
     this.score = etat.score || 0;
@@ -2181,6 +2245,12 @@ export class Game {
   // rapporterait un graze la frame d'avant.
   _updateGraze() {
     if (!this.player.alive) return;
+    // LE FRÔLEMENT APPARTIENT À ORION. Partagé par les trois coques, il les aurait
+    // fait jouer pareil malgré leurs armes : le joueur se serait approché des balles
+    // dans les trois cas, et le choix de coque n'aurait plus porté que sur la façon
+    // de tirer. Chaque coque a donc sa propre source d'énergie — la chauffe pour
+    // HÉLIOS, la salve pour VULCAIN — et chacune récompense exactement son verbe.
+    if ((this.coque || 'orion') !== 'orion') return;
     const p = this.player.position;
     const grazeRR = (GRAZE.radius + this.enemyBullets.radius) ** 2;
     this.enemyBullets.forEachActive((b) => {

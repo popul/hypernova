@@ -349,16 +349,25 @@ export class Player {
     this.grazeAura.material.opacity = auraBase + this.grazeFlash * 0.75;
     this.grazeAura.scale.setScalar(1 + this.grazeFlash * 0.22);
 
-    // Tir principal (accéléré pendant l'Overdrive).
+    // L'ARMEMENT DÉPEND DE LA COQUE. ORION garde le flux de projectiles et ses
+    // missiles ; HÉLIOS et VULCAIN ont leur propre arme, qui vit dans son fichier et
+    // s'occupe de tout — y compris de ses dégâts. Le vaisseau, lui, ne sait rien
+    // d'elles : il annonce seulement qu'il veut tirer.
+    const coque = game.coque || 'orion';
+    // Le tir direct de VULCAIN est volontairement faible : c'est le prix de ses
+    // charges. Celui d'HÉLIOS n'existe pas — son rayon EST son tir.
+    const cadenceCoque = coque === 'vulcain' ? 0.45 : 1;
+
     this.fireCooldown -= dt;
-    if (cmd.tir && this.fireCooldown <= 0) {
-      const rate = stats.fireRate * (game.odTimer > 0 ? OVERDRIVE.odFireMul : 1);
+    if (coque !== 'helios' && cmd.tir && this.fireCooldown <= 0) {
+      const rate = stats.fireRate * cadenceCoque * (game.odTimer > 0 ? OVERDRIVE.odFireMul : 1);
       this.fireCooldown = 1 / rate;
       this._shoot(stats, bullets, audio, fx);
     }
 
-    // Missiles auto.
-    if (stats.missileCount > 0) {
+    // Missiles auto — la signature d'ORION. Sur les deux autres coques, le module
+    // `missiles` sert à tout autre chose (satellites, rayon d'explosion).
+    if (coque === 'orion' && stats.missileCount > 0) {
       this.missileTimer -= dt;
       if (this.missileTimer <= 0 && enemies.hasTargets()) {
         this.missileTimer = stats.missileInterval;

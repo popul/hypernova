@@ -3167,3 +3167,121 @@ body.touch .btn-call-touch {
   letter-spacing: 0.06em;
   color: var(--text-dim);
 }
+
+/* ---------- Choix de la coque, au début de chaque partie ---------- */
+
+.screen.coques {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  justify-content: flex-start;
+}
+
+.screen.coques > :first-child {
+  margin-top: auto;
+}
+
+.screen.coques > :last-child {
+  margin-bottom: auto;
+}
+
+.coque-sous {
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-top: -8px;
+}
+
+.coque-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 300px));
+  justify-content: center;
+  gap: 14px;
+  width: min(960px, 94vw);
+}
+
+/* Les trois cartes ont la MÊME taille et le même poids visuel : aucune n'est
+   présentée comme le bon choix, sans quoi ce n'en serait plus un. */
+.coque-carte {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px 16px 14px;
+  background: var(--panel);
+  border: 1px solid var(--cyan-dim);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 16px) 0,
+    100% 16px,
+    100% 100%,
+    16px 100%,
+    0 calc(100% - 16px)
+  );
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.coque-carte:hover {
+  transform: translateY(-3px);
+  border-color: var(--cyan);
+  box-shadow: 0 0 26px rgba(79, 242, 255, 0.28);
+}
+
+.coque-nom {
+  font-family: var(--display);
+  font-size: 24px;
+  letter-spacing: 0.14em;
+  color: var(--cyan);
+}
+
+.coque-titre {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.coque-arme {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  min-height: 2.8em;
+}
+
+/* Ce qui remplit la jauge : c'est la ligne qui change vraiment la façon de jouer,
+   donc celle qu'on doit lire en dernier et retenir. */
+.coque-jauge {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  border-top: 1px solid rgba(79, 242, 255, 0.18);
+  padding-top: 7px;
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .coque-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .coque-carte {
+    padding: 11px 12px;
+    gap: 3px;
+  }
+
+  .coque-nom {
+    font-size: 19px;
+  }
+
+  .coque-arme {
+    font-size: 12px;
+    min-height: 0;
+  }
+}

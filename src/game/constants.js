@@ -444,6 +444,55 @@ export const REFLEX = {
   cooldown: [0, 9, 7, 5.5],
 };
 
+// LES TROIS COQUES.
+//
+// Elles ne changent pas les règles du jeu : elles changent le VERBE du joueur. Le
+// test qu'une coque devait passer — si on l'échange en pleine partie sans prévenir,
+// les MAINS doivent faire autre chose — se joue sur trois points seulement : ce
+// qu'elle tire, ce qui remplit sa jauge, et ce que les modules y deviennent.
+//
+// Aucune n'a été construite pour se battre : les Élides fuyaient, ils ont emporté
+// des outils. Le détail est dans docs/classes.md, et il n'est pas décoratif — c'est
+// lui qui a dicté les trois mécaniques.
+export const COQUES = [
+  {
+    id: 'orion',
+    nom: 'ORION',
+    carene: 'dague',
+    titre: 'Le chasseur',
+    phrase: 'Elle frappe où elle regarde.',
+    arme: 'Flux droit et missiles à tête chercheuse',
+    // La jauge se remplit en frôlant les balles — la mécanique fondatrice du jeu,
+    // sur la coque qu'on prend pour apprendre.
+    jauge: 'frolement',
+    resume: 'Passe au plus près sans te faire toucher.',
+  },
+  {
+    id: 'helios',
+    nom: 'HÉLIOS',
+    carene: 'faucon',
+    titre: 'Le soleil qui traverse',
+    phrase: 'Elle ne sait pas faire deux choses à la fois.',
+    arme: 'Rayon continu sur toute la colonne, satellites en orbite',
+    jauge: 'chauffe',
+    resume: 'Tiens ton rayon sur la même cible.',
+  },
+  {
+    id: 'vulcain',
+    nom: 'VULCAIN',
+    carene: 'enclume',
+    titre: 'La forge sous le volcan',
+    phrase: 'Elle a creusé, de ses propres bras, le métal dont KORN est fait.',
+    arme: 'Charges lentes qui explosent en sphère',
+    jauge: 'salve',
+    resume: 'Ne tire pas tout de suite. Attends qu’ils se resserrent.',
+  },
+];
+
+export function coqueParId(id) {
+  return COQUES.find((c) => c.id === id) || COQUES[0];
+}
+
 // LE MODE SURVIE. Cent vagues, une ligne d'arrivée, et un classement qui répond à
 // « jusqu'où es-tu allé ? » plutôt qu'à « combien as-tu marqué ? ».
 //
