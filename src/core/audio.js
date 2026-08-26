@@ -802,6 +802,147 @@ export class AudioEngine {
     this._noise({ dur: 0.1, gain: 0.05, filterFreq: 6000, filterEnd: 2200 });
   }
 
+  // ---- HÉLIOS : le rayon continu ----
+  //
+  // Tout le reste du jeu déclenche des sons ; celui-ci en ENTRETIENT un. Un rayon
+  // qui dure ne peut pas se rejouer soixante fois par seconde — on entendrait
+  // soixante attaques et non un faisceau. On monte donc la chaîne une seule fois,
+  // on la laisse tourner, et l'arme ne fait plus que déplacer des paramètres.
+  //
+  //   growl (ré2) ─┐
+  //   hollow (la2) ─┼→ passe-bas résonant ─→ trémolo ─→ niveau ─→ pan ─→ sfx + rev
+  //   souffle ─────┘                            ↑
+  //                                            LFO
+  //
+  // Deux choses portent l'information, et il n'y en a pas d'autres : la HAUTEUR du
+  // filtre dit la chauffe, et la VITESSE du trémolo dit que ça mord. Un timbre qui
+  // ne changerait pas ferait du rayon un bourdon de frigo.
+  _ensureLaser() {
+    if (!this.ctx || this._laser) return this._laser;
+    const ctx = this.ctx;
+    const sortie = ctx.createGain();
+    sortie.gain.value = 0.0001;
+    const pan = ctx.createStereoPanner();
+    const trem = ctx.createGain();
+    trem.gain.value = 0.78;
+    const filtre = ctx.createBiquadFilter();
+    filtre.type = 'lowpass';
+    filtre.frequency.value = 620;
+    filtre.Q.value = 7; // la résonance EST le laser : sans elle, c'est du souffle
+
+    // Deux tuyaux en quinte, une octave sous la mélodie : le rayon appartient au
+    // même ré mineur que tout le reste, il ne se pose pas à côté.
+    const oscs = [];
+    for (const [semi, onde, niveau] of [
+      [12, 'growl', 0.55],
+      [19, 'hollow', 0.3],
+      [36, 'hollow', 0.12],
+    ]) {
+      const osc = ctx.createOscillator();
+      if (this.W?.[onde]) osc.setPeriodicWave(this.W[onde]);
+      else osc.type = 'sawtooth';
+      osc.frequency.value = hz(semi);
+      const g = ctx.createGain();
+      g.gain.value = niveau;
+      osc.connect(g);
+      g.connect(filtre);
+      osc.start();
+      oscs.push(osc);
+    }
+
+    // Le souffle de la coupe. C'est lui qui distingue « je brûle quelque chose »
+    // de « je brille dans le vide ».
+    const souffle = ctx.createBufferSource();
+    souffle.buffer = this.noiseBuffer;
+    souffle.loop = true;
+    const souffleHP = ctx.createBiquadFilter();
+    souffleHP.type = 'highpass';
+    souffleHP.frequency.value = 2400;
+    const souffleGain = ctx.createGain();
+    souffleGain.gain.value = 0.06;
+    souffle.connect(souffleHP);
+    souffleHP.connect(souffleGain);
+    souffleGain.connect(filtre);
+    souffle.start();
+
+    // Le battement. Il ne s'entend pas comme un effet : il s'entend comme une
+    // machine qui accélère, ce qui est exactement ce que fait la chauffe.
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 6.5;
+    const lfoDepth = ctx.createGain();
+    lfoDepth.gain.value = 0.18;
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(trem.gain);
+    lfo.start();
+
+    filtre.connect(trem);
+    trem.connect(sortie);
+    sortie.connect(pan);
+    pan.connect(this.sfxBus);
+    if (this.revSend) {
+      const envoi = ctx.createGain();
+      envoi.gain.value = 0.22; // une queue, pas un bain : le rayon doit rester net
+      pan.connect(envoi);
+      envoi.connect(this.revSend);
+    }
+
+    this._laser = { sortie, pan, filtre, trem, lfo, lfoDepth, oscs, souffleGain, veille: null };
+    return this._laser;
+  }
+
+  // intensite ∈ [0, 1] : mélange de la chauffe et du fait que le rayon morde.
+  // x : abscisse du vaisseau dans l'arène, pour le panoramique.
+  //
+  // Un chien de garde coupe le son 200 ms après le dernier appel. Sans lui, une
+  // mort en plein rayon laisserait le faisceau gronder sur l'écran de game over :
+  // l'arme n'est pas toujours en mesure de dire elle-même qu'elle s'est arrêtée.
+  laserBoucle(intensite = 0, x = 0) {
+    const L = this._ensureLaser();
+    if (!L) return;
+    const t = this.ctx.currentTime;
+    const i = Math.max(0, Math.min(1, intensite));
+    L.sortie.gain.setTargetAtTime(0.02 + i * 0.075, t, 0.04);
+    L.filtre.frequency.setTargetAtTime(620 + i * i * 4400, t, 0.05);
+    L.filtre.Q.setTargetAtTime(5 + i * 6, t, 0.08);
+    L.souffleGain.gain.setTargetAtTime(0.03 + i * 0.1, t, 0.06);
+    L.lfo.frequency.setTargetAtTime(6.5 + i * 9.5, t, 0.08);
+    L.lfoDepth.gain.setTargetAtTime(0.12 + i * 0.14, t, 0.08);
+    // La hauteur monte de deux demi-tons à saturation : c'est ce que fait un métal
+    // qu'on chauffe, et l'oreille le sait sans qu'on le lui explique.
+    for (const osc of L.oscs) osc.detune.setTargetAtTime(i * 200, t, 0.12);
+    L.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, x / 14.5)) * 0.6, t, 0.1);
+    if (L.veille) clearTimeout(L.veille);
+    L.veille = setTimeout(() => this.laserCoupe(), 200);
+  }
+
+  // On n'arrête pas les oscillateurs : un oscillateur WebAudio ne se rallume pas,
+  // et il ne coûte rien tant qu'il sort du silence. On ferme le robinet, c'est tout.
+  laserCoupe() {
+    const L = this._laser;
+    if (!L || !this.ctx) return;
+    if (L.veille) {
+      clearTimeout(L.veille);
+      L.veille = null;
+    }
+    L.sortie.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.05);
+    L.filtre.frequency.setTargetAtTime(500, this.ctx.currentTime, 0.08);
+  }
+
+  // Saturation atteinte : la quinte du thème, brève et brillante. Le rayon ne
+  // gagnera plus rien à être tenu plus longtemps, et ça doit s'entendre une fois.
+  laserSature() {
+    this._tone({ type: 'sine', freq: hz(48), freqEnd: hz(55), dur: 0.22, gain: 0.11 });
+    this._tone({ type: 'triangle', freq: hz(43), dur: 0.3, gain: 0.06, when: 0.02 });
+    this._noise({ dur: 0.16, gain: 0.06, filterFreq: 900, filterEnd: 7000 });
+  }
+
+  // Les éclats des satellites. Plus court et plus sec que le canon d'ORION : il
+  // s'en tire jusqu'à onze par seconde, il ne doit surtout pas encombrer.
+  eclatSatellite() {
+    this._tone({ type: 'triangle', freq: hz(60), freqEnd: hz(48), dur: 0.05, gain: 0.055 });
+  }
+
   // ---- Voix ----
   //
   // Une voix crédible, ce n'est pas une hauteur : ce sont des FORMANTS. Trois
@@ -978,6 +1119,118 @@ export class AudioEngine {
     const k = Math.min(notes.length, 2 + Math.floor(n / 2));
     for (let i = 0; i < k; i++) {
       this._tone({ type: 'triangle', freq: hz(notes[i]), dur: 0.1, gain: 0.075, when: i * 0.045 });
+    }
+  }
+
+  // LA POSE D'UNE CHARGE (VULCAIN). Elle sonne toutes les deux secondes pendant
+  // toute une partie, et jusqu'à cinq fois en une seconde quand la réserve se vide
+  // d'un coup. Elle doit donc pouvoir DISPARAÎTRE, comme `shoot`, et ne jamais
+  // masquer la détonation — qui est, elle, l'événement.
+  //
+  // Ce qu'on entend : un mécanisme qui claque, puis un souffle qui S'ÉLOIGNE. Son
+  // filtre s'OUVRE et sa hauteur monte, à l'inverse de toutes les explosions du
+  // jeu dont le filtre se referme. C'est ce mouvement contraire, et rien d'autre,
+  // qui dit « elle est partie vers le haut » sans qu'on quitte les balles des yeux.
+  //
+  // Le panoramique vient de l'abscisse de la pose : quand on sème un tapis en
+  // traversant l'arène, on l'entend se dérouler de gauche à droite.
+  chargePosee(x = 0) {
+    if (!this.ctx) return;
+    const sortie = this._pan(x);
+    sortie.connect(this.sfxBus);
+    // Le bras de lancement : un ré très grave et très court, presque un choc.
+    this._tone({
+      type: 'square',
+      freq: hz(12),
+      freqEnd: hz(5),
+      dur: 0.06,
+      gain: 0.09,
+      dest: sortie,
+    });
+    this._noise({ dur: 0.34, gain: 0.05, filterFreq: 500, filterEnd: 2600, dest: sortie });
+    // La quinte à vide de la coque — ré, la. Deux notes à la limite de l'audible,
+    // qui reviendront énormes dans la détonation : c'est la même phrase, jouée une
+    // fois par ce qui part et une fois par ce qui arrive.
+    this._tone({ type: 'triangle', freq: hz(36), dur: 0.09, gain: 0.035, dest: sortie });
+    this._tone({
+      type: 'triangle',
+      freq: hz(43),
+      dur: 0.11,
+      gain: 0.03,
+      when: 0.05,
+      dest: sortie,
+    });
+  }
+
+  // LA DÉTONATION (VULCAIN). Son ampleur suit le NOMBRE d'ennemis pris, parce que
+  // c'est la seule chose que le joueur ait besoin de savoir et qu'il n'a pas le
+  // temps de compter à l'écran : une charge qui n'a rien pris doit sonner comme un
+  // pétard mouillé, une charge qui en a pris cinq doit s'entendre de la pièce d'à
+  // côté.
+  //
+  // `explosionBig` est un bruit et un sinus qui tombe, et c'est tout ce qu'il lui
+  // faut : elle sert quarante fois par partie et ne dit rien d'autre que « c'est
+  // mort ». Celle-ci porte une information, et trois choses la portent, dans
+  // l'ordre où l'oreille les remarque :
+  //  · la QUEUE — l'envoi vers la réverbération commune monte avec la prise, donc
+  //    le LIEU grandit ; c'est ce qui s'entend d'abord et ne se confond avec rien ;
+  //  · le GRAVE — le sinus part plus haut, descend plus bas et tient plus longtemps ;
+  //  · la NOTE — au-delà de deux ennemis, l'arpège de ré mineur s'ouvre sous
+  //    l'explosion et monte d'un degré par ennemi supplémentaire. Même procédé que
+  //    `callHit`, pour la même raison : savoir si le coup valait la peine sans
+  //    aller lire un chiffre.
+  detonation(pris = 1, x = 0) {
+    if (!this.ctx) return;
+    const n = Math.max(0, Math.min(6, pris));
+    const k = n / 6;
+
+    const pan = this._pan(x);
+    pan.connect(this.sfxBus);
+    let sortie = pan;
+    if (this.revSend) {
+      sortie = this.ctx.createGain();
+      sortie.connect(pan);
+      const envoi = this.ctx.createGain();
+      envoi.gain.value = 0.12 + 0.5 * k;
+      sortie.connect(envoi);
+      envoi.connect(this.revSend);
+    }
+
+    // Le claquement de tête, sec et non spatialisé dans la réverbération : c'est
+    // lui qui donne l'instant précis de l'éclatement, et une queue le brouillerait.
+    this._noise({ dur: 0.06, gain: 0.13 + 0.1 * k, filterFreq: 7000, filterEnd: 2200, dest: pan });
+    // Le souffle.
+    this._noise({
+      dur: 0.35 + 0.5 * k,
+      gain: 0.22 + 0.3 * k,
+      filterFreq: 900 + 1600 * k,
+      filterEnd: 55,
+      dest: sortie,
+    });
+    // Le grave qui s'effondre.
+    this._tone({
+      type: 'sine',
+      freq: hz(24 + 6 * k),
+      freqEnd: hz(-4),
+      dur: 0.35 + 0.4 * k,
+      gain: 0.18 + 0.24 * k,
+      dest: sortie,
+    });
+
+    // LA SALVE, entendue. Un seul ennemi ne déclenche rien — le silence de la note
+    // est la traduction exacte du zéro que rapporte la jauge.
+    if (n < 2) return;
+    const degres = [24, 31, 36, 39, 43, 48, 51]; // ré la ré fa la ré fa
+    const combien = Math.min(degres.length, 1 + n);
+    for (let i = 0; i < combien; i++) {
+      this._tone({
+        type: 'triangle',
+        freq: hz(degres[i]),
+        dur: 0.3 + 0.25 * k,
+        gain: 0.05 + 0.03 * k,
+        when: 0.04 + i * 0.035,
+        dest: sortie,
+      });
     }
   }
 

@@ -65,11 +65,23 @@ permanence.
 
 Ce qui l'empêche d'être une tondeuse à gazon, et c'est tout l'équilibre :
 
-- **Ses dégâts sont faibles au contact, et montent tant qu'il ne quitte pas sa
-  cible.** De ×1 à ×3,5 en deux secondes. Perdre le contact remet à zéro.
-- Donc **bouger coûte toute la puissance**. Là où l'instinct dit « esquive en
-  permanence », HÉLIOS dit « reste aligné, encaisse, et ne lâche pas ». Chaque
+- **Ses dégâts sont faibles au contact, et montent tant qu'il ne lâche rien.**
+  De ×1 à ×1,8 en deux secondes. Brasser le vide plus de trois dixièmes de seconde
+  remet tout à zéro.
+- **Elle surchauffe.** Passé une fois et demie la durée de montée, l'émetteur
+  décroche et se tait une seconde entière. On ne tient donc jamais une cible
+  indéfiniment : le combat long impose de lâcher et de se replacer.
+- Donc **perdre le contact coûte toute la puissance**. Là où l'instinct dit
+  « esquive en permanence », HÉLIOS dit « garde ta proie sous le rayon ». Chaque
   esquive est une décision comptable, et c'est ce qui rend la coque difficile.
+
+> **Ce que la mesure a corrigé.** Une première version liait la montée à une
+> COLONNE, c'est-à-dire à la position du vaisseau : dériver de plus d'une unité
+> effaçait tout. Chronométrée, elle ne marchait tout simplement pas — le plus long
+> contact d'un combat de boss entier durait 0,66 seconde, contre 2 pour saturer. La
+> montée en puissance de la coque n'a jamais existé une seule fois. Ce qui compte
+> est donc le CONTACT, pas la position : suivre sa cible est désormais la bonne
+> façon de jouer, et c'est la surchauffe qui empêche d'en abuser.
 
 **Le laser grossit** avec les modules : la largeur du rayon suit le niveau de
 `cannons`, de deux dixièmes d'unité à une unité et demie. Un rayon large touche
@@ -271,8 +283,8 @@ qu'on découvre après.
 lâcher remet le débit à zéro.**
 
 Un dixième de jauge par seconde après un contact d'une seconde, un tiers après
-trois. Changer de cible, ou simplement dériver d'une colonne, et tout est à
-recommencer — la jauge acquise reste, le débit repart de rien.
+trois. Laisser le rayon brasser le vide, et tout est à recommencer — la jauge
+acquise reste, le débit repart de rien.
 
 C'est la même règle que sa montée en dégâts, et c'est délibéré : chez HÉLIOS, une
 seule chose compte, et elle compte deux fois. Le joueur n'a pas deux objectifs à
@@ -314,13 +326,43 @@ c'est aussi voir avec quoi il l'a jouée.
 
 ## Points à trancher ensemble
 
-1. **HÉLIOS peut-il tirer en se déplaçant ?** Ma réponse : oui, mais la montée
-   en puissance se remet à zéro dès qu'il change de colonne. Sinon la coque devient
-   « je ne bouge jamais », ce qui n'est pas un jeu.
+1. ~~**HÉLIOS peut-il tirer en se déplaçant ?**~~ **Tranché par la mesure.** Oui, et
+   se déplacer ne coûte plus rien du tout : c'est perdre le CONTACT qui coûte. La
+   réponse d'origine — remise à zéro dès qu'on change de colonne — a été essayée puis
+   chronométrée, et elle rendait la montée en puissance littéralement inatteignable.
 2. **Les charges de VULCAIN blessent-elles le joueur ?** Ma réponse : non. Ce serait
    réaliste et détestable.
 3. **La CHAUFFE d'HÉLIOS récompense-t-elle deux fois la même chose ?** Tenir sa
    cible fait monter les dégâts ET remplit la jauge. C'est volontaire — un seul
-   objectif, très exigeant — mais il faudra vérifier manette en main que ça ne rend
-   pas la coque trop forte entre les mains de quelqu'un de patient.
+   objectif, très exigeant. La crainte était fondée : une fois le contact réparé, la
+   coque pliait un boss en 5,9 s là où ORION en met 20,6. La montée est redescendue
+   de ×3,5 à ×1,8 et la surchauffe est née de là. **Reste à confirmer manette en
+   main** — les chiffres ci-dessous viennent d'un pilote automatique.
 4. **Faut-il une quatrième coque plus tard ?** Le cadre le permet ; trois suffisent.
+
+
+## Où en est l'équilibre
+
+Chronométrages du 26 août 2026 : temps mis pour nettoyer une vague entière, à
+pilote automatique identique pour les trois coques. « Immobile » ne bouge jamais,
+« suit » se place sous l'ennemi le plus proche. Ce sont des ordres de grandeur, pas
+des vérités — un humain joue autrement.
+
+| Coque   | Vague 3 | Vague 7 | Boss (vague 5) | Vague 3, immobile |
+| ------- | ------- | ------- | -------------- | ----------------- |
+| ORION   | 11,9 s  | 18,4 s  | 20,6 s         | 17,6 s            |
+| HÉLIOS  | 8,1 s   | 14,2 s  | 10,8 s         | 18,0 s            |
+| VULCAIN | 15,1 s  | 17,8 s  | 18,1 s         | 17,7 s            |
+
+Ce qu'on cherchait, et qu'on lit dans la dernière colonne : **immobiles, les trois
+coques se valent** (17,6 / 18,0 / 17,7). Aucune n'est meilleure en soi. C'est le
+pilotage qui les sépare, et chacune récompense le sien — HÉLIOS le plus fort quand
+on tient sa proie, VULCAIN le moins en vague facile mais le mieux quand la
+difficulté monte (vague 7 : il passe devant ORION).
+
+VULCAIN reste le plus lent à nettoyer, ce qui est conforme à sa fiche. À surveiller
+tout de même : sa forge n'a une charge en réserve qu'un tiers du temps, et une
+charge ne prend en moyenne que 1,8 ennemi — jamais les cinq de la croix théorique,
+parce que la formation réelle a des trous. Élargir le souffle n'y changerait rien
+(mesuré : de 3,2 à 4,0 de rayon, le gain est nul), c'est le RYTHME de la forge qui
+est le levier.

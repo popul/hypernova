@@ -356,7 +356,13 @@ export class Player {
     const coque = game.coque || 'orion';
     // Le tir direct de VULCAIN est volontairement faible : c'est le prix de ses
     // charges. Celui d'HÉLIOS n'existe pas — son rayon EST son tir.
-    const cadenceCoque = coque === 'vulcain' ? 0.45 : 1;
+    //
+    // 0,45 était trop dur, et la mesure a dit pourquoi. La forge n'a de charge en
+    // réserve qu'un tiers du temps : les deux autres tiers, la coque se bat au seul
+    // canon. À 45 % elle était donc punie deux fois pour le même choix, et mettait
+    // 16 s à nettoyer une vague qu'ORION plie en 12. À 0,6 le canon comble l'attente
+    // sans jamais rivaliser — c'est toujours le souffle qui fait le travail.
+    const cadenceCoque = coque === 'vulcain' ? 0.6 : 1;
 
     this.fireCooldown -= dt;
     if (coque !== 'helios' && cmd.tir && this.fireCooldown <= 0) {

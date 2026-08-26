@@ -6,6 +6,8 @@ import { Player } from './player.js';
 import { Enemies } from './enemies.js';
 import { PlayerBullets, EnemyBullets, Missiles } from './bullets.js';
 import { Pickups, Modules } from './pickups.js';
+import { ArmeHelios } from './armes/helios.js';
+import { ArmeVulcain } from './armes/vulcain.js';
 import { Hud } from './hud.js';
 import { Shop } from './shop.js';
 import { Cinematic } from './cinematic.js';
@@ -107,6 +109,15 @@ export class Game {
     // Les modules du mode Survie : les améliorations qui tombent des ennemis, et
     // qui y remplacent entièrement la boutique.
     this.modules = new Modules(scene);
+
+    // LES ARMES DES DEUX AUTRES COQUES. Chacune vit dans son fichier et s'occupe de
+    // tout — ses meshes, ses dégâts, sa source d'énergie, son instantané de replay.
+    // Le jeu ne fait que lui passer la main quand c'est sa coque qui vole. ORION n'a
+    // pas d'entrée ici : son armement EST celui du vaisseau, depuis toujours.
+    this.armes = {
+      helios: new ArmeHelios(scene),
+      vulcain: new ArmeVulcain(scene),
+    };
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
     this.shop = new Shop(overlayRoot, {
@@ -1428,6 +1439,7 @@ export class Game {
     this.missiles.clear();
     this.pickups.clear();
     this.modules.clear();
+    for (const a of Object.values(this.armes)) a.clear();
     this.modules.clear();
     this.enemies.clear();
     this.player.shieldUp = false;
@@ -1846,6 +1858,10 @@ export class Game {
       mode: this.mode,
       niveaux: { ...this.levels },
       coque: this.coque,
+      // L'état de l'arme entre dans l'instantané : une charge en vol au changement
+      // de vague doit être là au rejeu, sinon la partie diverge dès la première
+      // détonation.
+      arme: this.armes[this.coque]?.instantane?.() || null,
       surcharge: this.surcharge,
       score: this.score,
       // L'enchaînement en cours fait partie de l'état : il ne s'arrête pas à la
@@ -1881,6 +1897,8 @@ export class Game {
     this.seed = etat.seed;
     this.levels = { ...etat.niveaux };
     this.coque = etat.coque || 'orion';
+    for (const a of Object.values(this.armes)) a.clear();
+    this.armes[this.coque]?.restaure?.(etat.arme);
     this.surcharge = etat.surcharge || 0;
     this.stats = computeStats(this.levels, this.surcharge);
     this.score = etat.score || 0;
@@ -1945,6 +1963,7 @@ export class Game {
     this.missiles.clear();
     this.pickups.clear();
     this.modules.clear();
+    for (const a of Object.values(this.armes)) a.clear();
     this.showTitle();
   }
 
@@ -2069,6 +2088,8 @@ export class Game {
     this._updateBombFront(dt);
 
     this.player.update(dt, this);
+    const arme = this.armes[this.coque];
+    if (arme && this.player.alive) arme.update(dt, this);
     this.enemies.update(dt, this);
     this.bullets.update(dt);
     this.enemyBullets.update(dt, odActive ? OVERDRIVE.odBulletSlow : 1);

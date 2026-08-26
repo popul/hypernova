@@ -32,7 +32,9 @@ import {
 //   5 — la Survie n'a plus ni boutique ni crédits : les modules tombent des ennemis
 //   6 — trois coques jouables (ORION, HÉLIOS, VULCAIN) : armement et source
 //       d'énergie dépendent de celle qu'on a choisie
-export const VERSION = 6;
+//   7 — HÉLIOS tient le CONTACT et non plus une colonne, et elle surchauffe ;
+//       le canon de VULCAIN et le rythme de sa forge sont revus
+export const VERSION = 7;
 
 // --- Écriture ---------------------------------------------------------------
 
