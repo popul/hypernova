@@ -1597,6 +1597,9 @@ export class Game {
     // mène QUELQUE PART — une surface, des anneaux, un champ de débris — et c'est
     // la vague suivante qui s'y joue. Une seule : c'est une escale, pas un secteur.
     this.escale = null;
+    // Vrai pendant le niveau BIS de l'escale. Ce n'est pas la vague prévue, c'est
+    // une vague EN PLUS, insérée avant elle et portant le même numéro.
+    this.bis = false;
     this.routeMods = null; // risque choisi, appliqué à la vague suivante seulement
     this.bombCooldown = 0;
     this.waveDeath = false;
@@ -1701,7 +1704,10 @@ export class Game {
       // de vague — sinon deux vagues de difficulté égale seraient identiques.
       const survie = this.mode === 'survie';
       const nDiff = survie ? Math.max(1, Math.round(n * SURVIE.pente)) : n;
-      const boss = survie ? n % SURVIE.bossTousLes === 0 : undefined;
+      // UNE ESCALE N'A PAS DE BOSS. C'est un détour, pas le rendez-vous : on est
+      // venu chercher quelque chose dans un endroit, pas affronter l'amiral au
+      // milieu d'un champ de débris. Il attend au niveau suivant, et il y sera.
+      const boss = this.bis ? false : survie ? n % SURVIE.bossTousLes === 0 : undefined;
       def = makeWave(nDiff, {
         seed: this.seed + (survie ? n * 977 : 0),
         forceBoss: boss === true ? true : undefined,
@@ -1896,10 +1902,11 @@ export class Game {
 
   _takeRoute(choix, stageIdx) {
     this.hud.root.classList.remove('hidden');
-    // Le détour dépose le vaisseau dans un lieu, et la vague suivante s'y joue.
-    // Le tirage sort de la GRAINE et du numéro de vague, jamais d'un hasard vif :
-    // deux parties de même graine doivent passer par les mêmes escales, sinon le
-    // rejeu ne montrerait pas ce que le joueur a vu.
+    // Le détour dépose le vaisseau dans un lieu, et un niveau BIS s'y joue — une
+    // vague en plus, portant le même numéro que celle qui viendra après. Le
+    // tirage sort de la GRAINE, jamais d'un hasard vif : deux parties de même
+    // graine doivent passer par les mêmes escales, sinon le rejeu ne montrerait
+    // pas ce que le joueur a vu.
     const suivante = this.wave + 1;
     this.escale =
       choix.fragment && A_UNE_ESCALE(stageForWave(suivante).id)
@@ -1915,15 +1922,51 @@ export class Game {
       return;
     }
 
-    // Le fragment fait DEUX choses : il ouvre un souvenir, et il compte pour la
-    // coque. C'est ce qui empêche l'histoire d'être une récompense décorative.
+    // LE FRAGMENT NE SE DONNE PLUS ICI. Il se mérite : on part le chercher dans
+    // l'escale, et on ne l'a qu'en ressortant vivant. Tant qu'il tombait au moment
+    // du choix, le détour ne coûtait qu'un peu d'argent ; il coûte maintenant un
+    // niveau entier à survivre, et c'est ce qui en fait un pari.
+    this.bis = !!this.escale;
+
+    this.overlayRoot.innerHTML = '';
+    this.state = 'cinematic';
+    const suite = () => (this.escale ? this._entreEscale() : this.openShop());
+    if (!this.cinematic.playSouvenir(stageIdx, suite)) suite();
+  }
+
+  // On y ENTRE, on n'y apparaît pas. L'animation prend la main sur la caméra le
+  // temps de l'approche, puis la boutique s'ouvre — sur place, dans le lieu où
+  // l'on va se battre.
+  _entreEscale() {
+    const lieu = this.escale
+      ? escalePourSecteur(stageForWave(this.escale.vague), this.escale.tirage)
+      : null;
+    if (!lieu) return this.openShop();
+    this.stage.space?.setBiome(lieu, { instant: true });
+    this.hud.announce(lieu.name, lieu.sub, 2600);
+    this.state = 'arrivee';
+    const lance = this.arrivee.start({
+      type: lieu.escale,
+      teinte: lieu.landmark?.[0]?.teinte,
+      ship: this.player.group,
+      onDone: () => {
+        this.cameraOverride = null;
+        this.openShop();
+      },
+    });
+    if (!lance) this.openShop();
+  }
+
+  // ON RESSORT DE L'ESCALE. On empoche ce qu'on est venu chercher, on quitte la
+  // zone, et on rejoint le rendez-vous : la vague qui suit porte le MÊME numéro,
+  // puisque l'escale était une vague en plus. C'est là, et seulement là, que
+  // l'amiral attend.
+  _quitteEscale() {
+    this.bis = false;
     const avant = palierDeCoque(this.fragments);
     this.fragments++;
     const apres = palierDeCoque(this.fragments);
     if (apres > avant) {
-      // Le palier n'ajoutait que des plaques visibles. Il donne maintenant ce que
-      // son propre commentaire promettait depuis le début : du blindage. Sans quoi
-      // le détour se payait en crédits ET en risque, contre un effet nul.
       const gagnees = PALIERS[apres].vies || 0;
       if (gagnees) {
         this.lives += gagnees;
@@ -1935,47 +1978,32 @@ export class Game {
         2600
       );
       this._refreshShip();
+    } else {
+      this.hud.announce('FRAGMENT RÉCUPÉRÉ', `${this.fragments} au Registre`, 2200);
     }
 
-    this.overlayRoot.innerHTML = '';
-    this.state = 'cinematic';
-    const suite = () => {
-      if (this.escale) return arrive();
-      this.openShop();
-      // LE DÉCOR BASCULE ICI, et pas avant : le saut a déjà eu lieu quand on
-      // choisit sa route, donc l'escale arriverait une vague trop tard si on
-      // attendait `startWave`. On la pose maintenant, en fondu — le joueur voit
-      // le lieu se former pendant qu'il fait ses achats, exactement comme la
-      // boutique s'ouvre déjà dans le secteur où l'on va se battre et non dans
-      // celui qu'on vient de quitter.
-      if (!this.escale) return;
-      const lieu = escalePourSecteur(stageForWave(this.escale.vague), this.escale.tirage);
-      if (!lieu) return;
-      this.stage.space?.setBiome(lieu);
-      this.hud.announce(lieu.name, lieu.sub, 2600);
-    };
-    // On y ENTRE, on n'y apparaît pas. L'animation prend la main sur la caméra le
-    // temps de l'approche, puis la boutique s'ouvre — sur place.
-    const arrive = () => {
-      const lieu = this.escale
-        ? escalePourSecteur(stageForWave(this.escale.vague), this.escale.tirage)
-        : null;
-      if (!lieu) return this.openShop();
-      this.stage.space?.setBiome(lieu, { instant: true });
-      this.hud.announce(lieu.name, lieu.sub, 2600);
-      this.state = 'arrivee';
-      const lance = this.arrivee.start({
-        type: lieu.escale,
-        teinte: lieu.landmark?.[0]?.teinte,
-        ship: this.player.group,
-        onDone: () => {
-          this.cameraOverride = null;
-          this.openShop();
-        },
-      });
-      if (!lance) this.openShop();
-    };
-    if (!this.cinematic.playSouvenir(stageIdx, suite)) suite();
+    // Le départ se joue avec le saut lumière, qui existe déjà pour ça : un flash,
+    // le décor qui bascule, et on est ailleurs. Écrire une seconde animation de
+    // sortie n'aurait rien ajouté qu'une seconde d'attente.
+    const vague = this.escale?.vague ?? this.wave;
+    this.escale = null;
+    this.state = 'jump';
+    this.enemyBullets.clear();
+    this.bullets.clear();
+    this.missiles.clear();
+    for (const a of Object.values(this.armes)) a.clear();
+    this.aura.clear();
+    this.soutien.annule();
+    this.fx.cancelSlowmo();
+    this.jump.start({
+      dialogue: ['jump'],
+      onSwap: () => {
+        const lieu = this._biomeFor(vague);
+        this.stage.space?.setBiome(lieu);
+        this.hud.announce(lieu.name, lieu.sub, 2400);
+      },
+      onDone: () => this.openShop(),
+    });
   }
 
   _biomeFor(wave) {
@@ -1988,7 +2016,7 @@ export class Game {
     // escale ne la renvoie pas dans le vide : il l'assombrit, exactement comme il
     // assombrit un secteur. Se battre contre KORN dans un champ de débris vaut
     // mieux que de perdre le lieu au moment le plus spectaculaire.
-    if (this.escale?.vague === wave) {
+    if (this.bis && this.escale?.vague === wave) {
       const lieu = escalePourSecteur(stageForWave(wave), this.escale.tirage);
       if (lieu) return boss ? durcisPourBoss(lieu) : lieu;
     }
@@ -2163,6 +2191,7 @@ export class Game {
       // Sans elle, la relecture d'une escale se jouerait dans le vide : la
       // simulation serait juste, le lieu serait faux.
       escale: this.escale ? { ...this.escale } : null,
+      bis: this.bis,
       energie: this.energy,
       mods: this.routeMods ? { ...this.routeMods } : null,
       heat: this.director.heat,
@@ -2201,6 +2230,7 @@ export class Game {
     this.lives = etat.vies;
     this.fragments = etat.fragments;
     this.escale = etat.escale ? { ...etat.escale } : null;
+    this.bis = !!etat.bis;
     this.energy = etat.energie;
     this.routeMods = etat.mods ? { ...etat.mods } : null;
     this.director.reset();
@@ -2515,6 +2545,8 @@ export class Game {
       if (this.waveEndTimer > attente && butin === 0) {
         if (derniereVague) this.showVictoire();
         else if (this.mode === 'survie') this.startWave(this.wave + 1);
+        // Le niveau bis ne mène pas au suivant : il mène à celui qu'il a retardé.
+        else if (this.bis) this._quitteEscale();
         else this._startJump();
       }
     }
