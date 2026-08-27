@@ -35,12 +35,347 @@ export const LIVREES = [
   { id: 'sang', nom: 'Corsaire', hull: 0xd8c0c0, dark: 0x40161c, accent: 0xff4d6d },
 ];
 
-// Trois carènes. Elles ne changent pas les statistiques — c'est la classe qui le
-// fera plus tard — mais elles changent la silhouette, et c'est ce qu'on voit.
+// ---------------------------------------------------------------- LES CARÈNES
+//
+// TROIS SILHOUETTES, ET RIEN QUE LA SILHOUETTE.
+//
+// Les trois coques ne se distinguaient que par trois nombres — longueur du nez,
+// taille de l'aile, angle de flèche — posés sur le MÊME assemblage. Mesuré : leurs
+// boîtes englobantes faisaient 3,20 × 2,49, 3,94 × 2,25 et 2,83 × 2,18 unités.
+// Rasterisées dans la caméra du jeu, qui plonge de trente-cinq degrés et écrase donc
+// la profondeur d'un facteur 0,57 quand elle garde la largeur en entier, il en
+// restait trois taches de 126 × 89, 156 × 82 et 110 × 79 pixels — trois rapports de
+// 1,41, 1,91 et 1,39, remplis à 288, 308 et 296 cases sur une même grille. Sept pour
+// cent d'écart. Ce n'était pas trois vaisseaux, c'était le même trois fois.
+//
+// Ce qui se lit à cette taille n'est ni le nez, ni les tuyères, ni la peinture :
+// c'est L'ÉLANCEMENT — largeur contre profondeur écrasée — et la MASSE. Les trois
+// carènes sont donc redessinées autour de ces deux grandeurs, et chacune pousse la
+// sienne jusqu'au bout. Même mesure, après :
+//
+//   dague   (ORION)    82 × 103 px, rapport 0,80. Plus longue que large : une lame,
+//                      deux moignons d'ailes collés au corps, tout est dans l'axe.
+//   faucon  (HÉLIOS)  172 × 72 px, rapport 2,39. Trois fois plus large que profonde :
+//                      deux ailes en flèche parties du nez, saumons relevés.
+//   enclume (VULCAIN) 108 × 89 px, rapport 1,22. Presque carrée, et deux fois plus
+//                      haute que les deux autres : un fût LARGE DEVANT, une table
+//                      posée dessus, et rien qui dépasse.
+//
+// L'ENCOMBREMENT NE GROSSIT PAS, ET CE N'EST PAS UNE COQUETTERIE. Le rayon de
+// collision (PLAYER.radius) est le même pour les trois : une carène qui aurait
+// l'air plus grosse sans se faire toucher davantage passerait pour une carène
+// avantagée, et personne ne comprendrait pourquoi. Les trois emprises au sol
+// mesurées après redessin — 5,9, 8,3 et 5,8 unités² — sont donc toutes INFÉRIEURES
+// à celles d'avant (8,0, 8,9 et 6,2), et le point le plus éloigné de l'axe reste à
+// 2,39 au pire, exactement comme avant. Trois contours de plus, zéro place de plus.
+//
+// Ce qui NE change pas non plus, et qui les garde de la même flotte : le facettage,
+// les quatre mêmes matières (coque, sombre, accent, verrière), le nez qui pointe
+// vers -Z, les tuyères nommées `exhaust`, et le fait que chaque module acheté
+// AJOUTE quelque chose au contour. Les modules ne sont plus posés aux mêmes
+// coordonnées pour tout le monde — un canon sous l'aile du faucon serait dans le
+// vide sur la dague — mais ils racontent la même chose sur les trois.
+
+// ------------------------------------------------------------------- UNE AILE
+//
+// Une aile est un QUADRILATÈRE : deux cordes de longueurs différentes, décalées
+// l'une par rapport à l'autre. C'est cet écart — la flèche — qui fait qu'on lit
+// « chasseur » plutôt que « planche ». L'ancienne version posait une BoxGeometry
+// pivotée : corde constante d'un bout à l'autre, donc aucune flèche possible, et
+// les trois carènes héritaient de la même planche à trois angles près.
+//
+// On déforme donc les sommets d'une boîte au lieu de la tourner. Deux pièges s'y
+// cachent, et aucun des deux ne se voit avant d'avoir tout rebranché :
+//
+//  1. LE SENS DES FACES. Fabriquer l'aile bâbord en niant l'envergure retourne
+//     l'ordre des triangles. three.js sait le rattraper sur un mesh dont la matrice
+//     a un déterminant négatif — mais soutien.js FUSIONNE les carènes des ailiers
+//     en appliquant les matrices aux géométries, et une géométrie n'a plus de
+//     matrice à inspecter : les ailes gauches des deux ailiers disparaîtraient,
+//     face arrière tournée vers la caméra. On inverse donc l'index à la main.
+//  2. LES NORMALES restent celles de la boîte d'origine, et c'est délibéré : sous
+//     flatShading, three.js ne les lit pas — il recalcule la normale par facette
+//     dans le fragment, à partir des dérivées d'écran. L'attribut doit EXISTER
+//     (mergeGeometries exige le même jeu d'attributs partout) mais son contenu est
+//     mort. Le recalculer coûterait une passe pour rien.
+//
+// Corollaire de ce même mergeGeometries : tout ce qu'on assemble ici doit rester
+// INDEXÉ. Les polyèdres de three.js (Octahedron, Icosahedron, Tetrahedron) ne le
+// sont pas — en glisser un dans une carène ferait planter la fusion des ailiers,
+// très loin d'ici et sans rapport apparent.
+function aileGeo({ cote, envergure, emplanture, saumon, recul, epaisseur, diedre, ancrage }) {
+  const geo = new THREE.BoxGeometry(1, epaisseur, 1);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const t = p.getX(i) + 0.5; // 0 à l'emplanture, 1 au saumon
+    const corde = emplanture + (saumon - emplanture) * t;
+    p.setX(i, cote * (ancrage[0] + t * envergure));
+    p.setY(i, p.getY(i) + ancrage[1] + diedre * t);
+    p.setZ(i, ancrage[2] + recul * t + p.getZ(i) * corde);
+  }
+  if (cote < 0) {
+    const idx = geo.index.array;
+    for (let i = 0; i < idx.length; i += 3) {
+      const t = idx[i + 1];
+      idx[i + 1] = idx[i + 2];
+      idx[i + 2] = t;
+    }
+  }
+  return geo;
+}
+
+// Les plans de coque. `corps` dessine ce qui appartient en propre à la carène ;
+// tout le reste — empennage, tuyères, modules, paliers — est monté par
+// createPlayerShip aux ancrages déclarés ici. Toutes les cotes sont exprimées
+// AVANT le 0,78 que createPlayerShip applique en bloc à la fin, et ce facteur est
+// le MÊME pour les trois : rapetisser une carène pour la faire tenir aurait été
+// une façon déguisée de changer sa place dans l'arène.
+const PLANS = {
+  // ---------------------------------------------------------------- LA DAGUE
+  // Deux fois plus longue que large. La règle de dessin est simple : RIEN NE
+  // S'ÉCARTE DE L'AXE. Les ailes sont des moignons collés au fuselage, les tuyères
+  // sont à demi enfoncées dans la queue, et le seul appendice qui dépasse est
+  // l'accent des saumons. Ce qui reste à l'écran, c'est un trait.
+  dague: {
+    corps(shell, M) {
+      // La lame : un cône à QUATRE pans, aplati de moitié, qui court d'un bout à
+      // l'autre du vaisseau. Quatre pans et non six parce qu'un quadrilatère
+      // aplati a des ARÊTES VIVES en haut et en bas — une section en losange, la
+      // section d'une lame — quand un hexagone aplati rend un galet.
+      //
+      // Rayon 0,46 et non 0,36 : rasterisée à la taille du jeu, la version fine
+      // rendait un trait de deux pixels sur son premier tiers, et un trait de deux
+      // pixels sous le bloom, ce n'est plus une coque, c'est un fil. La largeur
+      // hors-tout ne bouge pas pour autant — ce sont les saumons qui la fixent, à
+      // trois fois cette distance de l'axe.
+      shell.add(
+        new THREE.Mesh(
+          new THREE.ConeGeometry(0.46, 3.45, 4)
+            .rotateX(-Math.PI / 2)
+            .scale(1, 0.44, 1)
+            .translate(0, 0, -0.2),
+          M.hull
+        )
+      );
+
+      // La soie. Elle s'arrête à mi-corps, et c'est tout l'intérêt : posée sur
+      // TOUTE la longueur, cette pièce sombre couvrait le dessus du cône d'un bout
+      // à l'autre — vue d'en haut, la dague devenait une baguette noire, et la
+      // seule chose qu'on lisait d'elle était sa couleur, pas sa forme. Réduite à
+      // l'arrière, elle laisse la moitié avant en coque claire : la lame brille,
+      // la poignée est sombre, et l'œil sait aussitôt de quel côté ça pique.
+      const soie = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 1.5), M.dark);
+      soie.position.set(0, 0.19, 0.55);
+      shell.add(soie);
+
+      // La verrière est POUSSÉE LOIN DEVANT et étirée : c'est elle qui dit dans
+      // quel sens va la lame. Centrée, elle en aurait fait un fer de flèche
+      // symétrique, sans avant ni arrière.
+      const verriere = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), M.verriere);
+      verriere.scale.set(0.95, 0.6, 2.4);
+      verriere.position.set(0, 0.23, -0.55);
+      shell.add(verriere);
+
+      for (const cote of [-1, 1]) {
+        shell.add(
+          new THREE.Mesh(
+            aileGeo({
+              cote,
+              envergure: 0.95,
+              emplanture: 1.5,
+              saumon: 0.45,
+              recul: 0.85,
+              epaisseur: 0.11,
+              diedre: -0.04,
+              ancrage: [0.3, -0.02, 0.35],
+            }),
+            M.hull
+          )
+        );
+        const saumon = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.12, 0.5), M.accent);
+        saumon.position.set(cote * 1.25, -0.06, 1.2);
+        shell.add(saumon);
+      }
+    },
+    // Empennage bas et long : une dérive haute referait de la dague une croix vue
+    // d'en haut, et une croix, c'est déjà l'enclume.
+    derive: { t: [0.08, 0.46, 0.78], y: 0.3, z: 1.05 },
+    moteur: { x: 0.32, y: -0.06, z: 1.34, r: [0.17, 0.22, 0.62], feu: 0.14, recul: 0.34 },
+    // Des tubes de 1,4 — les plus longs des trois carènes — couchés LE LONG du nez
+    // et serrés contre l'axe. Sur cette coque, un module doit allonger : posé en
+    // travers il aurait épaissi la seule chose qui la distingue.
+    canon: { x: 0.42, pas: 0.24, y: -0.12, z: -0.45, t: [0.06, 0.08, 1.4] },
+    missile: { x: 0.66, pas: 0.26, y: -0.16, z: 0.45, t: [0.18, 0.15, 0.55] },
+    plaque: { x: 0.72, y: 0.06, z: 0.62, ry: -0.55, t: [0.6, 0.14, 0.6] },
+    // Le canard du palier III est PLAQUÉ sur la lame, pas planté dessus. Grand et
+    // relevé — ce qu'il était — il posait deux plaques claires en pleine verrière,
+    // et le bloom recollait les trois en une boule de lumière : la coque la plus
+    // effilée du jeu finissait avec le nez le plus gros. À plat et en retrait, il
+    // allonge au lieu d'élargir.
+    canard: { x: 0.34, y: 0.02, z: -0.75, ry: 0.42, rz: -0.1, t: [0.46, 0.07, 0.3] },
+    anneau: { r: 0.4, y: 0.12, z: 0.05 },
+    cadran: [0, 0.42, 0.72],
+  },
+
+  // --------------------------------------------------------------- LE FAUCON
+  // Deux fois plus large que profonde. Tout est dans l'envergure : le fuselage est
+  // réduit à un fuseau qui ne pèse rien dans la silhouette, et les deux ailes
+  // partent du NEZ pour finir derrière la poupe. Le bord d'attaque et l'axe du
+  // fuselage forment donc un chevron unique, d'un saumon à l'autre — c'est ce
+  // chevron qu'on reconnaît, pas le vaisseau qu'il y a dedans.
+  faucon: {
+    corps(shell, M) {
+      shell.add(
+        new THREE.Mesh(
+          new THREE.ConeGeometry(0.3, 2.0, 6)
+            .rotateX(-Math.PI / 2)
+            .scale(1, 0.58, 1)
+            .translate(0, 0, 0.05),
+          M.hull
+        )
+      );
+
+      // Verrière large et basse, à ras du dos : sur cette carène la moindre bosse
+      // sur l'axe casse le chevron.
+      const verriere = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), M.verriere);
+      verriere.scale.set(1.7, 0.6, 1.25);
+      verriere.position.set(0, 0.17, -0.25);
+      shell.add(verriere);
+
+      for (const cote of [-1, 1]) {
+        shell.add(
+          new THREE.Mesh(
+            aileGeo({
+              cote,
+              envergure: 2.32,
+              emplanture: 2.1,
+              saumon: 0.55,
+              recul: 1.2,
+              epaisseur: 0.09,
+              diedre: 0.32,
+              ancrage: [0.24, 0.02, 0],
+            }),
+            M.hull
+          )
+        );
+        // L'accent des saumons est DEBOUT et incliné vers l'extérieur. Couché comme
+        // sur les deux autres carènes, il se serait confondu avec le bord de fuite
+        // et l'aile n'aurait plus eu de fin ; debout, il ferme l'envergure par deux
+        // traits verticaux — et c'est aussi toute la hauteur de cette carène.
+        const winglet = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.46, 0.5), M.accent);
+        winglet.position.set(cote * 2.55, 0.46, 1.2);
+        winglet.rotation.z = -cote * 0.42;
+        shell.add(winglet);
+      }
+    },
+    derive: { t: [0.09, 0.36, 0.66], y: 0.24, z: 0.85 },
+    moteur: { x: 0.7, y: -0.06, z: 0.92, r: [0.19, 0.25, 0.7], feu: 0.16, recul: 0.4 },
+    // Modules sous l'aile, et le plus loin possible du fuselage : c'est l'envergure
+    // qu'ils doivent épaissir. Le pas entre deux canons est le double de celui de la
+    // dague — il y a la place, et l'écart se voit.
+    canon: { x: 0.95, pas: 0.4, y: -0.1, z: -0.35, t: [0.07, 0.09, 1.05] },
+    missile: { x: 1.45, pas: 0.42, y: -0.16, z: 0.35, t: [0.2, 0.16, 0.58] },
+    plaque: { x: 1.3, y: 0.26, z: 0.4, ry: -0.48, t: [0.8, 0.13, 0.62] },
+    // Même correction que sur la dague, pour la même raison : posé près de l'axe,
+    // le canard encombrait l'apex du chevron. Sorti sur le bord d'attaque, il
+    // l'ÉPAISSIT — et le bord d'attaque est déjà, sur cette carène, ce qu'on lit.
+    canard: { x: 1.05, y: 0.2, z: -0.55, ry: 0.45, rz: -0.22, t: [0.6, 0.07, 0.3] },
+    anneau: { r: 0.42, y: 0.22, z: 0.1 },
+    cadran: [0, 0.34, 0.62],
+  },
+
+  // -------------------------------------------------------------- L'ENCLUME
+  // Presque carrée en plan, et deux fois plus haute que les deux autres. Le
+  // « contrepoids à l'avant » n'est pas un appendice ajouté devant : c'est la COQUE
+  // ELLE-MÊME qui est large devant et étroite derrière. Un fût hexagonal tronqué,
+  // grand diamètre vers -Z, suffit à le dire — le vaisseau est un coin, pointe en
+  // arrière, et sa masse est toute du côté où il va.
+  enclume: {
+    corps(shell, M) {
+      shell.add(
+        new THREE.Mesh(
+          // CylinderGeometry couche son grand rayon (celui « du haut ») vers -Z une
+          // fois pivotée de -π/2 : le 1,05 est donc bien la proue, et le 0,42 la
+          // poupe. C'est contre-intuitif et ça se vérifie mal à l'œil.
+          new THREE.CylinderGeometry(1.05, 0.42, 2.3, 6)
+            .rotateX(-Math.PI / 2)
+            .scale(1, 0.6, 1)
+            .translate(0, 0.02, -0.15),
+          M.hull
+        )
+      );
+
+      // La table de l'enclume. Elle porte à elle seule la moitié de la hauteur, et
+      // elle est posée EN AVANT : sous une caméra qui plonge, une masse haute se
+      // lit comme une masse avancée, les deux se cumulent au lieu de se concurrencer.
+      const table = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.56, 1.3), M.hull);
+      table.position.set(0, 0.62, -0.55);
+      shell.add(table);
+
+      // La verrière est perchée sur la table, et c'est le point le plus haut du
+      // vaisseau. Sur les deux autres carènes elle est à ras : ici elle dit qu'on
+      // pilote depuis un promontoire, pas depuis une pointe.
+      const verriere = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), M.verriere);
+      verriere.scale.set(1.05, 0.75, 1.15);
+      verriere.position.set(0, 0.98, -0.25);
+      shell.add(verriere);
+
+      for (const cote of [-1, 1]) {
+        // Des ailes qui n'en sont pas : corde énorme, envergure minuscule, presque
+        // pas de flèche, et QUATRE FOIS l'épaisseur de celles du faucon. Amincies
+        // elles seraient redevenues des ailes, et l'enclume serait redevenue un
+        // chasseur un peu gros.
+        //
+        // L'emplanture est ENFONCÉE dans le fût (0,72 pour un fût qui en fait 0,78
+        // à cette station). Posée au contact exact, elle laissait une couture que
+        // la caméra du jeu transformait en fente : on lisait cinq blocs qui volent
+        // en escadrille, pas une coque d'un seul tenant.
+        shell.add(
+          new THREE.Mesh(
+            aileGeo({
+              cote,
+              envergure: 0.98,
+              emplanture: 1.55,
+              saumon: 1.25,
+              recul: -0.1,
+              epaisseur: 0.44,
+              diedre: -0.12,
+              // Poussée vers la PROUE : les saumons calés au milieu du fût
+              // mettaient la station la plus large à mi-longueur, et une masse
+              // centrée n'est pas un contrepoids, c'est un ventre.
+              ancrage: [0.72, -0.06, -0.52],
+            }),
+            M.hull
+          )
+        );
+        const epaule = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.26, 0.62), M.accent);
+        epaule.position.set(cote * 1.7, -0.18, -0.75);
+        shell.add(epaule);
+      }
+    },
+    // Pas une dérive : une cheminée. Large, courte, plantée sur le dos — elle
+    // épaissit le contour au lieu de l'affiner.
+    derive: { t: [0.36, 0.6, 0.46], y: 0.78, z: 0.55 },
+    moteur: { x: 0.56, y: -0.08, z: 0.72, r: [0.3, 0.38, 0.76], feu: 0.24, recul: 0.42 },
+    // Modules courts et gros, remontés sur les épaules : sur cette carène un tube
+    // long se lirait comme un emprunt à la dague. Même compte de meshes, moitié
+    // moins d'élancement.
+    canon: { x: 0.62, pas: 0.34, y: 0.24, z: -0.7, t: [0.12, 0.15, 0.75] },
+    missile: { x: 1.05, pas: 0.3, y: -0.24, z: -0.25, t: [0.3, 0.26, 0.62] },
+    plaque: { x: 0.98, y: 0.24, z: -0.45, ry: 0, t: [0.8, 0.3, 0.9] },
+    canard: { x: 0.78, y: 0.62, z: -1.0, ry: 0, rz: 0, t: [0.52, 0.34, 0.42] },
+    anneau: { r: 0.85, y: 0.34, z: -0.3 },
+    cadran: [0, 1.14, 0.15],
+  },
+};
+
+// La liste que voit le joueur dans le menu d'apparence. Elle ne porte plus de
+// cotes : elles vivent dans PLANS, où on les lit à côté du dessin qu'elles
+// commandent.
 export const CARENES = [
-  { id: 'dague', nom: 'Dague', nez: [0.42, 3.0], aile: [1.7, 1.1], angle: -0.42 },
-  { id: 'faucon', nom: 'Faucon', nez: [0.55, 2.4], aile: [2.1, 0.9], angle: -0.62 },
-  { id: 'enclume', nom: 'Enclume', nez: [0.62, 2.2], aile: [1.5, 1.5], angle: -0.2 },
+  { id: 'dague', nom: 'Dague', plan: PLANS.dague },
+  { id: 'faucon', nom: 'Faucon', plan: PLANS.faucon },
+  { id: 'enclume', nom: 'Enclume', plan: PLANS.enclume },
 ];
 
 export function livree(id) {
@@ -69,101 +404,112 @@ export function createPlayerShip(fiche = {}) {
   const shell = new THREE.Group(); // la carène : mise à l'échelle sans toucher au repère
   g.add(shell);
 
-  const hull = mat(L.hull, { metalness: 0.75, roughness: 0.3 });
-  const dark = mat(L.dark, { metalness: 0.8, roughness: 0.4 });
-  const accent = glow(L.accent);
+  // Quatre matières et pas une de plus, les mêmes pour les trois carènes : c'est ce
+  // qui les garde de la même flotte, et c'est aussi ce qui permet à soutien.js de
+  // refondre un vaisseau entier en DEUX meshes (ce qui est éclairé, ce qui brille).
+  const M = {
+    hull: mat(L.hull, { metalness: 0.75, roughness: 0.3 }),
+    dark: mat(L.dark, { metalness: 0.8, roughness: 0.4 }),
+    accent: glow(L.accent),
+    verriere: glow(0x9ffbff),
+  };
 
-  const fuselage = new THREE.Mesh(new THREE.ConeGeometry(C.nez[0], C.nez[1], 6), hull);
-  fuselage.rotation.x = -Math.PI / 2;
-  shell.add(fuselage);
+  const P = C.plan;
+  P.corps(shell, M);
 
-  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), glow(0x9ffbff));
-  cockpit.position.set(0, 0.28, 0.1);
-  cockpit.scale.set(1, 0.7, 1.4);
-  shell.add(cockpit);
+  const derive = new THREE.Mesh(new THREE.BoxGeometry(...P.derive.t), M.dark);
+  derive.position.set(0, P.derive.y, P.derive.z);
+  shell.add(derive);
 
   for (const side of [-1, 1]) {
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(C.aile[0], 0.1, C.aile[1]), hull);
-    wing.position.set(side * (C.aile[0] * 0.62), -0.05, 0.55);
-    wing.rotation.y = side * C.angle;
-    shell.add(wing);
-
-    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.9), accent);
-    tip.position.set(side * (C.aile[0] * 1.05), -0.05, 0.95);
-    tip.rotation.y = side * C.angle;
-    shell.add(tip);
-
     // PROPULSEURS : la tuyère grossit avec le niveau acheté. Le plus visible de
     // tous les modules, parce qu'on le regarde en permanence — il est derrière.
     const boost = 1 + (lv.engine || 0) * 0.13;
+    const mo = P.moteur;
     const engine = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.2 * boost, 0.26 * boost, 0.7 * boost, 6),
-      dark
+      new THREE.CylinderGeometry(mo.r[0] * boost, mo.r[1] * boost, mo.r[2] * boost, 6),
+      M.dark
     );
     engine.rotation.x = Math.PI / 2;
-    engine.position.set(side * 0.45, -0.08, 1.15);
+    engine.position.set(side * mo.x, mo.y, mo.z);
     shell.add(engine);
 
-    const exhaust = new THREE.Mesh(new THREE.SphereGeometry(0.16 * boost, 6, 6), accent);
-    exhaust.position.set(side * 0.45, -0.08, 1.55);
+    const exhaust = new THREE.Mesh(new THREE.SphereGeometry(mo.feu * boost, 6, 6), M.accent);
+    exhaust.position.set(side * mo.x, mo.y, mo.z + mo.recul);
     exhaust.name = 'exhaust';
     shell.add(exhaust);
 
-    // CANONS JUMELÉS : un tube de plus par niveau, sur l'aile. On voit d'où sortent
-    // les nouveaux tirs, ce qui rend l'achat lisible sans une ligne de texte.
+    // CANONS JUMELÉS : un tube de plus par niveau. On voit d'où sortent les
+    // nouveaux tirs, ce qui rend l'achat lisible sans une ligne de texte.
+    const ca = P.canon;
     for (let n = 0; n < (lv.cannons || 0); n++) {
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.1, 6), dark);
+      const barrel = new THREE.Mesh(
+        new THREE.CylinderGeometry(ca.t[0], ca.t[1], ca.t[2], 6),
+        M.dark
+      );
       barrel.rotation.x = Math.PI / 2;
-      barrel.position.set(side * (0.7 + n * 0.34), -0.12, -0.35);
+      barrel.position.set(side * (ca.x + n * ca.pas), ca.y, ca.z);
       shell.add(barrel);
     }
 
-    // MISSILES : une nacelle sous l'aile par niveau.
+    // MISSILES : une nacelle par niveau, ogive en avant du bidon.
+    const mi = P.missile;
     for (let n = 0; n < (lv.missiles || 0); n++) {
-      const pod = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.6), dark);
-      pod.position.set(side * (0.9 + n * 0.3), -0.2, 0.5);
+      const x = side * (mi.x + n * mi.pas);
+      const pod = new THREE.Mesh(new THREE.BoxGeometry(...mi.t), M.dark);
+      pod.position.set(x, mi.y, mi.z);
       shell.add(pod);
-      const head = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 5), accent);
+      const head = new THREE.Mesh(
+        new THREE.ConeGeometry(mi.t[0] * 0.45, mi.t[0] * 1.1, 5),
+        M.accent
+      );
       head.rotation.x = -Math.PI / 2;
-      head.position.set(side * (0.9 + n * 0.3), -0.2, 0.14);
+      head.position.set(x, mi.y, mi.z - mi.t[2] * 0.5 - mi.t[0] * 0.5);
       shell.add(head);
     }
 
     // PALIERS DE COQUE : le blindage gagné avec les fragments. Palier II boulonne
-    // une plaque sur chaque aile, palier III ajoute une dérive avant.
+    // une plaque sur chaque flanc, palier III ajoute une pièce à l'AVANT — un
+    // canard sur les deux chasseurs, un contrefort sur l'enclume. Les deux paliers
+    // sont placés par carène : le même point d'ancrage pour les trois aurait posé
+    // la plaque du faucon en plein vide, à deux unités de son aile.
     if (tier >= 1) {
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.14, 0.7), dark);
-      plate.position.set(side * 0.85, 0.06, 0.5);
-      plate.rotation.y = side * C.angle;
+      const pl = P.plaque;
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(...pl.t), M.dark);
+      plate.position.set(side * pl.x, pl.y, pl.z);
+      plate.rotation.y = side * pl.ry;
       shell.add(plate);
     }
     if (tier >= 2) {
-      const canard = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.4), hull);
-      canard.position.set(side * 0.6, 0.14, -0.6);
-      canard.rotation.y = side * 0.5;
-      canard.rotation.z = side * -0.25;
+      const cn = P.canard;
+      const canard = new THREE.Mesh(new THREE.BoxGeometry(...cn.t), M.hull);
+      canard.position.set(side * cn.x, cn.y, cn.z);
+      canard.rotation.y = side * cn.ry;
+      canard.rotation.z = side * cn.rz;
       shell.add(canard);
     }
   }
 
-  // BOUCLIER : un anneau émetteur autour du fuselage, visible dès le premier niveau.
+  // BOUCLIER : un anneau émetteur autour du fuselage, visible dès le premier
+  // niveau. Rayon ET HAUTEUR suivent la coque. Le rayon parce que sur l'enclume il
+  // ceinture un fût et sur la dague il serre une lame — deux fois moins large. La
+  // hauteur parce qu'un anneau posé à y=0, comme il l'était, passe désormais SOUS
+  // les ailes : sur le faucon, dont l'emplanture démarre à 0,24 de l'axe, il ne
+  // dépassait plus nulle part et le module le plus cher du jeu ne se voyait plus.
+  // Chaque carène le pose donc juste au-dessus de sa propre surface portante.
   if (lv.shield) {
-    const emitter = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 5, 14), accent);
+    const emitter = new THREE.Mesh(new THREE.TorusGeometry(P.anneau.r, 0.05, 5, 14), M.accent);
     emitter.rotation.x = Math.PI / 2;
-    emitter.position.z = 0.35;
+    emitter.position.set(0, P.anneau.y, P.anneau.z);
     shell.add(emitter);
   }
 
   // RÉFLEXE CHRONO : un petit cadran sur le dos. Discret, mais on le cherche.
   if (lv.reflex) {
-    const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.06, 10), accent);
-    dial.position.set(0, 0.3, 0.7);
+    const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.06, 10), M.accent);
+    dial.position.set(...P.cadran);
     shell.add(dial);
   }
-
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 0.8), dark);
-  fin.position.set(0, 0.35, 0.9);
-  shell.add(fin);
 
   // La carène est plus petite que sa silhouette d'origine : elle donnait
   // l'impression d'un vaisseau bien plus large que sa vraie zone de collision.
