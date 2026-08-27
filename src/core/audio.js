@@ -880,6 +880,256 @@ export class AudioEngine {
     this._tone({ type: 'triangle', freq: hz(60), freqEnd: hz(48), dur: 0.05, gain: 0.055 });
   }
 
+  // ---- L'AURA DE FURIE : un grondement qui ne tient jamais en place ----
+  //
+  // Même principe qu'HÉLIOS — on ENTRETIENT un son au lieu de le déclencher — mais
+  // la ressemblance devait s'arrêter là, et pour une raison très concrète : les deux
+  // peuvent sonner ENSEMBLE, un pilote d'HÉLIOS qui passe en Overdrive garde son
+  // rayon allumé. Deux sons tenus qui occupent la même bande se masquent l'un
+  // l'autre et il n'en reste qu'une bouillie. Ceux-là s'opposent donc sur les quatre
+  // axes à la fois : le rayon est étroit, résonant, aigu et bat vite ; l'aura est
+  // large, bruitée, grave, et sa houle est lente.
+  //
+  //   souffle (bruit) ──→ passe-bande ─┐
+  //   grondement (ré1 + ré2 + la2) ────┼→ passe-bas résonant ─→ houle ─→ sortie ─→ sfx
+  //   air (bruit aigu) ────────────────┘          ↑              ↑
+  //                                            dérive      2 LFO + dérive
+  //
+  // CE QUI FLUCTUE, ET POURQUOI CE N'EST PAS UN LFO. Le mot du demandeur est
+  // « fluctue », et un LFO unique ne fluctue pas : il OSCILLE. En trois secondes
+  // l'oreille a trouvé sa période et n'entend plus qu'une sirène. Il y a donc ici
+  // trois modulateurs de natures différentes, et c'est leur DÉSACCORD qui fait tout :
+  //   · deux LFO de fréquences incommensurables (3,17 et 5,43 Hz) — leur somme ne se
+  //     répète qu'au bout de plusieurs minutes, quand la furie n'en dure que quatre
+  //     secondes : à l'échelle de l'effet, elle ne se répète jamais ;
+  //   · une DÉRIVE, qui est le vrai remède : le buffer de bruit relu cinquante fois
+  //     trop lentement et passé dans un filtre à 2,5 Hz, c'est-à-dire une marche
+  //     aléatoire branchée directement sur un paramètre. Deux sinus finissent
+  //     toujours par se recaler, une marche aléatoire jamais.
+  // Elle module le GAIN et la COUPURE ensemble : un volume qui bouge tout seul
+  // s'entend comme une main sur un potentiomètre ; c'est le timbre qui doit bouger
+  // avec lui pour que ça devienne une masse d'énergie qui respire.
+  _ensureFurie() {
+    if (!this.ctx || this._furie) return this._furie;
+    const ctx = this.ctx;
+
+    const sortie = ctx.createGain();
+    sortie.gain.value = 0.0001;
+    // La houle : le gain que les modulateurs empoignent. Il est distinct de `sortie`
+    // parce que la coupure doit pouvoir fermer le robinet SANS que la modulation,
+    // qui continue de tourner, ne le rouvre par-dessous.
+    const houle = ctx.createGain();
+    houle.gain.value = 0.75;
+    const filtre = ctx.createBiquadFilter();
+    filtre.type = 'lowpass';
+    filtre.frequency.value = 150;
+    filtre.Q.value = 1.6; // beaucoup moins qu'HÉLIOS : une aura souffle, elle ne siffle pas
+
+    // Le grondement. Ré1, ré2 et la2 : la même tonalité que tout le reste du jeu,
+    // deux octaves sous la mélodie. La fondamentale à 36 Hz ne sortira d'aucun
+    // haut-parleur de téléphone — elle n'est pas là pour être entendue mais pour
+    // battre contre les deux autres, et c'est ce battement-là qui passe, lui.
+    //
+    // Le dosage a été mesuré au spectre, pas choisi à l'oreille sur un casque : à
+    // 0,42 sur la seule fondamentale, la moitié de la puissance du son tombait sous
+    // 120 Hz, c'est-à-dire dans la bande qu'un téléphone ne restitue pas du tout. On
+    // en a versé une partie sur l'octave : même timbre, même poids au casque, mais
+    // il reste quelque chose à entendre là où le jeu se joue vraiment.
+    const oscs = [];
+    for (const [semi, onde, niveau] of [
+      [0, 'growl', 0.3],
+      [12, 'growl', 0.28],
+      [19, 'hollow', 0.14],
+    ]) {
+      const osc = ctx.createOscillator();
+      if (this.W?.[onde]) osc.setPeriodicWave(this.W[onde]);
+      else osc.type = 'sawtooth';
+      osc.frequency.value = hz(semi);
+      const g = ctx.createGain();
+      g.gain.value = niveau;
+      osc.connect(g);
+      g.connect(filtre);
+      osc.start();
+      oscs.push(osc);
+    }
+
+    // Le souffle, et c'est LE corps du son. Une aura d'énergie est du vent avant
+    // d'être une note : sans ce bruit-là, on entend une basse de synthé tenue.
+    const souffle = ctx.createBufferSource();
+    souffle.buffer = this.noiseBuffer;
+    souffle.loop = true;
+    const souffleBP = ctx.createBiquadFilter();
+    souffleBP.type = 'bandpass';
+    souffleBP.frequency.value = 420;
+    souffleBP.Q.value = 0.7; // large : un Q serré sur du bruit fabrique une note, pas du vent
+    const souffleGain = ctx.createGain();
+    souffleGain.gain.value = 0.0001;
+    souffle.connect(souffleBP);
+    souffleBP.connect(souffleGain);
+    souffleGain.connect(filtre);
+    // Le second argument est un DÉCALAGE de lecture, pas une date. Les trois sources
+    // partagent le même buffer : démarrées au même endroit, elles seraient corrélées
+    // et l'on entendrait un seul bruit trois fois plus fort au lieu de trois vents.
+    souffle.start(ctx.currentTime, Math.random() * 1.1);
+
+    // L'air, très aigu et très bas. Il passe À CÔTÉ du passe-bas, volontairement :
+    // le grésillement de l'énergie doit rester au-dessus de la coupure, sinon il
+    // disparaît exactement quand l'aura monte en puissance — l'inverse du but.
+    const airSrc = ctx.createBufferSource();
+    airSrc.buffer = this.noiseBuffer;
+    airSrc.loop = true;
+    const airHP = ctx.createBiquadFilter();
+    airHP.type = 'highpass';
+    airHP.frequency.value = 3600;
+    const airGain = ctx.createGain();
+    airGain.gain.value = 0.0001;
+    airSrc.connect(airHP);
+    airHP.connect(airGain);
+    airGain.connect(houle);
+    airSrc.start(ctx.currentTime, Math.random() * 1.1);
+
+    filtre.connect(houle);
+    houle.connect(sortie);
+    sortie.connect(this.sfxBus);
+
+    // Les deux battements. Rien de rond : 3,17 et 5,43 sont premiers entre eux à
+    // toutes fins utiles, et c'est le seul critère qui compte ici.
+    const lfo1 = ctx.createOscillator();
+    lfo1.type = 'sine';
+    lfo1.frequency.value = 3.17;
+    const lfo1Depth = ctx.createGain();
+    lfo1Depth.gain.value = 0.06;
+    lfo1.connect(lfo1Depth);
+    lfo1Depth.connect(houle.gain);
+    lfo1.start();
+
+    const lfo2 = ctx.createOscillator();
+    lfo2.type = 'triangle';
+    lfo2.frequency.value = 5.43;
+    const lfo2Depth = ctx.createGain();
+    lfo2Depth.gain.value = 0.04;
+    lfo2.connect(lfo2Depth);
+    lfo2Depth.connect(houle.gain);
+    lfo2.start();
+
+    // LA DÉRIVE. Le même buffer de bruit que les explosions, relu à 2 % de sa
+    // vitesse : ses 1,2 seconde en deviennent soixante, et le passe-bas à 2,5 Hz n'en
+    // laisse plus qu'une ondulation lente et sans motif. C'est du hasard branché sur
+    // un paramètre — la seule chose qui empêche vraiment l'oreille de prédire.
+    const derive = ctx.createBufferSource();
+    derive.buffer = this.noiseBuffer;
+    derive.loop = true;
+    derive.playbackRate.value = 0.02;
+    const deriveLP = ctx.createBiquadFilter();
+    deriveLP.type = 'lowpass';
+    deriveLP.frequency.value = 2.5;
+    derive.connect(deriveLP);
+    // LE RATTRAPAGE, ET C'EST LE PIÈGE DU MONTAGE. Filtrer du bruit à 2,5 Hz sur une
+    // bande qui en fait quatre cents n'en laisse que 7 % de l'amplitude : branchée
+    // telle quelle, la dérive modulait le gain de un centième et absolument rien ne
+    // bougeait. Le facteur neuf lui rend la stature qu'il lui faut pour peser autant
+    // que les deux LFO réunis — et pas plus, sinon la houle passerait sous zéro et le
+    // signal s'inverserait à chaque creux.
+    const deriveNiveau = ctx.createGain();
+    deriveNiveau.gain.value = 9;
+    deriveLP.connect(deriveNiveau);
+    const deriveHoule = ctx.createGain();
+    deriveHoule.gain.value = 0.05;
+    deriveNiveau.connect(deriveHoule);
+    deriveHoule.connect(houle.gain);
+    const deriveFiltre = ctx.createGain();
+    deriveFiltre.gain.value = 120;
+    deriveNiveau.connect(deriveFiltre);
+    deriveFiltre.connect(filtre.frequency);
+    derive.start(ctx.currentTime, Math.random() * 1.1);
+
+    // Plus mouillée que le rayon (0,22) : le rayon est un outil qu'on pointe, l'aura
+    // est un volume qui entoure. C'est la réverbération qui dit lequel des deux.
+    if (this.revSend) {
+      const envoi = ctx.createGain();
+      envoi.gain.value = 0.34;
+      sortie.connect(envoi);
+      envoi.connect(this.revSend);
+    }
+
+    this._furie = {
+      sortie,
+      houle,
+      filtre,
+      oscs,
+      souffleGain,
+      souffleBP,
+      airGain,
+      lfo1,
+      lfo1Depth,
+      lfo2,
+      lfo2Depth,
+      deriveHoule,
+      deriveFiltre,
+      dernier: 0,
+      veille: null,
+    };
+    return this._furie;
+  }
+
+  // intensite ∈ [0, 1] : 0 coupe, au-delà entretient le grondement.
+  //
+  // Un chien de garde ferme le robinet 260 ms après le dernier appel, comme pour le
+  // rayon. Sans lui, une mort en pleine furie laisserait l'aura gronder sur l'écran
+  // de fin : l'effet n'est pas toujours en état de dire lui-même qu'il s'est arrêté,
+  // et un son tenu qui reste coincé est le pire défaut audio qu'un jeu puisse avoir.
+  furie(intensite = 0) {
+    const F = this._ensureFurie();
+    if (!F) return;
+    const t = this.ctx.currentTime;
+    const i = Math.max(0, Math.min(1, intensite));
+
+    if (i <= 0) {
+      if (F.veille) {
+        clearTimeout(F.veille);
+        F.veille = null;
+      }
+      F.dernier = 0;
+      // On n'arrête aucun oscillateur : un oscillateur WebAudio ne se rallume pas, et
+      // il ne coûte rien tant qu'il sort du silence. La coupure retombe en refermant
+      // le filtre EN MÊME TEMPS que le gain — une extinction au seul volume laisse
+      // entendre une porte de noise gate, pas une aura qui s'éteint.
+      F.sortie.gain.setTargetAtTime(0.0001, t, 0.09);
+      F.filtre.frequency.setTargetAtTime(150, t, 0.12);
+      F.souffleGain.gain.setTargetAtTime(0.0001, t, 0.09);
+      F.airGain.gain.setTargetAtTime(0.0001, t, 0.07);
+      return;
+    }
+
+    // Attaque franche, retombée qui traîne. Une constante de temps unique donnait un
+    // fondu de console de mixage dans les deux sens ; or une aura s'ALLUME d'un coup
+    // et redescend en soufflant. Le balayage du filtre depuis 150 Hz fait à lui seul
+    // le « fwoosh » d'allumage — aucun son ponctuel n'a été nécessaire pour ça.
+    const monte = i > F.dernier;
+    const tc = monte ? 0.05 : 0.14;
+    F.dernier = i;
+    F.sortie.gain.setTargetAtTime(0.012 + i * i * 0.078, t, tc);
+    F.filtre.frequency.setTargetAtTime(240 + i * i * 1400, t, monte ? 0.06 : 0.18);
+    F.filtre.Q.setTargetAtTime(1.6 + i * 2.0, t, 0.12);
+    F.souffleGain.gain.setTargetAtTime(0.05 + i * 0.3, t, tc);
+    F.souffleBP.frequency.setTargetAtTime(380 + i * i * 900, t, 0.1);
+    F.airGain.gain.setTargetAtTime(i * i * 0.045, t, 0.1);
+
+    // Plus c'est fort, plus ça REMUE. La profondeur de modulation porte au moins
+    // autant d'information que le volume, et sans doute davantage : c'est elle qu'on
+    // entend en premier quand la jauge se vide, avant même que le niveau ne bouge.
+    F.lfo1Depth.gain.setTargetAtTime(0.06 + i * 0.16, t, 0.15);
+    F.lfo2Depth.gain.setTargetAtTime(0.04 + i * 0.11, t, 0.15);
+    F.deriveHoule.gain.setTargetAtTime(0.05 + i * 0.14, t, 0.2);
+    F.deriveFiltre.gain.setTargetAtTime(120 + i * 820, t, 0.2);
+    // La hauteur monte d'un ton à pleine furie, et descend d'un tiers de ton quand
+    // elle s'épuise : le grondement se fatigue en même temps que la jauge.
+    for (const osc of F.oscs) osc.detune.setTargetAtTime(-35 + i * 200, t, 0.25);
+
+    if (F.veille) clearTimeout(F.veille);
+    F.veille = setTimeout(() => this.furie(0), 260);
+  }
+
   // ---- Voix ----
   //
   // Une voix crédible, ce n'est pas une hauteur : ce sont des FORMANTS. Trois

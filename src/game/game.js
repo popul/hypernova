@@ -29,6 +29,7 @@ import { biomeForWave, durcisPourBoss, stageForWave, STAGES } from './space/biom
 import { A_UNE_ESCALE, escalePourSecteur } from './space/escales.js';
 import { SoutienAerien } from './soutien.js';
 import { ArriveeEscale } from './escale-arrivee.js';
+import { Aura } from './aura.js';
 import {
   routesForStage,
   palierDeCoque,
@@ -127,6 +128,10 @@ export class Game {
     // L'arrivée dans une escale. Le décor basculait en fondu et on se retrouvait
     // ailleurs sans avoir voyagé — or c'est un DÉTOUR : il faut le voir se faire.
     this.arrivee = new ArriveeEscale(scene, camera);
+    // L'aura de furie. Elle fait sa propre attaque et sa propre retombée, si bien
+    // qu'une intensité binaire suffit : on lui dit si l'Overdrive court, elle
+    // s'occupe de monter et de redescendre.
+    this.aura = new Aura(scene);
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
     this.shop = new Shop(overlayRoot, {
@@ -1669,6 +1674,7 @@ export class Game {
     this.enemyBullets.clear();
     this.missiles.clear();
     for (const a of Object.values(this.armes)) a.clear();
+    this.aura?.clear();
     this.soutien?.annule();
     this.arrivee?.annule();
     if (!this.rejeu) this.enregistreur.ouvreVague(this._instantane());
@@ -1746,6 +1752,12 @@ export class Game {
     // traversaient le saut, la boutique et l'écran de trajectoire — le combat
     // était fini depuis longtemps, l'arme tirait encore.
     for (const a of Object.values(this.armes)) a.clear();
+    this.aura.clear();
+    // ET LE BOMBARDEMENT. Le cas se produit tout le temps : le tapis nettoie la
+    // vague entière, la partie enchaîne sur le saut, et `_updatePlaying` cesse
+    // d'appeler la séquence — qui restait donc « en cours » pour le reste de la
+    // partie, si bien que le bouton ne répondait plus jamais.
+    this.soutien.annule();
     this.fx.cancelSlowmo();
     this.jump.start({
       dialogue,
@@ -2383,6 +2395,8 @@ export class Game {
     this._updateBombFront(dt);
 
     this.player.update(dt, this);
+    // Le vaisseau détruit n'est plus en furie : l'aura suivrait sinon une épave.
+    this.aura.update(dt, this, this.odTimer > 0 && this.player.alive ? 1 : 0);
     if (this.soutien.actif) {
       this.soutien.update(dt, this);
       // L'invulnérabilité est reposée à chaque image plutôt que fixée une fois :
@@ -2411,7 +2425,23 @@ export class Game {
     this.missiles.update(dt);
     this._updateGraze();
 
+    // LA VAGUE EST TOMBÉE, LES BALLES AUSSI.
+    //
+    // Le dernier ennemi mort, ses tirs continuaient leur course et pouvaient
+    // encore tuer — un joueur qui vient de nettoyer sa vague se faisait abattre
+    // par un mort, pendant qu'il ramassait ses crédits et que le HUD annonçait
+    // déjà la suite. Ce n'est pas une difficulté, c'est une injustice : le combat
+    // est fini, le danger doit l'être aussi.
     const vacuum = this.enemies.waveCleared();
+    if (vacuum && !this._cieDegage) {
+      this._cieDegage = true;
+      this.enemyBullets.forEachActive((b) => {
+        this.fx.burst(b.mesh.position, 0xff3df0, { count: 3, speed: 5, life: 0.3 });
+        this.enemyBullets.kill(b);
+      });
+    } else if (!vacuum) {
+      this._cieDegage = false;
+    }
     this.modules.update(
       dt,
       this.player.position,
