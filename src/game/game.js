@@ -31,6 +31,7 @@ import { A_UNE_ESCALE, escalePourSecteur } from './space/escales.js';
 import { SoutienAerien } from './soutien.js';
 import { ArriveeEscale } from './escale-arrivee.js';
 import { Aura } from './aura.js';
+import { PiloteAuto } from './pilote-auto.js';
 import {
   routesForStage,
   palierDeCoque,
@@ -133,6 +134,9 @@ export class Game {
     // qu'une intensité binaire suffit : on lui dit si l'Overdrive court, elle
     // s'occupe de monter et de redescendre.
     this.aura = new Aura(scene);
+    // Le pilote fantôme, qui joue en fond de l'écran d'accueil.
+    this.piloteAuto = new PiloteAuto();
+    this.demo = false;
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
     this.shop = new Shop(overlayRoot, {
@@ -943,8 +947,127 @@ export class Game {
     el.querySelector('#btn-retour').addEventListener('click', () => this.quitteRejeu());
   }
 
+  // LA PARTIE QUI TOURNE DERRIÈRE LE MENU.
+  //
+  // C'est une VRAIE partie : mêmes vagues, mêmes armes, mêmes explosions. Elle
+  // n'est simplement enregistrée nulle part et ne finit jamais — à la mort du
+  // pilote fantôme, on en relance une autre, avec une autre coque, comme une
+  // borne d'arcade qui se remet à jouer toute seule.
+  _lanceDemo() {
+    const coques = ['orion', 'helios', 'vulcain'];
+    const coque = coques[Math.floor(Math.random() * coques.length)];
+    this.demo = true;
+    this.piloteAuto.reinitialise();
+    this._sansPilote(() => this.startRun('arcade', coque));
+
+    // CE N'EST PAS UNE PARTIE, C'EST UNE BANDE-ANNONCE. Une vague 1 en orbite
+    // terrestre avec un canon nu ne donne envie de rien : trois ennemis, un tir
+    // pâle et un fond noir. On montre donc le jeu tel qu'il devient au bout d'un
+    // quart d'heure — armé, dans un endroit qui vaut le détour, avec assez de
+    // monde à l'écran pour que ça bouge.
+    this.levels = { cannons: 2, firerate: 3, missiles: 2, engine: 2, magnet: 1 };
+    this.stats = computeStats(this.levels, this.surcharge);
+    this._refreshShip();
+    this.energy = OVERDRIVE.max * 0.8; // la furie arrive vite, c'est le plus beau
+
+    // Un tableau tiré au sort parmi les plus jolis. Ce sont des ESCALES : les
+    // secteurs ordinaires sont du vide avec un astre au loin, alors qu'ici on
+    // traverse quelque chose.
+    const vitrines = [
+      { vague: 19, type: 'anneaux' },
+      { vague: 13, type: 'champ' },
+      { vague: 10, type: 'surface' },
+      { vague: 22, type: 'anneaux' },
+    ];
+    const choix = vitrines[Math.floor(Math.random() * vitrines.length)];
+    let tirage = 0;
+    while (
+      tirage < 8 &&
+      escalePourSecteur(stageForWave(choix.vague), tirage)?.escale !== choix.type
+    )
+      tirage++;
+    this.escale = { vague: choix.vague, tirage };
+    this.bis = true;
+    this.startWave(choix.vague);
+    this.stage.space?.setBiome(this._biomeFor(choix.vague), { instant: true });
+
+    // Rien de cette partie ne doit atteindre le panthéon ni le fichier de rejeu.
+    this.enregistreur.actif = false;
+    this.state = 'title';
+    this.hud.root.classList.add('hidden');
+  }
+
+  // `startRun` exige un pilote connecté — c'est juste pour une vraie partie, et
+  // faux pour celle-ci : la démonstration doit tourner même quand personne ne
+  // s'est encore identifié, et c'est même le cas le plus fréquent.
+  _sansPilote(fn) {
+    const avant = this._demoForce;
+    this._demoForce = true;
+    try {
+      fn();
+    } finally {
+      this._demoForce = avant;
+    }
+  }
+
+  // On enchaîne, mais pas dans la même image : `_updatePlaying` est encore dans
+  // sa pile, et repartir de zéro sous ses pieds laisserait des objets à moitié
+  // rangés. Un compte à rebours court suffit, et il laisse voir l'explosion.
+  _relanceDemo() {
+    if (this._demoRelance) return;
+    this._demoRelance = true;
+    setTimeout(() => {
+      this._demoRelance = false;
+      if (!this.demo) return;
+      this.shop.close();
+      // On repasse par l'écran entier : `_lanceDemo` seul rejouerait la partie
+      // mais laisserait l'overlay vide, puisque c'est `startRun` qui l'efface.
+      this.showTitle();
+    }, 1400);
+  }
+
+  // LE MENU S'EFFACE, PUIS REVIENT AU MOINDRE GESTE.
+  //
+  // Il ne disparaît pas : il descend à un quart d'opacité. Un menu qui s'en va
+  // complètement force à deviner où cliquer pour le rappeler, et c'est le genre
+  // de coquetterie qui agace dès la deuxième fois.
+  _veilleMenu(el) {
+    clearTimeout(this._veille);
+    const reveille = () => {
+      el.classList.remove('en-veille');
+      clearTimeout(this._veille);
+      this._veille = setTimeout(() => {
+        if (this.state === 'title') el.classList.add('en-veille');
+      }, 6000);
+    };
+    for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart']) {
+      window.addEventListener(ev, reveille, { passive: true });
+    }
+    // Les écouteurs vivent le temps de l'écran : `_screen` vide l'overlay au
+    // suivant, et un menu qui n'existe plus n'a pas à se réveiller.
+    this._arreteVeille = () => {
+      clearTimeout(this._veille);
+      for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart']) {
+        window.removeEventListener(ev, reveille);
+      }
+    };
+    reveille();
+  }
+
+  arreteDemo() {
+    if (!this.demo) return;
+    this.demo = false;
+    this.enregistreur.actif = true;
+    this.input.held.clear();
+  }
+
   showTitle() {
     this.state = 'title';
+    // LA PARTIE DE FOND DÉMARRE EN PREMIER, et l'ordre n'est pas négociable :
+    // `startRun` vide l'overlay pour faire place au jeu. Lancer la démonstration
+    // après avoir construit le menu l'effacerait aussitôt — l'écran d'accueil
+    // devenait une partie sans titre ni boutons.
+    this._lanceDemo();
     // Quel tableau on regardait la dernière fois : revenir au menu ne doit pas
     // ramener systématiquement sur l'arcade quand on enchaîne les survies.
     const mode = this._modeTableau || 'arcade';
@@ -1008,6 +1131,11 @@ export class Game {
     }
     el.querySelector('#btn-arcade').addEventListener('click', () => this.startRun('arcade'));
     el.querySelector('#btn-survie').addEventListener('click', () => this.startRun('survie'));
+    // Le menu s'efface tout seul si personne ne touche à rien : c'est ce que fait
+    // une borne d'arcade, et ce que fait une vignette qui se met à jouer quand on
+    // s'attarde dessus.
+    this._veilleMenu(el);
+
     el.querySelector('#btn-story').addEventListener('click', () => this.playCinematic());
     el.querySelector('#btn-pilot').addEventListener('click', () => this.showPilotSelect());
   }
@@ -1607,7 +1735,8 @@ export class Game {
 
   startRun(mode = 'arcade', coque = null) {
     // Toute partie appartient à un pilote : c'est lui qui la publie au panthéon.
-    if (!activePilot()) {
+    // Sauf la démonstration de l'écran d'accueil, qui ne publie rien.
+    if (!activePilot() && !this._demoForce) {
       this.showPilotSelect(() => this.startRun(mode, coque));
       return;
     }
@@ -1616,6 +1745,13 @@ export class Game {
     if (!coque) {
       this.showChoixCoque(mode, (choisie) => this.startRun(mode, choisie));
       return;
+    }
+    // Une vraie partie commence : la démonstration s'arrête, et avec elle la
+    // veille du menu.
+    if (!this._demoForce) {
+      this.arreteDemo();
+      this._arreteVeille?.();
+      this._arreteVeille = null;
     }
     this.coque = coque;
     this.mode = mode === 'survie' ? 'survie' : 'arcade';
@@ -2395,6 +2531,25 @@ export class Game {
   update(dt) {
     // Hors combat, rien ne gêne : la parole est libre.
     if (this.state !== 'playing') this.characters.setCalme(true);
+
+    // LA DÉMONSTRATION DE L'ÉCRAN D'ACCUEIL. On fait tourner une vraie partie
+    // sous le menu : le pilote fantôme pousse des touches, et la simulation
+    // avance comme pour un humain. L'état reste `title`, sinon le menu
+    // disparaîtrait — c'est un fond, pas une partie qu'on aurait lancée.
+    if (this.demo) {
+      // Le test de relance est AVANT le bloc de jeu, et pas dedans : une vague
+      // nettoyée fait passer l'état à « boutique », après quoi la condition
+      // d'entrée n'était plus vraie et la démonstration se figeait sur un hangar
+      // que personne ne regardait.
+      if (this.state !== 'title' || !this.player.alive) {
+        this._relanceDemo();
+        return;
+      }
+      dt = dtDepuis(quantifieDt(dt));
+      this.piloteAuto.update(dt, this);
+      this._updatePlaying(dt);
+      return;
+    }
     // Le présentoir du hangar tourne doucement : une carène ne se juge pas de face.
     if (this.vitrine && this.state === 'pilots') {
       this.player.group.rotation.y += dt * 0.55;

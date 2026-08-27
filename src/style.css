@@ -3570,3 +3570,38 @@ body.touch .btn-call-touch {
   color: var(--gold);
   opacity: 0.9;
 }
+
+/* L'écran d'accueil se met en veille : le menu s'efface pour laisser voir la
+   partie qui tourne derrière. Il ne DISPARAÎT pas — un menu absent force à
+   deviner où cliquer pour le rappeler, ce qui agace dès la deuxième fois. */
+.screen.title.en-veille .title-menu,
+.screen.title.en-veille .title-controls,
+.screen.title.en-veille .title-lb,
+.screen.title.en-veille .pilot-badge,
+.screen.title.en-veille .btn-ghost {
+  opacity: 0.22;
+  transition: opacity 1.6s ease-out;
+}
+
+/* Le logo reste, plus discret : c'est la seule chose qui dit ce qu'on regarde. */
+.screen.title.en-veille .title-logo,
+.screen.title.en-veille .title-tag {
+  opacity: 0.55;
+  transition: opacity 1.6s ease-out;
+}
+
+.screen.title .title-menu,
+.screen.title .title-controls,
+.screen.title .title-lb,
+.screen.title .pilot-badge,
+.screen.title .btn-ghost,
+.screen.title .title-logo,
+.screen.title .title-tag {
+  transition: opacity 0.28s ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen.title.en-veille * {
+    opacity: 1 !important;
+  }
+}
