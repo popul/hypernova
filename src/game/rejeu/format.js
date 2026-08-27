@@ -39,7 +39,9 @@ import {
 //       niveau bis sans boss dont le fragment se gagne à la sortie
 //   9 — les charges de VULCAIN sont des missiles qui n'explosent qu'AU CONTACT,
 //       et leur souffle naît sur l'ennemi touché — il ratait l'amiral jusqu'ici
-export const VERSION = 9;
+//  10 — un colosse traverse le champ de débris : il balaie ennemis, tirs et
+//       joueur, et s'annonce trois secondes avant par une flèche au sol
+export const VERSION = 10;
 
 // --- Écriture ---------------------------------------------------------------
 

@@ -32,6 +32,7 @@ import { SoutienAerien } from './soutien.js';
 import { ArriveeEscale } from './escale-arrivee.js';
 import { Aura } from './aura.js';
 import { PiloteAuto } from './pilote-auto.js';
+import { Colosse } from './asteroide.js';
 import {
   routesForStage,
   palierDeCoque,
@@ -136,6 +137,9 @@ export class Game {
     this.aura = new Aura(scene);
     // Le pilote fantôme, qui joue en fond de l'écran d'accueil.
     this.piloteAuto = new PiloteAuto();
+    // Le bloc qui traverse le champ de débris et balaie tout sur son passage.
+    this.colosse = new Colosse(scene);
+    this._colosseTimer = 0;
     this.demo = false;
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
@@ -613,6 +617,61 @@ export class Game {
     this.fx.hitStop(0.12);
     this.audio.explosionBig();
     this.hud.announce('NOVA BOMB', '', 900);
+  }
+
+  // LE COLOSSE. Il n'existe que dans un champ de débris — ailleurs, rien ne
+  // justifierait qu'un bloc de neuf unités traverse l'arène, et un danger qu'on ne
+  // s'explique pas est un danger injuste.
+  _updateColosse(dt) {
+    const dansUnChamp =
+      this.bis && this.escale?.vague === this.wave && this._lieuEscale()?.escale === 'champ';
+    if (!dansUnChamp) {
+      if (this.colosse.actif) this.colosse.annule();
+      return;
+    }
+
+    if (!this.colosse.actif) {
+      this._colosseTimer -= dt;
+      if (this._colosseTimer <= 0) {
+        // Entre douze et vingt secondes : assez rare pour qu'on ne l'attende pas,
+        // assez fréquent pour qu'on apprenne à surveiller le sol.
+        this._colosseTimer = 12 + ((this.wave * 7919) % 8);
+        this.colosse.lance(this.seed * 13 + this.wave * 977 + Math.round(this.horlogeVague ?? 0));
+      }
+      return;
+    }
+
+    this.colosse.update(dt, (pos, rayon) => {
+      const r2 = rayon * rayon;
+      // Il emporte les ennemis…
+      for (const e of this.enemies.list) {
+        if (!e.alive) continue;
+        if (e.group.position.distanceToSquared(pos) > r2) continue;
+        if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e, 'colosse');
+      }
+      // …leurs tirs…
+      this.enemyBullets.forEachActive((b) => {
+        if (b.mesh.position.distanceToSquared(pos) > r2) return;
+        this.fx.burst(b.mesh.position, 0xff3df0, { count: 2, speed: 4, life: 0.2 });
+        this.enemyBullets.kill(b);
+      });
+      // …et le joueur, qui n'a aucun privilège ici. C'est ce qui donne son poids à
+      // l'annonce : un danger dont on serait exempté n'apprendrait rien.
+      if (
+        this.player.alive &&
+        !this.player.rolling &&
+        this.player.invulnTimer <= 0 &&
+        this.player.position.distanceToSquared(pos) < r2
+      ) {
+        this._playerHit();
+      }
+    });
+  }
+
+  _lieuEscale() {
+    return this.escale
+      ? escalePourSecteur(stageForWave(this.escale.vague), this.escale.tirage)
+      : null;
   }
 
   // Le soutien aérien. Les dégâts restent ICI, jamais dans le module d'animation :
@@ -1876,6 +1935,7 @@ export class Game {
     for (const a of Object.values(this.armes)) a.clear();
     this.aura?.clear();
     this.soutien?.annule();
+    this.colosse?.annule();
     this.arrivee?.annule();
     if (!this.rejeu) this.enregistreur.ouvreVague(this._instantane());
     this.state = 'playing';
@@ -2646,6 +2706,7 @@ export class Game {
     this.player.update(dt, this);
     // Le vaisseau détruit n'est plus en furie : l'aura suivrait sinon une épave.
     this.aura.update(dt, this, this.odTimer > 0 && this.player.alive ? 1 : 0);
+    this._updateColosse(dt);
     if (this.soutien.actif) {
       this.soutien.update(dt, this);
       // L'invulnérabilité est reposée à chaque image plutôt que fixée une fois :
