@@ -18,7 +18,7 @@
 //    fx, puisent encore dans Math.random — et elles n'ont aucun effet sur l'issue.
 
 import * as THREE from 'three';
-import { ARENA, PLAYER } from '../constants.js';
+import { ARENA, FUREUR, PLAYER } from '../constants.js';
 
 // ---- Le rayon ----
 
@@ -341,7 +341,20 @@ export class ArmeHelios {
     // --- Ce que la colonne laboure, et qui l'on tient ---
     let cible = null;
     if (actif) {
-      const dps = DPS_BASE * this._ratioCadence(stats) * this._montee(duree);
+      // LA FUREUR ET LES ORBES COMPTENT AUSSI POUR LE RAYON.
+      //
+      // Deux modules ne servaient à rien sur cette coque, et c'est le genre de
+      // trou qu'un joueur découvre en ayant déjà payé. `missiles` posait des
+      // satellites en orbite, qui ne tirent plus depuis qu'on leur a retiré leurs
+      // éclats : on achetait donc une décoration. Et la Chambre de fureur ajoute
+      // des dégâts AUX BALLES — or HÉLIOS n'en tire pas une seule.
+      //
+      // Les orbes amplifient maintenant le rayon au lieu de tirer à côté : c'est
+      // plus fidèle à la coque, qui ne sait faire qu'une chose. Et la fureur
+      // majore le débit du rayon comme elle majore une balle.
+      const orbes = 1 + 0.16 * (levels.missiles | 0);
+      const fureur = game.odTimer > 0 ? 1 + 0.5 * (FUREUR.degats[game.levels?.fureur | 0] || 0) : 1;
+      const dps = DPS_BASE * this._ratioCadence(stats) * this._montee(duree) * orbes * fureur;
       this._brule(dt, game, p.x, nezZ, demi, dps);
       // La cible tenue est celle qui est la PLUS PROCHE du vaisseau : celle qu'on
       // va tuer, donc celle dont la mort remettra tout à zéro. Le piège de la

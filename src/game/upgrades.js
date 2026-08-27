@@ -12,7 +12,7 @@ export const UPGRADES = [
     maxLevel: 6,
     basePrice: 70,
     priceMul: 1.6,
-    desc: '+18 % de cadence de tir par niveau.',
+    desc: '+18 % de cadence par niveau. ORION tire plus vite, HÉLIOS pousse son rayon, VULCAIN forge plus souvent.',
   },
   {
     id: 'cannons',
@@ -21,7 +21,7 @@ export const UPGRADES = [
     maxLevel: 2,
     basePrice: 380,
     priceMul: 2.9,
-    desc: 'Un flux de tir supplémentaire (jusqu’à 3 canons).',
+    desc: 'ORION : un flux de tir de plus. HÉLIOS : un rayon plus large. VULCAIN : une charge de plus par salve.',
   },
   {
     id: 'missiles',
@@ -30,7 +30,7 @@ export const UPGRADES = [
     maxLevel: 3,
     basePrice: 460,
     priceMul: 2.1,
-    desc: 'Missiles à tête chercheuse automatiques. Niveaux : plus de missiles, plus vite.',
+    desc: 'ORION : des missiles à tête chercheuse. HÉLIOS : des orbes qui amplifient le rayon. VULCAIN : un souffle plus large.',
   },
   {
     id: 'shield',
@@ -79,7 +79,7 @@ export const UPGRADES = [
     maxLevel: 3,
     basePrice: 190,
     priceMul: 1.9,
-    desc: 'Pendant l’Overdrive, vos tirs frappent plus fort — et changent de forme à chaque niveau.',
+    desc: 'Pendant l’Overdrive seulement : vos tirs frappent plus fort, et changent de couleur à chaque niveau. Vaut pour les trois coques.',
   },
   {
     id: 'hull',

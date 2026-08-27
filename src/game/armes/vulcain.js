@@ -34,7 +34,7 @@
 // Ce serait réaliste, et détestable.
 
 import * as THREE from 'three';
-import { ARENA } from '../constants.js';
+import { ARENA, FUREUR } from '../constants.js';
 import { ecart } from '../../core/rng.js';
 
 // ---- La montée ----
@@ -670,7 +670,11 @@ export class ArmeVulcain {
     let poids = 0;
     for (const e of this._pris) poids += e.type === 'boss' ? POIDS_BOSS : 1;
     for (const e of this._pris) {
-      const degats = e.type === 'boss' ? DEGATS_BOSS : DEGATS;
+      // La fureur majore le souffle comme elle majore une balle : sans ça, la
+      // Chambre de fureur ne servait à VULCAIN que pour son canon d'appoint, qui
+      // n'est pas son arme — on payait pour presque rien.
+      const bonus = game.odTimer > 0 ? 1 + 0.45 * (FUREUR.degats[game.levels?.fureur | 0] || 0) : 1;
+      const degats = Math.round((e.type === 'boss' ? DEGATS_BOSS : DEGATS) * bonus);
       if (game.enemies.damage(e, degats, game)) game._onEnemyKilled(e, 'charge');
     }
     this._pris.length = 0;
