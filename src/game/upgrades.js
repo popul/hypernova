@@ -69,6 +69,19 @@ export const UPGRADES = [
     desc: 'Quand un tir va vous toucher, le temps ralentit — mais pas vous. Niveaux : ralenti plus long, recharge plus courte.',
   },
   {
+    // LE MODULE DE LA FURIE. Il ne fait rien tant qu'on n'est pas en Overdrive —
+    // c'est délibéré : un module qui n'agit qu'à un moment précis pousse à
+    // provoquer ce moment, et l'Overdrive était jusqu'ici une récompense passive
+    // qu'on déclenchait quand la jauge était pleine, sans y penser.
+    id: 'fureur',
+    name: 'Chambre de fureur',
+    icon: '☲',
+    maxLevel: 3,
+    basePrice: 190,
+    priceMul: 1.9,
+    desc: 'Pendant l’Overdrive, vos tirs frappent plus fort — et changent de forme à chaque niveau.',
+  },
+  {
     id: 'hull',
     name: 'Coque renforcée',
     icon: '♥',

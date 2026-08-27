@@ -82,6 +82,32 @@ export class PlayerBullets extends Pool {
     const geo = new THREE.BoxGeometry(0.13, 0.13, 1.1);
     const mat = new THREE.MeshBasicMaterial({ color: 0x8ffbff, toneMapped: false });
     super(scene, 70, () => new THREE.Mesh(geo, mat), 0.35);
+    this.mat = mat;
+    this._froid = new THREE.Color(0x8ffbff);
+    this._teinte = new THREE.Color(0x8ffbff);
+    this._echelle = 1;
+  }
+
+  // L'ALLURE DU TIR SUIT LA FUREUR. Toutes les balles partagent une matière et une
+  // géométrie — c'est ce qui les rend gratuites — donc on ne peut pas en habiller
+  // une seule. Ça tombe bien : la fureur s'applique à toutes en même temps, et un
+  // flux qui change de couleur d'un bloc est justement ce qui se lit le mieux.
+  //
+  // L'échelle est posée sur les meshes actives et sur celles qui naissent, jamais
+  // sur la géométrie : la redimensionner reviendrait à la reconstruire soixante
+  // fois par seconde.
+  habille(teinte, echelle) {
+    this._teinte.set(teinte);
+    this.mat.color.copy(this._teinte);
+    if (echelle === this._echelle) return;
+    this._echelle = echelle;
+    for (const e of this.entries) e.mesh.scale.setScalar(echelle);
+  }
+
+  spawn(pos, vel) {
+    const e = super.spawn(pos, vel);
+    if (e) e.mesh.scale.setScalar(this._echelle);
+    return e;
   }
 
   update(dt) {

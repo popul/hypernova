@@ -41,7 +41,9 @@ import {
 //       et leur souffle naît sur l'ennemi touché — il ratait l'amiral jusqu'ici
 //  10 — un colosse traverse le champ de débris : il balaie ennemis, tirs et
 //       joueur, et s'annonce trois secondes avant par une flèche au sol
-export const VERSION = 10;
+//  11 — la Chambre de fureur : pendant l'Overdrive, les tirs frappent plus fort
+//       et changent de couleur et de taille à chaque niveau du module
+export const VERSION = 11;
 
 // --- Écriture ---------------------------------------------------------------
 

@@ -431,6 +431,21 @@ export const FX = {
 // quoi il n'y aurait plus qu'à rebaisser les dégâts de base, et on aurait fait un
 // tour pour rien. À un tiers, la surface du cœur vaut un neuvième du disque : ça
 // se cherche, et ça se fête.
+// LA FUREUR. Ce que l'Overdrive ajoute aux dégâts, par niveau du module.
+//
+// Le premier niveau double déjà la frappe : c'est le seuil en dessous duquel un
+// module « de dégâts » ne se sent pas, parce qu'un ennemi à un point de vie meurt
+// pareil. Au-dessus, chaque niveau tue un rang d'ennemi de plus d'un seul coup, et
+// c'est ce qui se voit.
+export const FUREUR = {
+  degats: [0, 1, 2, 3],
+  // La couleur du tir à chaque niveau, du cyan d'origine au blanc de forge.
+  teintes: [0x8ffbff, 0xffd166, 0xff8a3d, 0xfff3d0],
+  // Sa taille, qui grossit avec la frappe : un tir plus fort doit être plus gros,
+  // sinon rien ne dit au joueur ce qu'il vient d'acheter.
+  echelles: [1, 1.35, 1.7, 2.1],
+};
+
 export const PRECISION = {
   part: 0.34,
   degats: 2,

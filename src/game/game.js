@@ -16,6 +16,7 @@ import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
 import {
   ARENA,
   COMBO,
+  FUREUR,
   GRAZE,
   OVERDRIVE,
   PICKUPS,
@@ -2675,6 +2676,14 @@ export class Game {
     if (this.cmd.ev) this._executeEvenement(this.cmd.ev);
 
     // Overdrive : cadence accrue, balles perforantes, tirs ennemis au ralenti.
+    // Le tir prend l'allure de la fureur pendant l'Overdrive, et la reprend
+    // normale ensuite. On le repose à chaque image : c'est une écriture de
+    // couleur, et ça évite d'avoir à guetter les deux instants où ça bascule.
+    {
+      const n = this.odTimer > 0 ? FUREUR.degats[this.levels.fureur | 0] || 0 : 0;
+      this.bullets.habille?.(FUREUR.teintes[n] ?? FUREUR.teintes[0], FUREUR.echelles[n] ?? 1);
+    }
+
     if (this.odTimer > 0) {
       this.odTimer -= dt;
       if (this.odTimer <= 0) this.hud.setOverdrive(false);
@@ -3009,7 +3018,11 @@ export class Game {
           const dy = b.mesh.position.y - e.group.position.y;
           const critique = dx * dx + dy * dy < coeur * coeur;
           if (critique) this._marquePrecision(b.mesh.position, e);
-          const degats = critique ? PRECISION.degats : 1;
+          // LA FUREUR. Elle ne vaut que pendant l'Overdrive, et elle s'ajoute au
+          // coup critique plutôt que de le remplacer : bien viser en pleine furie
+          // doit rester le meilleur moment du jeu.
+          const fureur = this.odTimer > 0 ? FUREUR.degats[this.levels.fureur | 0] || 0 : 0;
+          const degats = (critique ? PRECISION.degats : 1) + fureur;
           if (this.enemies.damage(e, degats, this))
             this._onEnemyKilled(e, critique ? 'precision' : 'cannon');
           if (b.pierce >= pierceMax) break;
