@@ -996,7 +996,13 @@ body.touch .btn-energy-touch {
   letter-spacing: 0.3em;
 }
 
-.btn-launch {
+/* `.btn-primary` n'avait AUCUNE règle. Le bouton « Lancer » de l'écran de choix
+   de coque — et donc le dernier geste avant chaque partie — s'affichait en bouton
+   brut du navigateur, barre blanche et police système, au milieu d'un jeu qui
+   n'en a nulle part ailleurs. Il portait ce nom-là depuis le début ; personne ne
+   l'avait vu parce qu'on regarde le vaisseau, pas le bouton. */
+.btn-launch,
+.btn-primary {
   font-family: var(--display);
   font-size: 18px;
   letter-spacing: 0.18em;
@@ -1020,7 +1026,8 @@ body.touch .btn-energy-touch {
     box-shadow 0.15s;
 }
 
-.btn-launch:hover {
+.btn-launch:hover,
+.btn-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 0 40px rgba(255, 200, 87, 0.55);
 }
@@ -3606,4 +3613,163 @@ body.touch .btn-call-touch {
   .screen.title.en-veille * {
     opacity: 1 !important;
   }
+}
+
+/* ---- Le menu des variantes, et l'entraînement ---------------------------- */
+
+/* Trois façons de jouer le même mode. Des cartes hautes plutôt que des boutons :
+   « Entraînement » et « 2 joueurs » demandent une phrase pour qu'on sache dans
+   quoi on s'engage, et une phrase ne tient pas dans un bouton. */
+.screen.variantes,
+.screen.entrainement {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 18px;
+  overflow-y: auto;
+}
+
+.variante-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(520px, 100%);
+}
+
+.variante {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--cyan-dim);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--body);
+  cursor: pointer;
+}
+
+.variante:hover,
+.variante:focus-visible {
+  border-color: var(--cyan);
+  background: rgba(79, 242, 255, 0.12);
+  outline: none;
+}
+
+.variante-nom {
+  font-family: var(--display);
+  font-size: 17px;
+  color: var(--cyan);
+  letter-spacing: 0.04em;
+}
+
+.variante-nom em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.variante-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+/* --- L'entraînement --- */
+
+.entr-bloc {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: min(520px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--cyan-dim);
+  border-radius: 10px;
+  padding: 14px 18px;
+}
+
+.entr-titre {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.entr-titre b {
+  color: var(--gold);
+  font-size: 15px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Une note qui change à chaque cran du curseur : le nom du secteur, la liste des
+   modules. C'est elle qui fait qu'on règle quelque chose de compréhensible au
+   lieu de pousser un chiffre. */
+.entr-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  min-height: 2.4em;
+}
+
+.entr-bloc input[type='range'] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.entr-coques {
+  display: flex;
+  gap: 8px;
+}
+
+.entr-coque {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--cyan-dim);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-family: var(--body);
+  cursor: pointer;
+}
+
+.entr-coque b {
+  font-family: var(--display);
+  font-size: 13px;
+  color: var(--cyan);
+}
+
+.entr-coque span {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.entr-coque.on {
+  border-color: var(--gold);
+  background: rgba(255, 200, 87, 0.12);
+}
+
+.entr-coque.on b {
+  color: var(--gold);
+}
+
+/* Le numéro de version, en pied d'écran d'accueil. Assez lisible pour qu'on
+   puisse le dicter au téléphone, assez discret pour qu'on l'oublie. */
+.title-version {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }

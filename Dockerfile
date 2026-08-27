@@ -5,6 +5,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# Le numéro de version vient de la CI : .dockerignore écarte .git, donc
+# `git describe` ne peut pas répondre depuis l'image.
+ARG HYPERNOVA_VERSION
+ENV HYPERNOVA_VERSION=$HYPERNOVA_VERSION
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine

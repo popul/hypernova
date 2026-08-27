@@ -171,6 +171,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Le jeu affiche ce numéro sur son écran d'accueil : c'est celui du tag
+          # qui l'a construit, donc celui qu'on peut aller vérifier.
+          build-args: |
+            HYPERNOVA_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

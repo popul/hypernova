@@ -118,6 +118,55 @@ export function priceOf(upgrade, level) {
   return Math.round((upgrade.basePrice * Math.pow(upgrade.priceMul, level)) / 5) * 5;
 }
 
+// L'ÉQUIPEMENT D'UN JOUEUR ARRIVÉ À LA VAGUE N.
+//
+// Le mode entraînement laisse commencer à la vague qu'on veut, et il serait
+// absurde d'y arriver le vaisseau nu : la vague 20 sans modules n'est pas la
+// vague 20, c'est un mur. Il faut donc répondre à « à quoi ressemble un vaisseau
+// à la vingtième vague ».
+//
+// On ne l'estime pas, on le REJOUE. La mesure faite sur l'économie donne deux
+// achats et demi par niveau pour un joueur qui dépense tout ce qu'il peut, et le
+// même joueur achète TOUJOURS le module le moins cher disponible — c'est ce
+// comportement-là qui a servi à calibrer les prix. On refait donc exactement ça :
+// on distribue le nombre de paliers correspondant, du moins cher au plus cher.
+// Le résultat n'est pas une jolie courbe, c'est la panoplie qu'on aurait
+// vraiment.
+
+// Le total des paliers achetables, tous modules confondus.
+const PALIERS_TOTAL = UPGRADES.reduce((n, u) => n + u.maxLevel, 0);
+// Achats par vague, mesurés sur les trois coques : 2,60 / 2,30 / 2,30.
+const ACHATS_PAR_VAGUE = 2.4;
+
+// Quelle part de la panoplie complète on possède en arrivant à cette vague.
+// Plafonnée à un : au-delà d'une quinzaine de vagues, tout est acheté.
+export function equipementPourVague(vague) {
+  return Math.min(1, (ACHATS_PAR_VAGUE * Math.max(0, vague - 1)) / PALIERS_TOTAL);
+}
+
+// La panoplie correspondant à une part donnée. `part` vaut 0 (vaisseau nu) à 1
+// (tout au maximum) ; entre les deux, on achète le moins cher d'abord.
+export function niveauxPourPart(part) {
+  const niveaux = emptyLevels();
+  let reste = Math.round(Math.max(0, Math.min(1, part)) * PALIERS_TOTAL);
+  while (reste > 0) {
+    let choix = null;
+    let mieux = Infinity;
+    for (const u of UPGRADES) {
+      if (niveaux[u.id] >= u.maxLevel) continue;
+      const prix = priceOf(u, niveaux[u.id]);
+      if (prix < mieux) {
+        mieux = prix;
+        choix = u;
+      }
+    }
+    if (!choix) break; // tout est au maximum
+    niveaux[choix.id]++;
+    reste--;
+  }
+  return niveaux;
+}
+
 export function emptyLevels() {
   return Object.fromEntries(UPGRADES.map((u) => [u.id, 0]));
 }

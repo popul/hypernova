@@ -36,6 +36,8 @@ export default [
         matchMedia: 'readonly',
         clearTimeout: 'readonly',
         Notification: 'readonly',
+        // Remplacé à la construction par le numéro de version — voir vite.config.js.
+        __VERSION__: 'readonly',
       },
     },
     rules: {

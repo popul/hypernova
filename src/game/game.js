@@ -12,7 +12,14 @@ import { Hud } from './hud.js';
 import { Shop } from './shop.js';
 import { Cinematic } from './cinematic.js';
 import { makeWave, dailySeed } from './waves.js';
-import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
+import {
+  UPGRADES,
+  priceOf,
+  emptyLevels,
+  computeStats,
+  equipementPourVague,
+  niveauxPourPart,
+} from './upgrades.js';
 import {
   ARENA,
   COMBO,
@@ -209,6 +216,8 @@ export class Game {
 
     this.state = 'title';
     this.mode = 'arcade';
+    // 'solo' | 'duo' | 'entrainement' — orthogonal au mode, qui reste les règles.
+    this.variante = 'solo';
     this.paused = false;
     // Les records viennent du SERVEUR, avec le pilote — ils ne sont plus ceux de
     // l'appareil. Deux enfants qui se passent un téléphone n'ont plus le même
@@ -392,6 +401,15 @@ export class Game {
   // au titre — sinon rejouer l'intro lancerait une partie non désirée.
   playCinematic({ handoff = false } = {}) {
     this.quitteVitrine();
+    // LA CINÉMATIQUE NE POSE PAS SON DÉCOR, ELLE HÉRITE DE CELUI QUI EST LÀ.
+    //
+    // Elle fabrique ses propres accessoires — l'épave, ANDEL, la planète — mais
+    // le SECTEUR autour vient de `stage.space`, resté sur ce que la scène
+    // précédente affichait. Au démarrage du jeu c'est l'orbite terrestre, donc
+    // personne ne l'avait jamais vu ; depuis « Histoire », c'est ce que la
+    // vitrine était en train de montrer, et l'introduction se jouait sur un sol
+    // martien ou dans les anneaux de Saturne. On le pose donc explicitement.
+    this.stage?.space?.setBiome(biomeForWave(1, false), { instant: true });
     this.state = 'cinematic';
     this.audio.setMode('cinematic');
     this.hud.root.classList.add('hidden');
@@ -1186,6 +1204,13 @@ export class Game {
     this.characters.muet = false;
     this.player.reset();
     this.hud.root.classList.add('hidden');
+    // La vitrine se joue dans une escale, à la vague dix-neuf ou vingt-deux : si
+    // on lui laisse ces valeurs, l'écran suivant calcule son décor pour une
+    // partie qui n'existe plus.
+    this.wave = 0;
+    this.bis = false;
+    this.escale = null;
+    this.routeMods = null;
   }
 
   arreteDemo() {
@@ -1219,7 +1244,7 @@ export class Game {
         <div class="title-tag">— Faites décoller la légende —</div>
         <div class="title-menu">
           <button class="btn-launch" id="btn-arcade">
-            Partie rapide${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}
+            Partie classique${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}
           </button>
           <button class="btn-secondary" id="btn-survie">
             Survie · ${SURVIE.vagues} vagues
@@ -1233,6 +1258,7 @@ export class Game {
           }
         </div>
         <button class="btn-ghost" id="btn-story">◈ Histoire</button>
+        <div class="title-version">v${__VERSION__}</div>
         ${
           scores.length
             ? `<div class="title-lb">
@@ -1263,8 +1289,8 @@ export class Game {
         this.showTitle();
       });
     }
-    el.querySelector('#btn-arcade').addEventListener('click', () => this.startRun('arcade'));
-    el.querySelector('#btn-survie').addEventListener('click', () => this.startRun('survie'));
+    el.querySelector('#btn-arcade').addEventListener('click', () => this.showVariante('arcade'));
+    el.querySelector('#btn-survie').addEventListener('click', () => this.showVariante('survie'));
     // Le menu s'efface tout seul si personne ne touche à rien : c'est ce que fait
     // une borne d'arcade, et ce que fait une vignette qui se met à jouer quand on
     // s'attarde dessus.
@@ -1652,7 +1678,10 @@ export class Game {
     // Sans cette sortie, changer de mode ou de pilote après une partie obligeait à
     // recharger la page — c'est-à-dire à quitter le jeu pour naviguer dedans.
     el.querySelector('#btn-menu')?.addEventListener('click', () => this.showTitle());
-    if (this.score > 0 && pilot) this._archive(el, pilot);
+    // L'ENTRAÎNEMENT NE PUBLIE RIEN. C'est sa raison d'être : on y recommence la
+    // même vague dix fois, avec l'équipement qu'on veut, et aucun de ces essais
+    // n'est comparable à une partie jouée depuis le début.
+    if (this.score > 0 && pilot && this.variante === 'solo') this._archive(el, pilot);
   }
 
   // Écrit la partie — score, nom, et l'enregistrement qui permettra de la revoir.
@@ -1784,6 +1813,230 @@ export class Game {
   // survol : le premier joueur du jeu, celui pour qui il est écrit, n'aurait jamais
   // vu que la première des trois coques. C'est le même défaut que sur l'écran de
   // profil, et la même correction — on choisit ce qu'on voit.
+  // Ce qu'on est en train de jouer, en une ligne : le mode et sa variante. Trois
+  // écrans l'affichent, il n'y a donc qu'un endroit où l'écrire.
+  _sousTitreMode(mode, variante = this.variante) {
+    const base = mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie classique';
+    if (variante === 'entrainement') return `${base} · Entraînement`;
+    if (variante === 'duo') return `${base} · À deux`;
+    return base;
+  }
+
+  // TROIS FAÇONS DE JOUER LE MÊME MODE.
+  //
+  // Le titre n'offrait que deux boutons, et chacun lançait directement une partie
+  // en solo. Les trois variantes sont orthogonales au mode — on peut s'entraîner
+  // en survie comme en classique, et jouer à deux dans les deux — d'où un menu à
+  // deux niveaux plutôt que six boutons côte à côte, qui ne diraient plus ce qui
+  // change de ce qui reste pareil.
+  //
+  // La touche Espace continue de lancer une partie classique en solo : c'est le
+  // chemin le plus fréquent, et il ne doit pas coûter un clic de plus qu'avant.
+  showVariante(mode) {
+    this.quitteVitrine();
+    this.state = 'variante';
+    this.hud.root.classList.add('hidden');
+    // La partie de fond vient de s'arrêter, et il resterait un vaisseau seul,
+    // immobile au milieu du décor — exactement ce qu'on reprochait à l'ancien
+    // écran d'accueil. On le range : tous les chemins de sortie le remontrent
+    // (`player.reset()` et la pose de vitrine le rallument tous les deux).
+    this.player.group.visible = false;
+    const survie = mode === 'survie';
+    const el = this._screen(`
+      <div class="screen variantes">
+        <div class="coque-haut">
+          <h2 class="shop-title">${survie ? 'Survie' : 'Partie classique'}</h2>
+          <div class="coque-sous">${
+            survie
+              ? `${SURVIE.vagues} vagues d'affilée, sans boutique`
+              : 'Les vagues s’enchaînent, on joue pour le score'
+          }</div>
+        </div>
+        <div class="variante-liste">
+          <button class="variante" data-v="solo">
+            <span class="variante-nom">1 joueur</span>
+            <span class="variante-desc">Seul aux commandes, et au panthéon.</span>
+          </button>
+          <button class="variante" data-v="duo">
+            <span class="variante-nom">2 joueurs <em>en réseau</em></span>
+            <span class="variante-desc">
+              Un salon d’attente, un copain qui rejoint, et deux vaisseaux dans la même
+              arène. Les ennemis sont plus durs — vous êtes deux.
+            </span>
+          </button>
+          <button class="variante" data-v="entrainement">
+            <span class="variante-nom">Entraînement</span>
+            <span class="variante-desc">
+              Commencez à la vague que vous voulez, avec l’équipement que vous voulez.
+              Rien n’est publié au panthéon.
+            </span>
+          </button>
+        </div>
+        <button class="btn-ghost" id="variante-back">← Retour</button>
+      </div>
+    `);
+    const clavier = (e) => {
+      if (this.state !== 'variante') return;
+      if (e.key !== 'Escape') return;
+      quitte();
+      this.showTitle();
+      e.preventDefault();
+    };
+    const quitte = () => window.removeEventListener('keydown', clavier);
+    window.addEventListener('keydown', clavier);
+
+    for (const b of el.querySelectorAll('.variante')) {
+      b.addEventListener('click', () => {
+        quitte();
+        this.audio.uiTick();
+        const v = b.dataset.v;
+        if (v === 'entrainement') this.showEntrainement(mode);
+        else if (v === 'duo') this.showSalons(mode);
+        else this.startRun(mode);
+      });
+    }
+    el.querySelector('#variante-back').addEventListener('click', () => {
+      quitte();
+      this.showTitle();
+    });
+  }
+
+  // L'ENTRAÎNEMENT. On choisit où l'on tombe, et dans quel état.
+  //
+  // Mourir vague 22 et devoir refaire les vingt et une premières pour réessayer,
+  // c'est ce qui rend un jeu de vagues épuisant à apprendre. Ici on se pose où
+  // l'on veut, équipé comme on le serait en y arrivant — et on recommence autant
+  // qu'on veut, sans que rien n'atteigne le panthéon.
+  //
+  // L'équipement par défaut n'est pas inventé : il rejoue la mesure de
+  // l'économie — deux achats et demi par vague, le moins cher d'abord — donc la
+  // panoplie proposée est celle qu'on aurait vraiment. Le curseur permet ensuite
+  // de s'entraîner à l'envers : la vague 25 avec le vaisseau de la vague 3, pour
+  // voir. C'est un mode d'essai, il n'a pas à être juste.
+  // Le salon d'attente du jeu à deux. Écrit au chantier suivant : ce bouton ne
+  // doit pas planter d'ici là, et surtout ne doit pas laisser croire qu'il marche.
+  showSalons(mode) {
+    this.hud.announce('Bientôt', 'Le jeu à deux est en construction', 2200);
+    this.showVariante(mode);
+  }
+
+  showEntrainement(mode) {
+    this.quitteVitrine();
+    this.state = 'entrainement';
+    this.hud.root.classList.add('hidden');
+    const maxVague = mode === 'survie' ? SURVIE.vagues : 40;
+    const reglages = this._entrainement || { vague: 1, coque: 'orion', part: null };
+    reglages.vague = Math.min(maxVague, Math.max(1, reglages.vague));
+
+    const el = this._screen(`
+      <div class="screen entrainement">
+        <div class="coque-haut">
+          <h2 class="shop-title">Entraînement</h2>
+          <div class="coque-sous">${
+            mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie classique'
+          } · hors panthéon</div>
+        </div>
+
+        <label class="entr-bloc">
+          <span class="entr-titre">Commencer à la vague <b id="entr-vague">1</b></span>
+          <input type="range" id="entr-vague-r" min="1" max="${maxVague}" step="1" />
+          <span class="entr-note" id="entr-secteur"></span>
+        </label>
+
+        <div class="entr-bloc">
+          <span class="entr-titre">Coque</span>
+          <div class="entr-coques">
+            ${COQUES.map(
+              (c) => `<button class="entr-coque" data-coque="${c.id}">
+                <b>${c.nom}</b><span>${esc(c.titre)}</span>
+              </button>`
+            ).join('')}
+          </div>
+        </div>
+
+        <label class="entr-bloc">
+          <span class="entr-titre">Équipement <b id="entr-part">0 %</b></span>
+          <input type="range" id="entr-part-r" min="0" max="100" step="5" />
+          <span class="entr-note" id="entr-modules"></span>
+        </label>
+
+        <button class="btn-primary" id="entr-go">Lancer</button>
+        <button class="btn-ghost" id="entr-back">← Retour</button>
+      </div>
+    `);
+
+    const rVague = el.querySelector('#entr-vague-r');
+    const rPart = el.querySelector('#entr-part-r');
+    const lblVague = el.querySelector('#entr-vague');
+    const lblPart = el.querySelector('#entr-part');
+    const lblSecteur = el.querySelector('#entr-secteur');
+    const lblModules = el.querySelector('#entr-modules');
+
+    const peint = () => {
+      const v = Number(rVague.value);
+      const part = Number(rPart.value) / 100;
+      lblVague.textContent = v;
+      lblPart.textContent = `${Math.round(part * 100)} %`;
+      lblSecteur.textContent = stageForWave(v).name;
+      const n = niveauxPourPart(part);
+      const liste = UPGRADES.filter((u) => n[u.id] > 0).map((u) => `${u.name} ${n[u.id]}`);
+      lblModules.textContent = liste.length ? liste.join(' · ') : 'Vaisseau nu';
+      for (const b of el.querySelectorAll('.entr-coque')) {
+        b.classList.toggle('on', b.dataset.coque === reglages.coque);
+      }
+    };
+
+    rVague.value = reglages.vague;
+    // Le curseur d'équipement suit la vague TANT QU'ON N'Y A PAS TOUCHÉ. Une fois
+    // déplacé à la main, il reste où on l'a mis : c'est tout l'intérêt de pouvoir
+    // s'entraîner sous-équipé, et le remettre d'office à chaque cran de vague
+    // rendrait ce réglage-là impossible à tenir.
+    rPart.value = Math.round((reglages.part ?? equipementPourVague(reglages.vague)) * 100);
+    peint();
+
+    rVague.addEventListener('input', () => {
+      if (reglages.part === null)
+        rPart.value = Math.round(equipementPourVague(Number(rVague.value)) * 100);
+      peint();
+    });
+    rPart.addEventListener('input', () => {
+      reglages.part = Number(rPart.value) / 100;
+      peint();
+    });
+    for (const b of el.querySelectorAll('.entr-coque')) {
+      b.addEventListener('click', () => {
+        reglages.coque = b.dataset.coque;
+        this.audio.uiTick();
+        peint();
+      });
+    }
+
+    const clavier = (e) => {
+      if (this.state !== 'entrainement' || e.key !== 'Escape') return;
+      quitte();
+      this.showVariante(mode);
+      e.preventDefault();
+    };
+    const quitte = () => window.removeEventListener('keydown', clavier);
+    window.addEventListener('keydown', clavier);
+
+    el.querySelector('#entr-go').addEventListener('click', () => {
+      quitte();
+      this.audio.buy();
+      reglages.vague = Number(rVague.value);
+      this._entrainement = reglages;
+      this.startRun(mode, reglages.coque, {
+        variante: 'entrainement',
+        vague: Number(rVague.value),
+        niveaux: niveauxPourPart(Number(rPart.value) / 100),
+      });
+    });
+    el.querySelector('#entr-back').addEventListener('click', () => {
+      quitte();
+      this.showVariante(mode);
+    });
+  }
+
   showChoixCoque(mode, onDone) {
     this.state = 'coques';
     this.hud.root.classList.add('hidden');
@@ -1793,7 +2046,7 @@ export class Game {
       <div class="screen coques">
         <div class="coque-haut">
           <h2 class="shop-title">Quelle coque ?</h2>
-          <div class="coque-sous">${mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie rapide'}</div>
+          <div class="coque-sous">${this._sousTitreMode(mode)}</div>
         </div>
         <div class="coque-bas">
           <div class="coque-nav">
@@ -1933,17 +2186,23 @@ export class Game {
     montre(0, false);
   }
 
-  startRun(mode = 'arcade', coque = null) {
+  // `options` porte ce qui n'est pas une partie ordinaire : la variante jouée, la
+  // vague de départ, et l'équipement déjà en place. Une partie normale n'en passe
+  // aucune — c'est le cas par défaut, et il ne change pas d'un iota.
+  startRun(mode = 'arcade', coque = null, options = null) {
     // Toute partie appartient à un pilote : c'est lui qui la publie au panthéon.
     // Sauf la démonstration de l'écran d'accueil, qui ne publie rien.
-    if (!activePilot() && !this._demoForce) {
-      this.showPilotSelect(() => this.startRun(mode, coque));
+    // L'ENTRAÎNEMENT NE DEMANDE PAS QUI VOUS ÊTES. Un pilote sert à publier au
+    // panthéon, et l'entraînement ne publie rien : exiger un pseudo et un code
+    // pour refaire trois fois la vague 22 serait un péage sans contrepartie.
+    if (!activePilot() && !this._demoForce && options?.variante !== 'entrainement') {
+      this.showPilotSelect(() => this.startRun(mode, coque, options));
       return;
     }
     // Et toute partie appartient à une coque : sans elle, on ne sait ni quoi tirer
     // ni comment remplir la jauge.
     if (!coque) {
-      this.showChoixCoque(mode, (choisie) => this.startRun(mode, choisie));
+      this.showChoixCoque(mode, (choisie) => this.startRun(mode, choisie, options));
       return;
     }
     // Une vraie partie commence : la démonstration s'arrête, et avec elle la
@@ -1955,6 +2214,7 @@ export class Game {
     }
     this.coque = coque;
     this.mode = mode === 'survie' ? 'survie' : 'arcade';
+    this.variante = options?.variante || 'solo';
 
     this.shop.close();
     this.shop.reinitialise();
@@ -1965,9 +2225,12 @@ export class Game {
     this.wave = 0;
     this.surcharge = 0;
     {
-      this.levels = emptyLevels();
+      this.levels = options?.niveaux ? { ...emptyLevels(), ...options.niveaux } : emptyLevels();
       this.credits = 0;
-      this.lives = PLAYER.baseLives;
+      // La Coque renforcée donne ses vies à l'achat, pas au calcul des stats :
+      // une panoplie posée d'un bloc doit donc les créditer elle-même, sinon
+      // l'entraînement partirait avec trois vies en annonçant le module.
+      this.lives = Math.min(PLAYER.maxLives, PLAYER.baseLives + (this.levels.hull || 0));
     }
     this.stats = computeStats(this.levels, this.surcharge);
     this.fragments = 0;
@@ -2060,7 +2323,7 @@ export class Game {
     this.characters.muet = this.mode === 'survie' || this.demo;
     if (this.characters.muet) this.characters.taisToi();
     else this.characters.onRunStart(false);
-    this.startWave(1);
+    this.startWave(Math.max(1, options?.vague || 1));
     // LA RÉPLIQUE D'OUVERTURE ARRIVE AU PREMIER HANGAR, PAS SUR LA VAGUE 1.
     //
     // Il n'existe aucun moment calme entre le choix de la coque et le premier

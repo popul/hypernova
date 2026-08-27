@@ -62,15 +62,29 @@ L'énergie se dépense sur **une seule touche**, deux usages :
 4. Toutes les 4 vagues : **vaisseau-amiral** (mini-boss). Le meilleur score et la meilleure vague
    sont sauvegardés en `localStorage`.
 
-## Deux modes
+## Deux modes, trois façons de les jouer
 
-- **Partie rapide** — l'arcade : les vagues s'enchaînent sans fin, on joue pour le score.
+- **Partie classique** — l'arcade : les vagues s'enchaînent sans fin, on joue pour le score.
 - **Survie · 100 vagues** — un marathon avec une ligne d'arrivée. La difficulté y monte deux
   fois moins vite (sans quoi tout serait saturé dès la vingtième vague), les boss tombent tous
   les dix, et le classement répond à _jusqu'où es-tu allé ?_ — la vague d'abord, le score
   ensuite.
 
-Chaque mode a son propre tableau et ses propres enregistrements.
+Chaque mode a son propre tableau et ses propres enregistrements. Et chacun se joue de trois
+façons :
+
+- **1 joueur** — la partie qui compte, celle qui va au panthéon.
+- **2 joueurs, en réseau** — un salon d'attente, un copain qui rejoint, et deux vaisseaux dans
+  la même arène. Les ennemis sont plus durs, et le tableau des scores est à part : comparer un
+  score à deux à un score en solo n'aurait pas de sens.
+- **Entraînement** — on commence à la vague qu'on veut, avec l'équipement qu'on veut. Mourir
+  vague 22 et devoir refaire les vingt et une premières pour réessayer, c'est ce qui rend un
+  jeu de vagues épuisant à apprendre.
+
+L'équipement proposé à l'entraînement n'est pas inventé : il **rejoue la mesure de l'économie**
+— deux achats et demi par vague, le module le moins cher d'abord — donc la panoplie est celle
+qu'on aurait vraiment en arrivant là. Le curseur permet ensuite de s'entraîner à l'envers : la
+vague 25 avec le vaisseau de la vague 3, pour voir. Rien de tout ça n'est publié.
 
 ## Compétition entre copains
 
