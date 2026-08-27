@@ -151,12 +151,45 @@ export class Shop {
     this.refresh(state);
   }
 
-  // Une offre achetée laisse un emplacement VIDE plutôt que de se recharger : sans
-  // ça, on rachèterait le même module trois fois de suite et le tirage ne servirait
-  // plus à rien.
-  markBought(id) {
+  // UNE OFFRE ACHETÉE EST REMPLACÉE, elle ne laisse plus une case vide.
+  //
+  // Elle laissait un trou marqué « Embarqué ». L'intention était de ne pas laisser
+  // racheter le même module trois fois de suite — mais l'effet était qu'après deux
+  // achats il ne restait qu'une carte, et que l'étal se vidait sous les yeux du
+  // joueur au moment précis où il avait de quoi dépenser. Un magasin qui se vide
+  // quand on a de l'argent n'invite pas à revenir.
+  //
+  // On rappelle donc un module, tiré parmi ceux qui ne sont PAS déjà sur l'étal :
+  // le choix reste un choix, et le tirage garde son sens, mais l'étal reste plein.
+  markBought(id, state) {
     const i = this.offers.findIndex((o) => o && o.id === id);
-    if (i >= 0) this.offers[i] = null;
+    if (i < 0) return;
+    const remplacant = state ? this._tireUn(state) : null;
+    // S'il n'y a plus rien d'éligible — tout au maximum, fin de partie — on
+    // retombe sur la case vide d'avant : c'est alors une information juste.
+    this.offers[i] = remplacant;
+  }
+
+  // Un module de plus, qui n'est pas déjà proposé. Le tirage pondéré de `_tirer`
+  // est réutilisé tel quel pour que le nouveau venu suive la même règle que les
+  // autres : rien de trop cher pour la bourse du moment.
+  _tireUn(state) {
+    const dejaLa = new Set(this.offers.filter(Boolean).map((o) => o.id));
+    const pool = this._eligible(state).filter((o) => !dejaLa.has(o.id));
+    if (!pool.length) return null;
+    const budget = Math.max(60, state.credits);
+    const poids = pool.map((o) => {
+      const ratio = o.prix / budget;
+      if (ratio <= 1) return 1;
+      if (ratio <= 1.8) return 0.55;
+      if (ratio <= 3) return 0.2;
+      return 0.06;
+    });
+    const total = poids.reduce((a, b) => a + b, 0);
+    let r = alea() * total;
+    let i = 0;
+    while (i < pool.length - 1 && (r -= poids[i]) > 0) i++;
+    return pool[i];
   }
 
   refresh(state) {

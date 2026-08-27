@@ -2283,7 +2283,9 @@ export class Game {
     this.hud.setCredits(this.credits);
     this.audio.buy();
     this.characters.onBuy();
-    this.shop.markBought(id);
+    // On passe l'état APRÈS l'achat : le module rappelé doit être choisi pour la
+    // bourse qu'il reste, pas pour celle d'avant.
+    this.shop.markBought(id, this._shopState());
     this.shop.refresh(this._shopState());
   }
 

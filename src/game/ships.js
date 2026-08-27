@@ -857,13 +857,51 @@ export function createEnemyShip(type) {
   return templates.get(type).clone(true);
 }
 
+// UNE PIÈCE D'OR, ET PAS UN CRISTAL.
+//
+// Le crédit était un octaèdre doré : joli, mais il ne disait pas ce qu'il était.
+// Une pièce, tout le monde sait ce que c'est avant de l'avoir lue — et c'est le
+// seul objet du jeu qu'on ramasse pour de l'argent.
+//
+// Ce qui fait qu'un disque se lit comme une pièce, ce n'est pas sa rondeur, c'est
+// sa TRANCHE. Un cylindre plat vu de face est un rond quelconque ; le même,
+// incliné, montre son épaisseur et devient une pièce. Elle tourne donc autour de
+// son diamètre plutôt que sur elle-même, et passe par toutes les inclinaisons —
+// c'est ce miroitement, cette alternance face/tranche, qui la fait reconnaître en
+// mouvement.
+let piece = null;
 export function createGem() {
-  const gem = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.28),
+  if (!piece) {
+    // Douze côtés : au-delà, personne ne compte les facettes d'un objet de vingt
+    // pixels — en deçà, la tranche a l'air taillée à la serpe.
+    const geo = new THREE.CylinderGeometry(0.3, 0.3, 0.09, 12);
+    // Couchée : son axe devient Z, et la face regarde la caméra au repos.
+    geo.rotateX(Math.PI / 2);
+    piece = geo;
+  }
+  const g = new THREE.Group();
+  const corps = new THREE.Mesh(
+    piece,
     new THREE.MeshBasicMaterial({ color: 0xffc857, toneMapped: false })
   );
-  gem.scale.set(1, 1.5, 1);
-  return gem;
+  g.add(corps);
+  // Le listel : un anneau un peu plus clair au bord, qui attrape la lumière quand
+  // la pièce se met de profil. Sans lui, la tranche est un aplat sombre et la
+  // pièce disparaît la moitié du temps.
+  const listel = new THREE.Mesh(
+    new THREE.TorusGeometry(0.3, 0.035, 4, 14),
+    new THREE.MeshBasicMaterial({ color: 0xfff0b8, toneMapped: false })
+  );
+  g.add(listel);
+  // La frappe : un petit relief au centre. Il ne se lit pas à la taille où on la
+  // voit, mais il casse l'aplat quand elle passe près du vaisseau.
+  const frappe = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.1),
+    new THREE.MeshBasicMaterial({ color: 0xffe08a, toneMapped: false })
+  );
+  frappe.position.z = 0.05;
+  g.add(frappe);
+  return g;
 }
 
 // ---- LES HUIT MODULES ----

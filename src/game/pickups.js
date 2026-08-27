@@ -103,7 +103,15 @@ export class Pickups {
       }
       e.mesh.position.addScaledVector(e.vel, dt);
       // La grosse pièce tourne plus lentement : une masse se lit à son inertie.
-      e.mesh.rotation.y += (e.big ? 2.2 : 4) * dt;
+      // UNE PIÈCE TOURNE AUTOUR DE SON DIAMÈTRE, pas sur elle-même. C'est ce qui
+      // la fait miroiter — face, tranche, face — et c'est à ce miroitement qu'on
+      // la reconnaît de loin, bien avant d'en distinguer la forme. Une rotation
+      // sur l'axe Y la ferait pivoter à plat comme une assiette.
+      e.mesh.rotation.x += (e.big ? 2.4 : 4.2) * dt;
+      // Un léger roulis en plus : deux axes qui tournent à des vitesses
+      // différentes empêchent l'œil de voir un cycle, et la pièce paraît culbuter
+      // au lieu de tourner en machine.
+      e.mesh.rotation.z += (e.big ? 0.9 : 1.4) * dt;
       // Clignote quand la gemme va expirer.
       const remaining = PICKUPS.lifetime - e.age;
       e.mesh.visible = remaining > 2.5 || Math.sin(e.age * 18) > -0.2;
