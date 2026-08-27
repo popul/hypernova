@@ -37,7 +37,9 @@ import {
 //   8 — la pirouette RENVOIE les tirs au lieu de les effacer, le cœur d'un ennemi
 //       compte double, le dernier mort emporte ses balles, et l'escale devient un
 //       niveau bis sans boss dont le fragment se gagne à la sortie
-export const VERSION = 8;
+//   9 — les charges de VULCAIN sont des missiles qui n'explosent qu'AU CONTACT,
+//       et leur souffle naît sur l'ennemi touché — il ratait l'amiral jusqu'ici
+export const VERSION = 9;
 
 // --- Écriture ---------------------------------------------------------------
 

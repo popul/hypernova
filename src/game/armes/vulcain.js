@@ -1,11 +1,12 @@
 // VULCAIN — la forge sous le volcan. Elle ne tire pas : elle POSE.
 //
-// Le vaisseau lâche des charges qui montent lentement et explosent en sphère. Tout
-// le sel de la coque tient dans le délai : entre le moment où l'on décide et le
-// moment où ça éclate, il se passe trois secondes, et pendant ces trois secondes
-// la formation a bougé. On ne vise donc pas ce qu'on voit, on vise ce qui SERA là.
+// Le vaisseau lâche des missiles lents qui montent en traînant leur feu et qui
+// n'éclatent QU'AU CONTACT d'une coque ennemie. Tout le sel de l'arme tient dans le
+// délai : entre le moment où l'on décide et le moment où ça touche, il se passe
+// deux ou trois secondes, et pendant ces secondes la formation a bougé. On ne vise
+// donc pas ce qu'on voit, on vise ce qui SERA là.
 //
-// Trois décisions structurent le fichier, et aucune n'est un détail :
+// Quatre décisions structurent le fichier, et aucune n'est un détail :
 //
 //  1. LA RÉSERVE. La forge produit une charge toutes les deux secondes, mais le
 //     lanceur ne la sort que s'il y a quelque chose à atteindre au-dessus. Se
@@ -13,12 +14,19 @@
 //     VIDE d'un coup. C'est ce qui met le pilotage au centre : les mains ne font
 //     plus « esquiver et tirer », elles font « charger, puis se placer ».
 //
-//  2. LE SOUFFLE SE LIT AU RAYON. L'explosion est une sphère au rayon exact des
-//     dégâts, et ce rayon est ANNONCÉ pendant les six derniers dixièmes de la
-//     mèche par un cercle posé à plat. Une arme de zone dont on ne voit pas la
-//     zone n'est pas jouable — elle est subie, y compris quand elle réussit.
+//  2. LE CONTACT, ET RIEN D'AUTRE. Il n'y a plus de mèche : un missile qui ne
+//     rencontre personne ne détone pas, il s'ÉTEINT. C'est ce qui donne son prix au
+//     placement — avant, une charge mal posée éclatait quand même et ramassait
+//     parfois quelque chose par accident. Le prix de cette règle est qu'un tir peut
+//     ne rien valoir du tout, et il fallait donc que l'extinction se VOIE (§ 4).
 //
-//  3. LA SALVE, et elle seule, remplit la jauge. Un ennemi pris ne donne RIEN.
+//  3. LE SOUFFLE SE LIT AU RAYON. L'impact reste une explosion de ZONE — c'est
+//     l'identité de la coque — dessinée à l'exact rayon des dégâts, et ce rayon est
+//     ANNONCÉ au sol dès que le missile approche d'une cible. Une arme de zone dont
+//     on ne voit pas la zone n'est pas jouable : elle est subie, y compris quand
+//     elle réussit.
+//
+//  4. LA SALVE, et elle seule, remplit la jauge. Un ennemi pris ne donne RIEN.
 //     C'est la seule règle qui force à attendre que la formation se resserre au
 //     lieu de pilonner, et attendre est précisément le verbe de la coque.
 //
@@ -32,22 +40,55 @@ import { ecart } from '../../core/rng.js';
 // ---- La montée ----
 //
 // Une balle du joueur file à 34 u/s, une balle ennemie à 11,5, une gemme qui tombe
-// à 4,5. À 6,5 la charge est l'objet le plus lent du ciel, et c'est exactement ce
-// qu'on veut : le temps qu'elle met à monter est le temps qu'on a pour se tromper
-// de cible. Sur les trois secondes de mèche elle couvre 19,5 unités — depuis le
-// fond de l'arène, elle atteint le bas de la formation et pas ses rangs hauts.
+// à 4,5. À 6,5 le missile est l'objet le plus lent du ciel, et c'est exactement ce
+// qu'on veut : le temps qu'il met à monter est le temps qu'on a pour se tromper
+// de cible.
 const MONTEE = 6.5;
-// `engine` sur cette coque. Au niveau 4 la charge monte à 10,2 u/s et couvre 30
+// `engine` sur cette coque. Au niveau 4 le missile monte à 10,2 u/s et couvre 37
 // unités : la formation entière passe à portée. Le module ne change donc pas la
-// puissance, il change la PROFONDEUR de tir — et comme la charge arrive plus tôt,
+// puissance, il change la PROFONDEUR de tir — et comme le missile arrive plus tôt,
 // il faut moins anticiper. C'est la lecture juste de « frappe plus près ».
 const MONTEE_PAR_MOTEUR = 1.12;
+// Deux moteurs ne poussent jamais pareil. Trois centièmes et demi d'écart suffisent :
+// à vingt unités de montée, deux missiles d'une même salve arrivent à un dixième de
+// seconde l'un de l'autre, et la salve se lit comme un roulement au lieu d'un seul
+// coup. C'est le rôle que tenait l'écart de mèche avant qu'il n'y ait plus de mèche.
+//
+// `ecart` et pas Math.random : la vitesse décide de l'instant du contact, donc de
+// qui est pris, donc de l'issue de la partie. Un tirage hors du générateur semé et
+// le rejeu diverge. Un seul tirage par missile, comme avant.
+const ECART_MOTEUR = 0.035;
 
-// ---- La mèche ----
-const FUSEE = 3.0;
-// Ce qui se voit et s'entend avant l'éclatement. En dessous de la demi-seconde
-// l'annonce arrive trop tard pour qu'on puisse encore reculer : elle ne servirait
-// alors qu'à décorer une mort qu'on ne peut plus éviter.
+// ---- La portée ----
+//
+// Un missile qui n'explose qu'au contact peut ne jamais rencontrer personne. Il lui
+// faut donc une fin, et cette fin est un budget de VOL exprimé en secondes — pas en
+// unités. C'est délibéré : à budget de temps constant, un moteur plus rapide porte
+// plus loin, ce qui est très exactement ce que `engine` est censé acheter sur cette
+// coque.
+//
+// 3,6 s et pas 3,0. L'ancienne mèche brûlait en trois secondes et plaçait alors le
+// SOUFFLE (rayon 3,2) au niveau du rang bas : la charge n'avait pas besoin d'aller
+// jusqu'à la coque, son rayon faisait les derniers pas. Un missile qui doit TOUCHER
+// doit les parcourir lui-même — 3,2 de souffle plus le rayon d'une cible, soit six
+// dixièmes de seconde de vol. Sans ce rallongement, la coque perdait un rang entier
+// de portée le jour où l'on a changé la règle.
+const PORTEE = 3.6;
+// Les derniers dixièmes, pendant lesquels le moteur meurt À VUE : la plume se
+// rétracte, le corps refroidit, l'aperçu s'efface. Une demi-seconde, parce qu'en
+// dessous l'extinction ressemble à une disparition — et une disparition ressemble à
+// un bug. C'est le prix à payer pour avoir le droit de rater un tir.
+const EXTINCTION = 0.5;
+
+// ---- L'annonce ----
+//
+// L'ancienne version armait la charge six dixièmes avant la fin de sa mèche. La
+// mèche a disparu, la constante reste, et elle garde son sens : six dixièmes de
+// seconde AVANT LE CONTACT. Comme on ne connaît pas l'avenir, on l'approche par la
+// distance — le missile s'arme quand une coque ennemie entre dans ce qu'il parcourt
+// en six dixièmes. En dessous de la demi-seconde l'annonce arriverait trop tard
+// pour qu'on puisse encore en tirer quelque chose : elle ne servirait plus qu'à
+// décorer un coup déjà joué.
 const AMORCE = 0.6;
 
 // ---- Le souffle ----
@@ -55,8 +96,8 @@ const AMORCE = 0.6;
 // La formation est maillée à 2,35 en largeur et 2,3 en profondeur. À 3,2 le souffle
 // prend la case centrale et ses quatre voisines directes, et LAISSE les diagonales
 // (à 3,29). Cinq ennemis d'un coup, soit exactement le sommet de la courbe de la
-// SALVE, et seulement si la charge est posée au centre d'un bloc plein. Un rayon
-// choisi sur la maille, donc, et pas sur une impression.
+// SALVE, et seulement si le souffle naît au centre d'un bloc plein. Un rayon choisi
+// sur la maille, donc, et pas sur une impression.
 const RAYON = 3.2;
 const RAYON_PAR_MISSILE = 1.35; // `missiles` : +35 % par niveau, comme prévu
 
@@ -73,19 +114,30 @@ const RESERVE_MAX = 5;
 // Le débit du lanceur quand la réserve se vide. Cinq salves en neuf dixièmes de
 // seconde : assez serré pour que ça se lise comme un TAPIS et non comme cinq tirs.
 const DELAI_SALVE = 0.22;
-// L'écart entre deux charges d'une même salve (`cannons`). À 3, deux souffles de
-// rayon 3,2 se recouvrent d'un cheveu : la bande est continue, sans qu'aucune des
+// L'écart entre deux missiles d'une même salve (`cannons`). À 3, deux souffles de
+// rayon 3,2 se recouvrent d'un cheveu : la bande est continue, sans qu'aucun des
 // deux ne gaspille son rayon dans celui de l'autre.
 const ECART_SALVE = 3.0;
 // Au-delà de quelle distance latérale la forge considère qu'il n'y a rien à
 // atteindre. C'est ce chiffre qui décide si l'on charge ou si l'on décharge.
+//
+// Quatre unités, et le rayon du souffle n'entre PLUS dans le calcul. Il y entrait
+// quand la charge éclatait toute seule : ce qui passait à trois unités mourait
+// quand même. Un missile, lui, doit toucher — un ennemi laissé à sept unités sur le
+// côté n'est pas une cible, c'est une charge perdue, et au niveau 3 de `missiles`
+// la veille s'ouvrait à douze unités et vidait la réserve dans le vide.
+//
+// Ce que quatre unités mesurent aujourd'hui, c'est la DÉRIVE : le balancement de la
+// formation vaut 2,1 d'amplitude à 0,55 rad/s, soit 1,16 u/s au passage à zéro et
+// jusqu'à 4,2 unités pendant un vol complet. Une cible à quatre unités sur le côté
+// peut donc venir se mettre dans la trajectoire, et c'est pour elle qu'on tire.
 const VEILLE_LARGE = 4.0;
 
 // ---- Ce que ça coûte à l'ennemi ----
 //
 // Trois points : de quoi vider un rang de drones et de guêpes, de quoi tuer une
 // brute de base d'un seul souffle. Sept sur l'amiral, parce qu'une salve entière
-// lui arrive dessus d'un coup (il fait 5,2 de rayon, aucune charge ne le rate) et
+// lui arrive dessus d'un coup (il fait 5,2 de rayon, aucun missile ne le rate) et
 // que c'est la seule façon d'honorer « irrégulier, énorme si bien placé ».
 const DEGATS = 3;
 const DEGATS_BOSS = 7;
@@ -108,38 +160,75 @@ const POIDS_BOSS = 3;
 // ce rapport-là, et lui seul, qui rend l'attente plus payante que le pilonnage.
 //
 // Le plafond existe pour une raison précise : à sept ennemis la formule donne 54,
-// et une seule charge financerait les trois quarts d'une bombe. On garde le
-// vertige, on retire le raccourci.
+// et un seul missile financerait les trois quarts d'une bombe. On garde le vertige,
+// on retire le raccourci.
 const SALVE_CINQ = 25;
 const SALVE_COURBE = 1.85;
 const SALVE_MAX = 45;
 
-// Rayon du corps de la charge, pour le contact.
+// Rayon du corps du missile, pour le contact. Le corps dessiné fait 0,29 de large
+// et 1,3 de long : 0,45 est la moyenne honnête des deux, et la seule qui évite à la
+// fois le missile qui traverse une aile et celui qui explose à un mètre.
 const CONTACT = 0.45;
 
-// Vingt en vol : cinq salves de trois lâchées en moins d'une seconde, plus la
-// production courante. Le pool n'a jamais à refuser.
-const NB_CHARGES = 20;
+// La traînée. Une plume de feu ATTACHÉE au missile, plus des étincelles semées
+// derrière lui — deux choses, parce qu'aucune ne suffit seule : la plume donne la
+// direction et la vitesse, les étincelles donnent le chemin parcouru.
+//
+// Un quart de seconde de sillage à 6,5 u/s, soit 1,6 unité — le DOUBLE de la
+// longueur du corps. Essayé à 0,8 d'abord, par prudence : à l'écran, le halo de
+// bloom mangeait la plume et il ne restait qu'une gousse lumineuse un peu allongée.
+// Une traînée n'existe que si elle est plus longue que ce qu'elle traîne. Au-delà
+// de deux unités en revanche, vingt missiles en vol tissent un grillage et l'on ne
+// voit plus la formation derrière — 1,6 est le point où l'on voit les deux.
+const PLUME = 1.6;
+// Une étincelle tous les cinq centièmes, et pas une par frame. À vingt missiles en
+// vol c'est quatre cents particules par seconde, qui vivent 0,42 s : cent soixante
+// vivantes en permanence, soit un neuvième du pool de mille quatre cents que se
+// partage le jeu entier. Une par frame en ferait huit cent quarante et il ne
+// resterait rien pour les explosions — c'est-à-dire pour ce qu'on regarde.
+const PAS_TRACE = 0.05;
+
+// Vingt-quatre en vol. Le pire cas ne se devine pas, il se met en scène : ventre
+// plein (cinq), veille fermée, puis on passe sous la nuée. Cinq salves de trois
+// partent en 1,1 s et la production continue derrière — vingt et un missiles en
+// l'air simultanément, mesurés, au dernier niveau de `cannons` et de `firerate`.
+// Vingt était le compte de l'époque où l'on volait trois secondes ; à 3,6 s le
+// lanceur refusait en silence, exactement au moment qu'on avait passé dix secondes
+// à préparer.
+const NB_CHARGES = 24;
+// Seize souffles. Le tapis complet n'en allume jamais plus de cinq à la fois — les
+// missiles ne rencontrent pas leur cible au même instant, et c'est justement ce qui
+// fait le roulement. Seize laisse donc trois fois la marge du pire cas mesuré.
 const NB_SOUFFLES = 16;
 
-// Tant qu'elle monte, la charge est CYANE — la couleur du joueur, celle de ce qui
-// est inerte et à soi. Elle ne devient incandescente qu'à l'amorçage. Ce virage de
-// couleur est le télégraphe : il n'a besoin d'aucune légende, et il interdit de
-// confondre une charge en route avec une charge sur le point d'éclater.
+// Tant qu'il monte sans rien trouver, le missile est CYAN — la couleur du joueur,
+// celle de ce qui est inerte et à soi. Il ne devient incandescent qu'en approchant
+// d'une coque. Ce virage de couleur est le télégraphe : il n'a besoin d'aucune
+// légende, et il interdit de confondre un missile qui passe avec un missile qui va
+// toucher.
 const INERTE = 0x8ffbff;
 const CHAUDE = 0xff7b2e;
 const SOUFFLE = 0xffb347;
 const COEUR = 0xfff3d0;
+// Le gris-bleu de ce qui n'a plus de moteur. Il ne ressemble à aucune autre couleur
+// du jeu, et c'est le but : rien ne meurt de cette couleur-là sauf un tir raté.
+const ETEINT = 0x46626f;
 
-// Interpolées à chaque frame sur les matériaux existants : deux couleurs figées
+// Interpolées à chaque frame sur les matériaux existants : trois couleurs figées
 // ici, aucune allocation en vol.
 const C_INERTE = new THREE.Color(INERTE);
 const C_CHAUDE = new THREE.Color(CHAUDE);
+const C_ETEINT = new THREE.Color(ETEINT);
 
 export class ArmeVulcain {
   constructor(scene) {
     this.scene = scene;
     this._tmp = new THREE.Vector3();
+    // Où naît le souffle, et où l'on sème une étincelle de traînée. Deux vecteurs
+    // pour toute la classe : `update` ne doit rien allouer, jamais.
+    this._impact = new THREE.Vector3();
+    this._queue = new THREE.Vector3();
     // Réutilisé à chaque détonation. Une explosion qui alloue son tableau de
     // victimes en alloue quinze en une seconde quand la réserve se vide.
     this._pris = [];
@@ -149,15 +238,23 @@ export class ArmeVulcain {
     this.tSalve = 0;
 
     // Géométries partagées par tout le pool : c'est la règle de la maison, et elle
-    // vaut ici plus qu'ailleurs puisqu'un souffle peut naître quinze fois de suite.
+    // vaut ici plus qu'ailleurs puisqu'un souffle peut naître vingt fois de suite.
     const geoNoyau = new THREE.SphereGeometry(0.34, 10, 8);
     const geoEnveloppe = new THREE.SphereGeometry(0.62, 12, 8);
     const geoSphere = new THREE.SphereGeometry(1, 18, 12);
     const geoAnneau = new THREE.RingGeometry(0.95, 1.0, 48);
+    // Le cône de la plume, couché une fois pour toutes dans la géométrie : base à
+    // l'origine, pointe à z = +1. On le rallonge ensuite par `scale.z`, ce qui le
+    // fait pousser VERS L'ARRIÈRE depuis le missile — un cône recentré à chaque
+    // frame demanderait une position ET une échelle, donc deux fois plus de chances
+    // de se tromper de signe.
+    const geoPlume = new THREE.ConeGeometry(0.26, 1, 9, 1, true);
+    geoPlume.rotateX(Math.PI / 2);
+    geoPlume.translate(0, 0, 0.5);
 
     this.charges = [];
     for (let i = 0; i < NB_CHARGES; i++) {
-      this.charges.push(this._faitCharge(geoNoyau, geoEnveloppe, geoAnneau));
+      this.charges.push(this._faitCharge(geoNoyau, geoEnveloppe, geoAnneau, geoPlume));
     }
     this.souffles = [];
     for (let i = 0; i < NB_SOUFFLES; i++) {
@@ -166,12 +263,12 @@ export class ArmeVulcain {
     this.ventre = this._faitVentre();
   }
 
-  // Une charge : un noyau, son halo, et le cercle qui annonce le souffle. Les
-  // matériaux sont propres à chaque exemplaire — soixante en tout, créés une fois —
-  // parce que la couleur et l'opacité sont animées séparément sur chacun. Les
-  // partager obligerait à faire l'amorçage par sauts d'échelle, et le virage de
-  // couleur est justement ce qui rend l'amorçage lisible.
-  _faitCharge(geoNoyau, geoEnveloppe, geoAnneau) {
+  // Un missile : un corps allongé, son halo, sa plume, et le cercle qui annonce le
+  // souffle. Les matériaux sont propres à chaque exemplaire — quatre-vingt-seize en
+  // tout, créés une fois — parce que la couleur et l'opacité sont animées séparément
+  // sur chacun. Les partager obligerait à faire l'amorçage par sauts d'échelle, et
+  // le virage de couleur est justement ce qui rend l'amorçage lisible.
+  _faitCharge(geoNoyau, geoEnveloppe, geoAnneau, geoPlume) {
     const groupe = new THREE.Group();
     const noyau = new THREE.Mesh(
       geoNoyau,
@@ -184,6 +281,21 @@ export class ArmeVulcain {
         transparent: true,
         opacity: 0.3,
         depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    // LA PLUME. C'est elle, et non les étincelles, qui fait qu'on voit un MISSILE
+    // et non un point qui glisse : elle est toujours là, elle pointe d'où l'on
+    // vient, et elle raccourcit quand le moteur s'épuise. Les étincelles, elles,
+    // sont intermittentes par construction — le pool de particules est partagé.
+    const plume = new THREE.Mesh(
+      geoPlume,
+      new THREE.MeshBasicMaterial({
+        color: INERTE,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
       })
     );
@@ -204,19 +316,20 @@ export class ArmeVulcain {
       })
     );
     apercu.rotation.x = -Math.PI / 2;
-    groupe.add(noyau, enveloppe, apercu);
+    groupe.add(noyau, enveloppe, plume, apercu);
     groupe.visible = false;
     this.scene.add(groupe);
     return {
       groupe,
       noyau,
       enveloppe,
+      plume,
       apercu,
       active: false,
       x: 0,
       z: 0,
       v: 0,
-      fusee: 0,
+      vol: 0,
       rayon: 0,
       trace: 0,
     };
@@ -343,25 +456,24 @@ export class ArmeVulcain {
     this._pose(game);
   }
 
-  // VULCAIN ne pose pas une charge sous un ciel vide : « j'y ai déjà mis ce qu'il
-  // faut » suppose qu'il y ait un « là ». C'est ce test, et rien d'autre, qui fait
-  // exister la réserve — et il transforme la position du vaisseau en levier :
-  // s'écarter charge, se replacer décharge.
+  // VULCAIN ne tire pas sous un ciel vide : « j'y ai déjà mis ce qu'il faut »
+  // suppose qu'il y ait un « là ». C'est ce test, et rien d'autre, qui fait exister
+  // la réserve — et il transforme la position du vaisseau en levier : s'écarter
+  // charge, se replacer décharge.
   //
   // Pas de bouclage de l'arène dans le calcul, alors que le vaisseau, lui, boucle.
-  // C'est volontaire : le souffle ne boucle pas non plus, et une veille qui verrait
-  // plus loin que l'explosion promettrait des salves qui n'atteindraient rien.
+  // C'est volontaire : le missile ne boucle pas non plus, et une veille qui verrait
+  // plus loin que la portée promettrait des salves qui n'atteindraient rien.
   _quelqueChoseAuDessus(game) {
     const p = game.player.position;
-    const portee = this._montee(game) * FUSEE;
-    const large = this._rayon(game) + VEILLE_LARGE;
+    const portee = this._montee(game) * PORTEE;
     for (const e of game.enemies.list) {
       if (!e.alive) continue;
       const q = e.group.position;
       const profondeur = p.z - q.z;
-      // Derrière le vaisseau : la charge monte, elle ne fait pas demi-tour.
+      // Derrière le vaisseau : le missile monte, il ne fait pas demi-tour.
       if (profondeur < 0 || profondeur > portee + e.def.radius) continue;
-      if (Math.abs(q.x - p.x) > large + e.def.radius) continue;
+      if (Math.abs(q.x - p.x) > VEILLE_LARGE + e.def.radius) continue;
       return true;
     }
     return false;
@@ -378,24 +490,10 @@ export class ArmeVulcain {
       c.active = true;
       c.x = p.x + (i - (nb - 1) / 2) * ECART_SALVE;
       c.z = p.z - 1.4; // devant les bras de lancement, jamais dans la coque
-      c.v = montee;
-      // Les mèches ne brûlent pas toutes à la même vitesse. Neuf centièmes d'écart
-      // suffisent : la salve part groupée mais éclate en chaîne, ce qui se lit
-      // comme un roulement au lieu d'un seul coup — et laisse à chaque souffle sa
-      // propre prise à compter dans la SALVE.
-      //
-      // `ecart` et pas Math.random : la mèche décide de l'instant où l'explosion
-      // tombe, donc de qui elle prend, donc de l'issue de la partie. Un tirage hors
-      // du générateur semé et le replay diverge.
-      c.fusee = FUSEE + ecart(0.09);
+      c.v = montee * (1 + ecart(ECART_MOTEUR));
+      c.vol = PORTEE;
       c.rayon = rayon;
-      c.trace = 0;
-      c.groupe.position.set(c.x, 0, c.z);
-      c.groupe.visible = true;
-      c.apercu.scale.setScalar(rayon);
-      c.apercu.material.opacity = 0;
-      c.noyau.material.color.copy(C_INERTE);
-      c.enveloppe.material.color.copy(C_INERTE);
+      this._reposeVisuel(c);
     }
     game.audio?.chargePosee?.(p.x);
     game.fx.burst(this._tmp.set(p.x, 0, p.z - 0.9), INERTE, {
@@ -406,66 +504,129 @@ export class ArmeVulcain {
     });
   }
 
+  // L'état d'un missile qui vient de naître — ou de renaître d'un instantané. Les
+  // deux chemins doivent poser exactement les mêmes valeurs, sans quoi un rejeu
+  // repartirait d'un missile mal peint et l'on croirait à une divergence.
+  _reposeVisuel(c) {
+    c.trace = 0;
+    c.groupe.position.set(c.x, 0, c.z);
+    c.groupe.visible = true;
+    c.noyau.material.color.copy(C_INERTE);
+    c.enveloppe.material.color.copy(C_INERTE);
+    c.plume.material.color.copy(C_INERTE);
+    c.noyau.scale.set(0.85, 0.85, 1.9);
+    c.enveloppe.scale.set(0.9, 0.9, 1.5);
+    c.plume.scale.set(1, 1, PLUME);
+    c.enveloppe.material.opacity = 0.3;
+    c.plume.material.opacity = 0.55;
+    c.apercu.scale.setScalar(c.rayon);
+    c.apercu.material.opacity = 0;
+  }
+
   _avanceCharges(dt, game) {
     for (const c of this.charges) {
       if (!c.active) continue;
       c.z -= c.v * dt;
-      c.fusee -= dt;
+      c.vol -= dt;
       c.groupe.position.set(c.x, 0, c.z);
 
-      // La traînée. C'est elle qui fait qu'on VOIT la charge monter : un point qui
-      // se déplace lentement sur un ciel étoilé passe inaperçu, un sillage non.
-      // Une étincelle tous les neuf centièmes et pas une par frame — à quinze
-      // charges en vol, la seconde formule à elle seule viderait le pool de
-      // particules du jeu entier.
-      c.trace -= dt;
-      if (c.trace <= 0) {
-        c.trace = 0.09;
-        game.fx.trail(c.groupe.position, c.fusee <= AMORCE ? CHAUDE : INERTE);
-      }
-
-      if (c.fusee <= AMORCE) {
-        // L'amorçage. La forge s'ouvre : le noyau vire du cyan à l'incandescent, il
-        // bat de plus en plus vite, et le cercle du souffle apparaît au sol. Trois
-        // signaux pour une seule information, parce qu'à ce moment-là le joueur
-        // regarde ailleurs.
-        const k = 1 - Math.max(0, c.fusee) / AMORCE;
-        const bat = 0.5 + 0.5 * Math.sin((AMORCE - c.fusee) * (16 + 70 * k));
-        c.noyau.material.color.lerpColors(C_INERTE, C_CHAUDE, k);
-        c.enveloppe.material.color.lerpColors(C_INERTE, C_CHAUDE, k);
-        c.noyau.scale.setScalar(1 + k * (0.4 + 0.6 * bat));
-        c.enveloppe.scale.setScalar(1 + k * (0.8 + 1.2 * bat));
-        c.enveloppe.material.opacity = 0.3 + 0.45 * k;
-        c.apercu.material.opacity = 0.1 * k + 0.3 * k * bat;
-      } else {
-        // En vol, elle ne fait que respirer. Ce calme n'est pas de l'économie : il
-        // est le contraste sans lequel l'amorçage ne se remarquerait pas.
-        // La phase vient de l'altitude et non d'une horloge — deux charges posées à
-        // la suite battent donc en décalé, et l'état à sérialiser reste le même.
-        const respire = 1 + Math.sin(c.z * 1.6) * 0.09;
-        c.noyau.scale.setScalar(respire);
-        c.enveloppe.scale.setScalar(respire);
-        c.enveloppe.material.opacity = 0.3;
-        c.apercu.material.opacity = 0;
-      }
-
-      // La mèche brûlée, ou le plafond de l'arène : dans les deux cas ça éclate.
-      // Une charge qui sortirait du monde sans exploser serait la seule chose du
-      // jeu à promettre quelque chose sans le tenir.
-      if (c.fusee <= 0 || c.z <= ARENA.bulletCullZMin) {
-        this._detonne(c, game);
-        continue;
-      }
-
+      // UNE SEULE traversée de la liste pour les deux questions qui se posent à
+      // chaque frame : est-ce que je touche, et à quelle distance est le plus
+      // proche ? Les séparer doublerait le coût du seul endroit de l'arme qui soit
+      // en O(missiles × ennemis).
+      const approche = c.v * AMORCE;
+      let cible = null;
+      let jeu = Infinity;
       for (const e of game.enemies.list) {
         if (!e.alive) continue;
         const rr = e.def.radius + CONTACT;
-        if (e.group.position.distanceToSquared(c.groupe.position) < rr * rr) {
-          this._detonne(c, game);
+        const d2 = e.group.position.distanceToSquared(c.groupe.position);
+        if (d2 < rr * rr) {
+          cible = e;
           break;
         }
+        // La racine carrée ne se paie que pour ce qui est déjà dans la fenêtre
+        // d'annonce : tout le reste ne sert qu'à être écarté.
+        const limite = rr + approche;
+        if (d2 < limite * limite) jeu = Math.min(jeu, Math.sqrt(d2) - rr);
       }
+
+      // LE CONTACT L'EMPORTE SUR TOUT, y compris sur la frame où le vol s'achève :
+      // un missile qui touche à bout de course a touché.
+      if (cible) {
+        this._detonne(c, game, cible);
+        continue;
+      }
+
+      // Combien il est armé (0 : rien en vue ; 1 : au contact) et combien il lui
+      // reste de moteur (1 : il pousse ; 0 : il vient de s'éteindre).
+      const chaud = jeu === Infinity ? 0 : 1 - Math.max(0, jeu) / approche;
+      const reste = Math.min(1, Math.max(0, c.vol) / EXTINCTION);
+
+      // Le battement prend sa phase dans l'ALTITUDE et non dans une horloge : deux
+      // missiles posés à la suite battent donc en décalé, et l'état à sérialiser
+      // reste le même. Il s'accélère avec l'armement — de deux battements par
+      // seconde en transit à une dizaine juste avant l'impact.
+      const bat = 0.5 + 0.5 * Math.sin(c.z * (2.2 + 7 * chaud));
+
+      c.noyau.material.color.lerpColors(C_INERTE, C_CHAUDE, chaud);
+      c.noyau.material.color.lerp(C_ETEINT, 1 - reste);
+      c.enveloppe.material.color.copy(c.noyau.material.color);
+      c.plume.material.color.copy(c.noyau.material.color);
+
+      // Le corps est ALLONGÉ dans l'axe du vol : c'est ce qui le distingue d'une
+      // bombe posée. Il gonfle en s'armant, il ne s'étire pas davantage — un
+      // missile qui s'allonge à l'approche donnerait l'impression d'accélérer alors
+      // qu'il garde sa vitesse du début à la fin.
+      const gonfle = 1 + chaud * (0.35 + 0.5 * bat);
+      c.noyau.scale.set(0.85 * gonfle, 0.85 * gonfle, 1.9 * gonfle);
+      c.enveloppe.scale.set(0.9 * gonfle, 0.9 * gonfle, 1.5 * gonfle);
+      c.enveloppe.material.opacity = (0.3 + 0.45 * chaud) * reste;
+
+      // La plume vacille. `Math.random` et pas `ecart` : ça n'a aucun effet sur qui
+      // meurt, et le générateur semé ne se dépense que pour ce qui décide.
+      const vacille = 0.78 + Math.random() * 0.22;
+      c.plume.scale.set(1, 1, PLUME * (0.9 + 0.25 * chaud) * reste * vacille);
+      c.plume.material.opacity = (0.55 + 0.3 * chaud) * reste * vacille;
+      c.apercu.material.opacity = (0.12 + 0.3 * bat) * chaud * reste;
+
+      // Les étincelles, semées DERRIÈRE la plume : au bout du feu, là où le sillage
+      // se détache. Semées sur le nez, elles remonteraient avec le missile et l'on
+      // ne verrait qu'une tache plus grosse au lieu d'un chemin.
+      c.trace -= dt;
+      if (c.trace <= 0) {
+        c.trace = PAS_TRACE;
+        this._queue.set(c.x, 0, c.z + PLUME * reste);
+        game.fx.burst(this._queue, reste < 1 ? ETEINT : chaud > 0.35 ? CHAUDE : INERTE, {
+          count: 1,
+          speed: 1.1,
+          life: 0.42,
+          spread: 0.2,
+        });
+      }
+
+      // La fin du vol, ou le plafond de l'arène. Le second n'arrive qu'aux missiles
+      // les plus rapides tirés du fond de l'aire, mais il doit exister : rien ne
+      // doit pouvoir sortir du monde en restant actif.
+      if (c.vol <= 0 || c.z <= ARENA.bulletCullZMin) this._eteint(c, game);
     }
+  }
+
+  // LE TIR RATÉ. Il n'explose pas, il n'ouvre pas de souffle, il ne fait pas de
+  // bruit — et ce silence est l'information : le grondement de la détonation ne
+  // veut plus dire que « ça a touché ». On entend partir, on n'entend pas arriver,
+  // et l'on sait qu'on a tiré trop tôt.
+  //
+  // Ce qu'on voit, en revanche, ne peut pas être rien : une charge qui s'évanouit
+  // sans laisser de trace se lit comme un bug, pas comme un échec. Elle a donc déjà
+  // refroidi à vue pendant une demi-seconde (voir EXTINCTION), et elle laisse une
+  // bouffée froide à l'endroit où le moteur a lâché.
+  _eteint(c, game) {
+    c.active = false;
+    c.groupe.visible = false;
+    const pos = c.groupe.position;
+    game.fx.burst(pos, ETEINT, { count: 12, speed: 2.6, life: 0.6, spread: 0.55 });
+    game.fx.burst(pos, INERTE, { count: 5, speed: 1.1, life: 0.45, spread: 0.25 });
   }
 
   // Le protocole du jeu, à la lettre : `damage` renvoie true quand l'ennemi meurt,
@@ -473,10 +634,27 @@ export class ArmeVulcain {
   // 'charge' et pas 'cannon' — délibérément : la prime au plongeur abattu au canon
   // ne doit pas s'ajouter à la SALVE, sinon la coque toucherait deux fois pour le
   // même geste et son économie ne serait plus la sienne.
-  _detonne(c, game) {
+  _detonne(c, game, cible) {
     c.active = false;
     c.groupe.visible = false;
-    const pos = c.groupe.position;
+
+    // LE SOUFFLE NAÎT SUR LA COQUE TOUCHÉE, PAS SUR LE MISSILE. Ce n'est pas un
+    // détail d'un demi-mètre : le contact a lieu à `rayon de la cible + 0,45` de
+    // son centre, et sur l'amiral cela fait 5,65 — au-delà des 3,2 du souffle.
+    // Centré sur le missile, le souffle ne contenait donc PAS l'amiral qu'il venait
+    // de percuter. Ce n'est pas une hypothèse : une vague 4 pilotée sans module
+    // donnait vingt et une détonations, dont neuf au contact de l'amiral, et ZÉRO
+    // dégât — il finissait à 102 PV sur 102. Le défaut ne se voyait qu'en dessous du
+    // niveau 3 de `missiles`, au-delà duquel le rayon (7,87) redevient plus grand
+    // que la distance de contact et rattrape tout ; c'est-à-dire qu'il frappait
+    // exactement la moitié de partie où l'on n'a encore rien acheté.
+    //
+    // Centré sur la cible, ce qui est touché meurt par construction, et la sphère
+    // qu'on dessine est vraiment celle qui tue.
+    //
+    // On copie AVANT `damage` : un ennemi qui meurt est retiré de la scène dans la
+    // foulée, et le souffle ne doit pas dépendre de ce qu'il devient ensuite.
+    const pos = this._impact.copy(cible.group.position);
     const r2 = c.rayon * c.rayon;
 
     this._pris.length = 0;
@@ -505,13 +683,25 @@ export class ArmeVulcain {
 
     this._allumeSouffle(pos, c.rayon, poids);
     game.audio?.detonation?.(poids, pos.x);
+    // TROIS COUCHES, et chacune répond à une question différente. Le FRONT dit
+    // jusqu'où ça a porté, et il part assez vite pour atteindre le bord de la
+    // sphère avant de s'éteindre. Le CŒUR donne le coup — court, blanc, dense. Les
+    // ESCARBILLES restent une seconde entière et retombent : ce sont elles qui font
+    // la différence entre une explosion et un flash, et c'est la couche qu'on
+    // remarque en dernier alors qu'elle est celle qui reste à l'œil.
     game.fx.burst(pos, SOUFFLE, {
-      count: 14 + poids * 4,
-      speed: c.rayon * 2.4,
-      life: 0.4,
-      spread: c.rayon * 0.35,
+      count: 30 + poids * 5,
+      speed: c.rayon * 2.6,
+      life: 0.45,
+      spread: c.rayon * 0.4,
     });
-    game.fx.burst(pos, COEUR, { count: 8, speed: c.rayon * 1.2, life: 0.3 });
+    game.fx.burst(pos, COEUR, { count: 16, speed: c.rayon * 1.5, life: 0.26, spread: 0.5 });
+    game.fx.burst(pos, CHAUDE, {
+      count: 18,
+      speed: c.rayon * 0.75,
+      life: 1.0,
+      spread: c.rayon * 0.55,
+    });
     game.fx.addShake(Math.min(0.7, 0.16 + poids * 0.09));
     // L'onde du jeu par-dessus la nôtre, mais seulement quand le coup a porté : le
     // pool d'anneaux n'a que six places et une salve ratée n'a rien à annoncer.
@@ -591,21 +781,26 @@ export class ArmeVulcain {
     this.ventre.visible = false;
   }
 
-  // L'état de la forge, en nombres. Les charges en vol EN FONT PARTIE : une vague
-  // peut commencer alors que trois mèches brûlent encore, et un replay qui
-  // repartirait d'un ciel vide raconterait déjà une autre partie. Chacune emporte
-  // sa position, sa vitesse, sa minuterie et son rayon — ce dernier parce qu'il est
-  // figé à la pose : une charge lâchée avant un module `missiles` garde le souffle
-  // pour lequel elle a été forgée.
+  // L'état de la forge, en nombres. Les missiles en vol EN FONT PARTIE : une vague
+  // peut commencer alors que trois d'entre eux montent encore, et un rejeu qui
+  // repartirait d'un ciel vide raconterait déjà une autre partie. Chacun emporte sa
+  // position, sa vitesse (tirée au lancement, donc irrécupérable autrement), son
+  // vol restant et son rayon — ce dernier parce qu'il est figé à la pose : un
+  // missile lâché avant un module `missiles` garde le souffle pour lequel il a été
+  // forgé.
   //
-  // Format : [réserve, minuterie de forge, délai de salve, nombre de charges] puis
-  // cinq nombres par charge.
+  // Format : [réserve, minuterie de forge, délai de salve, nombre de missiles] puis
+  // cinq nombres par missile. Ce qui n'est pas là — l'armement, l'extinction, la
+  // minuterie d'étincelles — se recalcule à la frame suivante à partir de ce qui y
+  // est : c'est la raison pour laquelle l'annonce se déduit de la DISTANCE aux
+  // ennemis et le battement de l'ALTITUDE, et non d'un compteur qu'il faudrait
+  // sérialiser.
   instantane() {
     const etat = [this.reserve, this.tProduction, this.tSalve, 0];
     let n = 0;
     for (const c of this.charges) {
       if (!c.active) continue;
-      etat.push(c.x, c.z, c.v, c.fusee, c.rayon);
+      etat.push(c.x, c.z, c.v, c.vol, c.rayon);
       n++;
     }
     etat[3] = n;
@@ -627,15 +822,9 @@ export class ArmeVulcain {
       c.x = etat[k];
       c.z = etat[k + 1];
       c.v = etat[k + 2];
-      c.fusee = etat[k + 3];
+      c.vol = etat[k + 3];
       c.rayon = etat[k + 4];
-      c.trace = 0;
-      c.groupe.position.set(c.x, 0, c.z);
-      c.groupe.visible = true;
-      c.apercu.scale.setScalar(c.rayon);
-      c.apercu.material.opacity = 0;
-      c.noyau.material.color.copy(C_INERTE);
-      c.enveloppe.material.color.copy(C_INERTE);
+      this._reposeVisuel(c);
     }
   }
 }
