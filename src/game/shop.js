@@ -10,9 +10,15 @@
 // à mille crédits quand on en a soixante ne donne pas un objectif, ça donne une
 // carte morte.
 //
-// Et une relance payante, dont le prix monte à chaque usage dans la même visite :
-// c'est ce qui empêche de rouler jusqu'à obtenir l'objet voulu. On peut forcer le
+// Et une relance payante, dont le prix monte à chaque usage DE LA PARTIE : c'est
+// ce qui empêche de rouler jusqu'à obtenir l'objet voulu. On peut forcer le
 // destin une fois, deux à la rigueur, jamais indéfiniment.
+//
+// Il montait d'abord par visite, et repartait de vingt crédits à chaque niveau.
+// Sur le papier c'était « une pression par visite » ; en jeu, ça ne pressait
+// rien du tout — il suffisait d'attendre le hangar suivant pour relancer trois
+// fois de plus au prix de départ. La montée ne coûtait donc jamais assez pour
+// faire hésiter, ce qui était pourtant sa seule raison d'être.
 
 import { UPGRADES, priceOf } from './upgrades.js';
 import { alea } from '../core/rng.js';
@@ -90,9 +96,14 @@ export class Shop {
     return Math.round(brut / 5) * 5;
   }
 
+  // Le compteur de relances ne se remet à zéro qu'au début d'une PARTIE, jamais
+  // à l'ouverture du hangar : c'est ce qui donne son poids au renchérissement.
+  reinitialise() {
+    this.rerolls = 0;
+  }
+
   open(state) {
     this.close();
-    this.rerolls = 0;
     this.offers = this._tirer(state);
     this.panel = document.createElement('div');
     this.panel.className = 'screen shop';

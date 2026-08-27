@@ -101,6 +101,9 @@ const CADENCE_SAT = 1.05; // éclats/s et par satellite, à cadence de tir nue
 const ECLAT_VITESSE = 30;
 const ECLAT_PORTEE = 1.4; // secondes
 const ECLAT_DEGATS = 1; // franc et ponctuel, exactement comme une balle
+// Les orbes ne tirent plus : voir `_satellites`. Le drapeau reste pour que la
+// décision se lise, et se défasse d'un mot si elle était mauvaise.
+const ORBES_TIRENT = false;
 const ECLAT_RAYON = 0.32;
 
 // L'arc dans lequel un satellite crache. On rabat le cercle de l'orbite sur
@@ -112,7 +115,24 @@ const ARC_MAX = 1.32; // ~76°
 
 // ---- Rendu ----
 
-const ANNEAUX = 5; // ondes qui remontent le rayon : elles lui donnent son SENS
+// LA SPIRALE. Deux hélices enroulées autour du faisceau, qui remontent avec lui.
+//
+// C'étaient des anneaux : cinq ondes qui glissaient le long du trait. Ça donnait
+// bien un SENS au rayon, mais ça lui donnait aussi l'air d'un tuyau à travers
+// lequel passent des rondelles — la lecture était plate, et le rayon n'avait pas
+// l'air de tourner sur lui-même. Deux hélices, elles, disent d'un coup d'œil
+// qu'une énergie s'enroule et se comprime, et c'est exactement ce qu'on veut voir
+// quand la puissance monte.
+const HELICE_SEGMENTS = 26; // par brin
+const HELICE_BRINS = 2;
+// Combien de tours complets l'hélice fait sur la longueur du rayon. Plus la
+// charge monte, plus elle se resserre : c'est le seul indice qui dise « ça
+// comprime » sans afficher de chiffre.
+const HELICE_TOURS = 2.2;
+const HELICE_TOURS_CHARGE = 2.6;
+
+// Les éclats qui fusent latéralement, arrachés au faisceau.
+const FUITES = 26;
 const IMPACTS = 6; // points de contact affichés simultanément
 const ECLATS_POOL = 40;
 
@@ -178,17 +198,40 @@ export class ArmeHelios {
     // depuis une coque qu'on ne voit plus.
     this.couture = traitNu();
 
-    // Les ondes qui remontent le trait. Le tore repose dans le plan XY, donc son
-    // axe est déjà Z : aucune rotation à poser, il regarde la cible d'emblée.
-    const geoAnneau = new THREE.TorusGeometry(1, 0.075, 6, 18);
-    this.anneaux = [];
-    for (let i = 0; i < ANNEAUX; i++) {
-      const m = new THREE.Mesh(geoAnneau, this.matAnneau);
+    // LES DEUX BRINS DE L'HÉLICE.
+    //
+    // Un brin est une file de petits octaèdres posés le long d'une hélice. On
+    // pourrait croire qu'un tube courbe ferait mieux — c'est ce que j'ai essayé
+    // d'abord : il faut alors reconstruire sa géométrie à chaque image, puisque
+    // le pas de l'hélice change avec la charge, et c'est exactement ce que ce
+    // projet s'interdit. Des perles déplacées coûtent une écriture de matrice,
+    // et à cette vitesse l'œil les lit comme un trait continu de toute façon.
+    const geoPerle = new THREE.OctahedronGeometry(1, 0);
+    this.helice = [];
+    for (let b = 0; b < HELICE_BRINS; b++) {
+      const brin = [];
+      for (let i = 0; i < HELICE_SEGMENTS; i++) {
+        const m = new THREE.Mesh(geoPerle, this.matAnneau);
+        m.visible = false;
+        m.frustumCulled = false;
+        scene.add(m);
+        brin.push(m);
+      }
+      this.helice.push(brin);
+    }
+
+    // Les fuites : ce que le faisceau perd sur les côtés. Elles ne servent à rien
+    // qu'à dire qu'il ne CONTIENT pas tout ce qu'il transporte.
+    const geoFuite = new THREE.TetrahedronGeometry(0.09, 0);
+    this.fuites = [];
+    for (let i = 0; i < FUITES; i++) {
+      const m = new THREE.Mesh(geoFuite, this.matAnneau);
       m.visible = false;
       m.frustumCulled = false;
       scene.add(m);
-      this.anneaux.push(m);
+      this.fuites.push({ mesh: m, vie: 0, duree: 0, vx: 0, vy: 0, vz: 0 });
     }
+    this.tFuite = 0;
 
     // La bouche de l'émetteur : un noyau facetté et une couronne qui s'ouvre avec
     // la charge. C'est le seul endroit où la montée en puissance se lit sans avoir
@@ -473,6 +516,21 @@ export class ArmeHelios {
       g.rotation.x = this.horloge * 1.3;
     }
 
+    // LES ORBES NE TIRENT PLUS.
+    //
+    // Ils crachaient des éclats vers les côtés, pour couvrir ce que le rayon ne
+    // couvre pas. C'était une bonne intention et une mauvaise idée : la fiche de
+    // la coque dit « elle ne sait pas faire deux choses à la fois », et on lui
+    // avait donné une seconde arme. Le joueur n'avait plus à choisir entre tenir
+    // sa colonne et se défendre sur les flancs — la question même que la coque
+    // pose. Ils restent en orbite, ils brillent, ils annoncent la puissance : ils
+    // ne tuent plus rien.
+    //
+    // Le code de tir est conservé juste en dessous, inerte, parce qu'il porte le
+    // seul endroit du fichier qui explique comment répartir une cadence entre
+    // plusieurs sources ; le supprimer perdrait ça pour rien.
+    if (!ORBES_TIRENT) return;
+
     // Un seul minuteur, et les orbes crachent chacun leur tour : la cadence totale
     // reste régulière quand leur nombre change, là où un minuteur par satellite
     // ferait tirer quatre orbes ensemble puis plus rien.
@@ -550,7 +608,11 @@ export class ArmeHelios {
       this.trait.groupe.visible = false;
       this.couture.groupe.visible = false;
       this.nez.visible = false;
-      for (const a of this.anneaux) a.visible = false;
+      for (const brin of this.helice) for (const x of brin) x.visible = false;
+      for (const f of this.fuites) {
+        f.vie = 0;
+        f.mesh.visible = false;
+      }
       for (const i of this.impacts) i.visible = false;
       return;
     }
@@ -569,7 +631,12 @@ export class ArmeHelios {
     // La pulsation s'accélère avec la charge : c'est un cœur qui bat plus vite, et
     // l'œil le comprend sans qu'aucun chiffre soit affiché.
     const bat = Math.sin(this.horloge * (26 + charge * 34));
-    const largeur = demi * 2 * (1 + charge * 0.35);
+    // LE RAYON PART FIN. Il naissait déjà à sa pleine largeur, et ne gagnait que
+    // 35 % en montant en puissance : on ne voyait donc rien grossir, alors que
+    // c'est précisément ce que la coque promet. À froid il ne fait plus qu'un
+    // tiers de sa section, et il enfle jusqu'à la dépasser d'un tiers — soit un
+    // rapport de quatre entre les deux extrêmes, qui se voit immédiatement.
+    const largeur = demi * 2 * (0.32 + charge * 1.02);
     const longueur = nezZ - PORTEE_Z;
     const milieu = (nezZ + PORTEE_Z) / 2;
 
@@ -587,22 +654,71 @@ export class ArmeHelios {
       this.couture.groupe.visible = false;
     }
 
-    // Les ondes qui remontent le trait. Réparties à intervalle égal et remises en
-    // tête par modulo : aucune n'est créée ni détruite, elles tournent en rond.
-    // Elles s'ÉLARGISSENT en s'éloignant, faute de quoi le rayon a l'air fait de
-    // perles régulières au lieu d'être un flux qui s'échappe.
-    const vitesse = 26 + charge * 34;
-    const pas = longueur / ANNEAUX;
-    const rayon = demi * 0.85 + 0.35 + charge * 0.35;
-    for (let i = 0; i < ANNEAUX; i++) {
-      const m = this.anneaux[i];
-      const parcours = (this.horloge * vitesse + i * pas) % longueur;
-      const k = 1 + (parcours / longueur) * 0.5;
-      m.visible = true;
-      m.position.set(p.x, 0, nezZ - parcours);
-      m.scale.set(rayon * k, rayon * k, k);
+    // L'HÉLICE. Deux brins qui s'enroulent autour du faisceau et remontent avec
+    // lui. Ils se RESSERRENT quand la charge monte — le pas raccourcit et le
+    // rayon d'enroulement diminue — pendant que le faisceau, lui, grossit : les
+    // deux mouvements contraires donnent l'impression que quelque chose est
+    // comprimé là-dedans, et c'est tout ce qu'on cherche à faire comprendre.
+    const vitesse = 24 + charge * 30;
+    const tours = HELICE_TOURS + charge * HELICE_TOURS_CHARGE;
+    const enroule = (largeur * 0.5 + 0.34) * (1.25 - charge * 0.3);
+    const avance = (this.horloge * vitesse) % longueur;
+    for (let b = 0; b < HELICE_BRINS; b++) {
+      const brin = this.helice[b];
+      const dephasage = (b / HELICE_BRINS) * Math.PI * 2;
+      for (let i = 0; i < HELICE_SEGMENTS; i++) {
+        const m = brin[i];
+        // Chacune avance le long du rayon et boucle : rien n'est créé ni détruit.
+        const t = ((i / HELICE_SEGMENTS) * longueur + avance) % longueur;
+        const u = t / longueur;
+        const angle = u * tours * Math.PI * 2 + dephasage + this.horloge * 1.5;
+        // L'enroulement s'ouvre en s'éloignant : le faisceau s'échappe, il ne
+        // reste pas cylindrique jusqu'au bout.
+        const r = enroule * (1 + u * 0.55);
+        m.visible = true;
+        m.position.set(p.x + Math.cos(angle) * r, Math.sin(angle) * r * 0.42, nezZ - t);
+        // Les perles maigrissent en s'éloignant : la spirale s'efface au lieu de
+        // se couper net à la portée du rayon.
+        const taille = (0.1 + charge * 0.09) * (1 - u * 0.55);
+        m.scale.setScalar(Math.max(0.012, taille));
+      }
     }
-    this.matAnneau.opacity = 0.18 + charge * 0.26 + bat * 0.05;
+    this.matAnneau.opacity = 0.2 + charge * 0.3 + bat * 0.05;
+
+    // LES FUITES. Le faisceau perd de la matière sur les côtés, d'autant plus
+    // qu'il est chargé. Elles partent perpendiculairement et s'éteignent vite :
+    // ce sont des étincelles, pas un nuage — un nuage masquerait les tirs qui
+    // arrivent, ce qui est la seule chose interdite ici.
+    this.tFuite -= dt;
+    if (this.tFuite <= 0) {
+      this.tFuite = 0.055 - charge * 0.03;
+      const libre = this.fuites.find((f) => f.vie <= 0);
+      if (libre) {
+        const u = 0.08 + Math.abs(Math.sin(this.horloge * 7.3)) * 0.55;
+        const cote = Math.sin(this.horloge * 11.7) > 0 ? 1 : -1;
+        libre.mesh.position.set(p.x + cote * largeur * 0.4, 0, nezZ - u * longueur);
+        libre.vx = cote * (2.6 + charge * 4.4);
+        libre.vy = (Math.sin(this.horloge * 5.1) * 0.5 + 0.4) * 1.6;
+        libre.vz = -3 - charge * 5;
+        libre.duree = 0.26 + charge * 0.14;
+        libre.vie = libre.duree;
+      }
+    }
+    for (const f of this.fuites) {
+      if (f.vie <= 0) {
+        f.mesh.visible = false;
+        continue;
+      }
+      f.vie -= dt;
+      f.mesh.visible = f.vie > 0;
+      f.mesh.position.x += f.vx * dt;
+      f.mesh.position.y += f.vy * dt;
+      f.mesh.position.z += f.vz * dt;
+      const k = Math.max(0, f.vie / f.duree);
+      f.mesh.scale.setScalar(0.4 + k * 0.9);
+      f.mesh.rotation.x += dt * 9;
+      f.mesh.rotation.z += dt * 7;
+    }
 
     // La bouche de l'émetteur.
     this.nez.visible = true;
@@ -711,7 +827,11 @@ export class ArmeHelios {
     this.trait.groupe.visible = false;
     this.couture.groupe.visible = false;
     this.nez.visible = false;
-    for (const a of this.anneaux) a.visible = false;
+    for (const brin of this.helice) for (const x of brin) x.visible = false;
+    for (const f of this.fuites) {
+      f.vie = 0;
+      f.mesh.visible = false;
+    }
     for (const i of this.impacts) i.visible = false;
     for (const s of this.satellites) s.visible = false;
     for (const e of this.eclats) {
