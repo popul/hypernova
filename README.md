@@ -159,30 +159,54 @@ panthéon local — c'est le comportement voulu, pas une panne.
 
 ```
 src/
-├── main.js            # bootstrap, boucle de rendu, resize
-├── style.css          # HUD, boutique, écrans, effet CRT
+├── main.js              # bootstrap, boucle de rendu, caméra, resize
+├── style.css            # HUD, boutique, écrans, effet CRT
 ├── core/
-│   ├── input.js       # clavier + souris, states pressed/held
-│   └── audio.js       # SFX synthétisés + séquenceur musical WebAudio
+│   ├── input.js         # clavier, souris, tactile
+│   ├── audio.js         # bruitages synthétisés + séquenceur musical WebAudio
+│   ├── themes.js        # les thèmes musicaux et leur orchestration
+│   └── rng.js           # générateur à graine — la même partie se rejoue
+├── admin/               # la régie : console d'administration (page à part)
 └── game/
-    ├── game.js        # machine à états (titre → vague → boutique → game over)
-    ├── constants.js   # tuning gameplay centralisé (équilibrage)
-    ├── ships.js       # géométries low-poly des vaisseaux (générées en code)
-    ├── player.js      # déplacement, tir, bouclier, invulnérabilité
-    ├── enemies.js     # formation, entrées Bézier, IA de plongée, boss
-    ├── waves.js       # composition et difficulté des vagues
-    ├── bullets.js     # pools de projectiles joueur/ennemis + missiles guidés
-    ├── pickups.js     # crédits droppés, aimant, collecte
-    ├── upgrades.js    # définitions/prix/effets des améliorations
-    ├── shop.js        # UI boutique (DOM)
-    ├── hud.js         # score, crédits, combo, vies, annonces de vague
-    ├── fx.js          # particules poolées, explosions, screenshake, hit-stop
-    └── starfield.js   # fond étoilé parallaxe + nébuleuse
+    ├── game.js          # machine à états (titre → vague → boutique → game over)
+    ├── constants.js     # tuning gameplay centralisé (équilibrage)
+    ├── ships.js         # géométries low-poly, générées en code
+    ├── player.js        # déplacement, pirouette, bouclier, frôlement
+    ├── enemies.js       # formation, entrées Bézier, IA de plongée, boss
+    ├── waves.js         # composition et difficulté des vagues
+    ├── bullets.js       # pools de projectiles + missiles guidés
+    ├── armes/           # HÉLIOS (rayon) et VULCAIN (missiles) — ORION tire seul
+    ├── aura.js          # les gerbes d'énergie de la furie
+    ├── soutien.js       # l'appel aux deux autres coques, en pleine furie
+    ├── asteroide.js     # le colosse annoncé qui balaie le champ de débris
+    ├── pickups.js       # pièces d'or, aimant, collecte
+    ├── upgrades.js      # définitions, prix et effets des modules
+    ├── shop.js          # la boutique (DOM)
+    ├── hud.js           # score, crédits, combo, vies, annonces
+    ├── fx.js            # particules poolées, explosions, screenshake, hit-stop
+    ├── demo-arme.js     # l'arme vraie qui tire sur l'écran de choix de coque
+    ├── pilote-auto.js   # le pilote fantôme qui joue derrière le menu
+    ├── director.js      # le rythme d'une session, vague après vague
+    ├── characters.js    # les visages et leurs répliques
+    ├── cinematic.js     # l'introduction, avec cine/ pour ses accessoires
+    ├── jump.js          # le saut entre deux secteurs
+    ├── escale-arrivee.js # l'arrivée dans une escale
+    ├── routes.js        # les campagnes hebdomadaires
+    ├── rejeu/           # enregistrement et relecture déterministes
+    ├── space/           # secteurs, décors, escales (anneaux, champ, surface)
+    ├── pilots.js        # le pilote courant, côté client
+    ├── reseau.js        # les appels au panthéon
+    └── parties.js       # la file d'envoi des parties hors ligne
+
+server/                  # le panthéon : Node + node:sqlite, zéro dépendance npm
+├── index.js             # les routes publiques
+├── admin.js             # les routes d'administration, derrière leur secret
+└── base.js              # le schéma et les requêtes
 ```
 
 Principes : pooling systématique (projectiles, particules, pickups) — aucune allocation dans la
-boucle chaude ; tuning centralisé dans `constants.js` ; le DOM ne sert qu'aux menus/HUD, tout le
-gameplay est dans la scène Three.js (bloom via `UnrealBloomPass`).
+boucle chaude ; tuning centralisé dans `constants.js` ; le DOM ne sert qu'aux menus et au HUD,
+tout le gameplay est dans la scène Three.js (bloom via `UnrealBloomPass`).
 
 ## Qualité
 
