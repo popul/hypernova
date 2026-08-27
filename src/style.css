@@ -3571,23 +3571,25 @@ body.touch .btn-call-touch {
   opacity: 0.9;
 }
 
-/* L'écran d'accueil se met en veille : le menu s'efface pour laisser voir la
-   partie qui tourne derrière. Il ne DISPARAÎT pas — un menu absent force à
-   deviner où cliquer pour le rappeler, ce qui agace dès la deuxième fois. */
+/* L'écran d'accueil se met en veille : tout le texte s'efface pour laisser la
+   partie occuper l'écran entière.
+   J'avais d'abord laissé le menu à un quart d'opacité, en me disant qu'un menu
+   absent forcerait à deviner où cliquer. C'était un faux problème : le moindre
+   geste le rappelle, et un texte fantôme posé par-dessus une partie qui bouge est
+   pire que pas de texte du tout — on le lit quand même, et il salit l'image qu'on
+   est venu regarder. */
 .screen.title.en-veille .title-menu,
 .screen.title.en-veille .title-controls,
 .screen.title.en-veille .title-lb,
 .screen.title.en-veille .pilot-badge,
-.screen.title.en-veille .btn-ghost {
-  opacity: 0.22;
-  transition: opacity 1.6s ease-out;
-}
-
-/* Le logo reste, plus discret : c'est la seule chose qui dit ce qu'on regarde. */
+.screen.title.en-veille .btn-ghost,
 .screen.title.en-veille .title-logo,
 .screen.title.en-veille .title-tag {
-  opacity: 0.55;
+  opacity: 0;
   transition: opacity 1.6s ease-out;
+  /* On coupe aussi les clics : un bouton invisible qui répond quand même est un
+     piège, surtout au doigt. Le premier geste le rend au joueur. */
+  pointer-events: none;
 }
 
 .screen.title .title-menu,
