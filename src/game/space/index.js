@@ -228,6 +228,28 @@ export class Space {
 
   // 1, 2, 3 — l'acte en cours du combat de boss. 0 remet le secteur exactement tel
   // que le biome l'a laissé : le combat est fini, on respire.
+  // LE SECTEUR S'EFFACE POUR LA CINÉMATIQUE.
+  //
+  // L'introduction compose son propre ciel : ses étoiles, sa planète, son soleil,
+  // son épave. Y superposer le secteur donne deux fois les mêmes choses, et
+  // surtout des étoiles taillées pour la caméra du JEU — postées à vingt unités,
+  // 0,78 unité de côté, elles sont justes. Une caméra de cinéma qui traverse le
+  // champ passe à deux unités des mêmes points, et ils deviennent des blocs
+  // crème gros comme des débris. C'est ce qu'on a pris pour des débris.
+  //
+  // On ne détruit rien : la partie qui suit reprend exactement le décor qu'elle
+  // avait, et ce n'est qu'une écriture de booléen sur une poignée d'objets.
+  setVisible(v) {
+    for (const l of this.layers) {
+      l.points.visible = v;
+      l.streaks.visible = v && this.warp > 0;
+    }
+    for (const n of this.nebulas) n.sprite.visible = v;
+    for (const l of this.landmarks) l.group.visible = v;
+    this.sun.group.visible = v;
+    this._cache = !v;
+  }
+
   setBossPhase(phase) {
     const p = Math.min(3, Math.max(0, Math.round(phase) || 0));
     if (this.phaseTo === p) return;
@@ -436,6 +458,10 @@ export class Space {
   }
 
   update(dt, speedScale = 1) {
+    // Caché pour une cinématique : rien à faire avancer, et surtout rien à
+    // rallumer. `update` repose la visibilité des traînées à chaque image, donc
+    // sans cette sortie le champ d'étoiles réapparaîtrait dans la frame suivante.
+    if (this._cache) return;
     // Fondu de secteur.
     let repeindre = false;
     if (this.fadeT < 1) {

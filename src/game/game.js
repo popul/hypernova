@@ -401,15 +401,20 @@ export class Game {
   // au titre — sinon rejouer l'intro lancerait une partie non désirée.
   playCinematic({ handoff = false } = {}) {
     this.quitteVitrine();
-    // LA CINÉMATIQUE NE POSE PAS SON DÉCOR, ELLE HÉRITE DE CELUI QUI EST LÀ.
+    // LA CINÉMATIQUE COMPOSE TOUT CE QU'ON VOIT — et le secteur passait dessus.
     //
-    // Elle fabrique ses propres accessoires — l'épave, ANDEL, la planète — mais
-    // le SECTEUR autour vient de `stage.space`, resté sur ce que la scène
-    // précédente affichait. Au démarrage du jeu c'est l'orbite terrestre, donc
-    // personne ne l'avait jamais vu ; depuis « Histoire », c'est ce que la
-    // vitrine était en train de montrer, et l'introduction se jouait sur un sol
-    // martien ou dans les anneaux de Saturne. On le pose donc explicitement.
-    this.stage?.space?.setBiome(biomeForWave(1, false), { instant: true });
+    // Elle fabrique ses propres étoiles, sa planète, son soleil, son épave. Mais
+    // `stage.space` continuait d'afficher le SIEN par-dessus, resté sur ce que la
+    // scène précédente montrait : au démarrage du jeu c'est l'orbite terrestre,
+    // donc personne ne l'avait jamais vu ; depuis « Histoire », c'était le sol
+    // martien de la vitrine.
+    //
+    // Poser le bon secteur ne suffisait pas — et c'est la deuxième leçon : ses
+    // étoiles sont taillées pour la caméra du JEU. À vingt unités, 0,78 unité de
+    // côté, elles sont justes ; une caméra de cinéma qui traverse le champ passe
+    // à deux unités des mêmes points et les transforme en blocs crème gros comme
+    // des débris. On efface donc le secteur au lieu de le corriger.
+    this.stage?.space?.setVisible(false);
     this.state = 'cinematic';
     this.audio.setMode('cinematic');
     this.hud.root.classList.add('hidden');
@@ -421,6 +426,7 @@ export class Game {
       () => {
         localStorage.setItem(STORAGE_KEYS.introSeen, '1');
         this.player.showHitMarkers(true);
+        this.stage?.space?.setVisible(true);
         this.stage?.setQuality?.(false);
         if (handoff) this.startRun('arcade');
         else this.showTitle();
@@ -2215,6 +2221,10 @@ export class Game {
     this.coque = coque;
     this.mode = mode === 'survie' ? 'survie' : 'arcade';
     this.variante = options?.variante || 'solo';
+    // Filet : un secteur caché pour une cinématique se rallume à sa fin, mais un
+    // chemin de sortie oublié laisserait le jeu se jouer dans le noir. On le
+    // repose ici, où passe forcément toute partie.
+    this.stage?.space?.setVisible(true);
 
     this.shop.close();
     this.shop.reinitialise();
