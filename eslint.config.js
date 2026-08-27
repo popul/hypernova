@@ -14,6 +14,10 @@ export default [
         document: 'readonly',
         Element: 'readonly',
         localStorage: 'readonly',
+        // La régie garde son secret le temps de l'onglet, pas plus, et rend la
+        // sauvegarde au navigateur par une URL d'objet.
+        sessionStorage: 'readonly',
+        URL: 'readonly',
         requestAnimationFrame: 'readonly',
         cancelAnimationFrame: 'readonly',
         performance: 'readonly',

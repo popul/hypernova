@@ -52,6 +52,18 @@ spec:
               value: "8081"
             - name: DB_PATH
               value: {{ printf "%s/hypernova.db" (trimSuffix "/" .Values.api.persistence.mountPath) | quote }}
+            {{- if .Values.api.admin.existingSecret }}
+            # Le secret vient d'un objet Secret existant : rien du jeton ne
+            # traverse ce dépôt ni le manifeste de la release.
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.api.admin.existingSecret | quote }}
+                  key: {{ .Values.api.admin.secretKey | quote }}
+            {{- else if .Values.api.admin.token }}
+            - name: ADMIN_TOKEN
+              value: {{ .Values.api.admin.token | quote }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.api.livenessProbe | nindent 12 }}
           readinessProbe:

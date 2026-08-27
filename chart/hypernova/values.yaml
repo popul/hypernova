@@ -107,6 +107,23 @@ api:
   # requêtes avec ou sans ce préfixe, il n'y a donc rien à réécrire en amont.
   path: /api
 
+  # --- La régie d'administration ---------------------------------------------
+  #
+  # Sans jeton, les routes /api/admin n'existent pas : elles répondent 404 comme
+  # une adresse inventée. C'est volontaire — une installation neuve ne doit pas
+  # exposer une porte ouverte en attendant qu'on pense à la fermer.
+  #
+  # Le secret existant est la bonne façon de le poser : la valeur en clair
+  # ci-dessous finit dans le manifeste de la release, donc dans le dépôt qui la
+  # décrit, et ce dépôt-ci est public. Elle n'est là que pour un essai local.
+  #
+  #   kubectl create secret generic hypernova-regie --from-literal=jeton="$(openssl rand -base64 32)"
+  #
+  admin:
+    existingSecret: ''
+    secretKey: jeton
+    token: ''
+
   persistence:
     enabled: true
     # Un score pèse cent octets, un enregistrement de partie quelques kilo-octets,

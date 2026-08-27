@@ -1,0 +1,338 @@
+/* LA RÉGIE. La console d'administration du panthéon.
+   
+   Elle emprunte la palette du jeu, mais pas ses manières : ici on ne joue pas, on
+   décide d'effacer le travail d'autres gens. Pas de néon qui pulse, pas de
+   dégradé, pas d'animation — de la place, des chiffres alignés, et le rouge
+   réservé à ce qui ne se rattrape pas. */
+
+:root {
+  --bg: #05040f;
+  --bg-carte: #0b0f22;
+  --bord: rgba(79, 242, 255, 0.16);
+  --cyan: #4ff2ff;
+  --gold: #ffc857;
+  --rouge: #ff4757;
+  --vert: #4fe08a;
+  --texte: #cfe6f5;
+  --faible: rgba(207, 230, 245, 0.5);
+  --display: 'Audiowide', 'Chakra Petch', sans-serif;
+  --body: 'Chakra Petch', 'Segoe UI', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--texte);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 24px 18px 64px;
+}
+
+#regie {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+h1 {
+  font-family: var(--display);
+  font-size: clamp(22px, 4vw, 30px);
+  color: var(--gold);
+  letter-spacing: 0.06em;
+  text-wrap: balance;
+}
+
+h2 {
+  font-family: var(--display);
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 12px;
+}
+
+.chapeau {
+  color: var(--faible);
+  max-width: 62ch;
+}
+
+section {
+  background: var(--bg-carte);
+  border: 1px solid var(--bord);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+section.danger {
+  border-color: rgba(255, 71, 87, 0.35);
+}
+section.danger h2 {
+  color: var(--rouge);
+}
+
+.note {
+  color: var(--faible);
+  font-size: 13px;
+  margin-bottom: 14px;
+  max-width: 66ch;
+}
+
+/* --- Chiffres --------------------------------------------------------------- */
+
+.chiffres {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.chiffre {
+  background: rgba(79, 242, 255, 0.05);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.chiffre b {
+  display: block;
+  font-family: var(--display);
+  font-size: 22px;
+  color: var(--texte);
+  font-variant-numeric: tabular-nums;
+}
+
+.chiffre span {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faible);
+}
+
+/* --- Tableaux --------------------------------------------------------------- */
+
+.defile {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faible);
+  font-weight: 600;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--bord);
+  white-space: nowrap;
+}
+
+td {
+  padding: 8px 10px 8px 0;
+  border-bottom: 1px solid rgba(207, 230, 245, 0.07);
+  white-space: nowrap;
+}
+
+td.nombre,
+th.nombre {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+td.nom {
+  font-family: var(--display);
+  color: var(--gold);
+}
+
+td.mail {
+  color: var(--faible);
+  font-size: 13px;
+  white-space: normal;
+}
+
+td.actes {
+  text-align: right;
+}
+
+/* Une version de règles qui n'est plus celle du jeu : ses enregistrements ne se
+   rejouent plus, et c'est le seul endroit où on peut l'apprendre. */
+.perimee {
+  color: var(--rouge);
+}
+
+/* --- Contrôles -------------------------------------------------------------- */
+
+button {
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--texte);
+  background: rgba(79, 242, 255, 0.1);
+  border: 1px solid var(--bord);
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: rgba(79, 242, 255, 0.2);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.rouge {
+  color: #ffd9dd;
+  background: rgba(255, 71, 87, 0.14);
+  border-color: rgba(255, 71, 87, 0.4);
+}
+
+button.rouge:hover:not(:disabled) {
+  background: rgba(255, 71, 87, 0.26);
+}
+
+button.petit {
+  font-size: 12px;
+  padding: 4px 9px;
+}
+
+.rangee {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='number'] {
+  font-family: var(--body);
+  font-size: 14px;
+  color: var(--texte);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--bord);
+  border-radius: 6px;
+  padding: 7px 10px;
+  min-width: 0;
+}
+
+input:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+label {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faible);
+}
+
+/* --- Journal ---------------------------------------------------------------- */
+
+/* Ce qui a été fait, en clair et daté. Une console d'administration qui répond
+   « fait » sans dire combien de lignes elle a touchées ne permet pas de vérifier
+   qu'on a effacé ce qu'on croyait effacer. */
+#journal {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 6px;
+  font-size: 13px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+#journal p {
+  padding: 5px 10px;
+  border-radius: 5px;
+  background: rgba(79, 242, 255, 0.06);
+}
+
+#journal p.ok {
+  border-left: 3px solid var(--vert);
+}
+
+#journal p.mal {
+  border-left: 3px solid var(--rouge);
+  color: #ffd9dd;
+}
+
+#journal time {
+  color: var(--faible);
+  margin-right: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Porte ------------------------------------------------------------------ */
+
+.porte {
+  max-width: 420px;
+  margin: 12vh auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* --- Le dialogue ------------------------------------------------------------ */
+
+/* Un <dialog> natif plutôt qu'un window.prompt : il ne fige pas l'onglet, il se
+   lit sur un téléphone, et aucun navigateur ne permet de le désactiver. */
+
+#boite {
+  /* Le `* { margin: 0 }` du haut de page tue le centrage natif du dialogue, qui
+     repose justement sur `margin: auto`. Sans cette ligne il s'affiche collé au
+     coin supérieur gauche. */
+  margin: auto;
+  background: var(--bg-carte);
+  color: var(--texte);
+  border: 1px solid var(--bord);
+  border-radius: 10px;
+  padding: 20px;
+  width: min(420px, calc(100vw - 32px));
+}
+
+#boite::backdrop {
+  background: rgba(5, 4, 15, 0.72);
+}
+
+#boite[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#boite h3 {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--gold);
+  text-wrap: balance;
+}
+
+#boite p {
+  font-size: 13px;
+  color: var(--faible);
+}
+
+#boite input {
+  width: 100%;
+}

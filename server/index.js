@@ -8,9 +8,15 @@
 // Ce que le serveur refuse est aussi important que ce qu'il accepte : une requête
 // trop grosse, un champ d'un mauvais type, un score invraisemblable, un client
 // trop bavard. Le tableau est public et personne ne le surveille.
+//
+// L'administration vit à part, dans admin.js, derrière son propre secret. Elle
+// est branchée ici en une ligne et le reste du fichier ne sait rien d'elle : ce
+// qui peut effacer le panthéon de tout le monde ne doit pas se lire au milieu de
+// ce qui le remplit.
 
 import { createServer } from 'node:http';
 import { Base } from './base.js';
+import { routeAdmin, administrable } from './admin.js';
 
 const PORT = Number(process.env.PORT || 8081);
 const CHEMIN_BASE = process.env.DB_PATH || '/data/hypernova.db';
@@ -142,9 +148,20 @@ function jetonDe(req) {
   return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
 }
 
+// Ce que l'administration emprunte au serveur public : répondre, lire un corps,
+// nettoyer un pseudo, valider un code. Les mêmes fonctions, pas des jumelles —
+// un pseudo normalisé différemment de deux côtés donnerait un pilote qu'on ne
+// pourrait plus ni retrouver ni supprimer.
+const aideAdmin = { repond, lisCorps, nomPropre, codePropre, jetonDe };
+
 // --- Routes -----------------------------------------------------------------
 
 async function route(req, res, chemin) {
+  // L'administration d'abord, et à part : elle a son propre secret, ses propres
+  // règles, et le serveur public ne doit rien savoir d'elle au-delà de cet appel.
+  // Elle rend `true` quand elle a répondu — y compris pour un 401 ou un 404.
+  if (await routeAdmin(req, res, chemin, base, aideAdmin)) return;
+
   // POST /pilotes — réclamer un pseudo, ou revenir dessus avec son code.
   if (req.method === 'POST' && chemin === '/pilotes') {
     const corps = await lisCorps(req);
@@ -311,6 +328,11 @@ const serveur = createServer(async (req, res) => {
 serveur.listen(PORT, () => {
   const c = base.chiffres();
   console.log(`[api] écoute sur ${PORT} — ${c.pilotes} pilotes, ${c.parties} parties`);
+  console.log(
+    administrable
+      ? '[api] administration ouverte sous /admin (ADMIN_TOKEN posé)'
+      : '[api] administration fermée — poser ADMIN_TOKEN pour /admin'
+  );
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {

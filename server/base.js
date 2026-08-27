@@ -324,6 +324,134 @@ export class Base {
     };
   }
 
+  // --- Administration --------------------------------------------------------
+  //
+  // Tout ce qui suit n'est appelé que par une route protégée par un secret, et
+  // rien de tout ça n'est réversible. Deux règles s'y appliquent partout :
+  //
+  //   — chaque méthode RENVOIE COMBIEN DE LIGNES elle a touchées, parce qu'une
+  //     interface d'administration qui dit « fait » sans dire combien ne permet
+  //     pas de vérifier qu'on a effacé ce qu'on croyait effacer ;
+  //   — aucune ne supprime en cascade sans le dire. `supprimePilote` emporte les
+  //     parties du pilote parce que la clé étrangère l'impose, et la méthode
+  //     compte donc les parties AVANT de supprimer, pour pouvoir l'annoncer.
+
+  // L'état de la base, tel qu'on veut le lire avant de décider quoi que ce soit.
+  // La taille sur disque vient de SQLite lui-même et non d'un `stat` : le fichier
+  // principal ne dit rien du journal WAL qui l'accompagne, et c'est justement
+  // quand il gonfle qu'on regarde.
+  etat() {
+    const un = (sql, ...args) => this.db.prepare(sql).get(...args);
+    const pages = un('PRAGMA page_count');
+    const taille = un('PRAGMA page_size');
+    return {
+      ...this.chiffres(),
+      sessions: un('SELECT COUNT(*) AS n FROM sessions').n,
+      octets: (pages?.page_count || 0) * (taille?.page_size || 0),
+      // Par mode : c'est la granularité à laquelle on vide un tableau.
+      modes: this.db
+        .prepare(
+          `SELECT mode, COUNT(*) AS parties, COALESCE(MAX(score), 0) AS record,
+                  MIN(jouee_le) AS depuis, MAX(jouee_le) AS jusqua
+           FROM parties GROUP BY mode ORDER BY mode`
+        )
+        .all(),
+      // Par version de règles. C'est le chiffre le moins évident et le plus utile :
+      // un enregistrement produit sous d'anciennes règles ne se rejoue plus, et
+      // occupe pourtant la place d'un qui se rejouerait.
+      versions: this.db
+        .prepare(
+          `SELECT version, COUNT(*) AS parties,
+                  SUM(flux IS NOT NULL) AS replays,
+                  COALESCE(SUM(LENGTH(flux) + LENGTH(COALESCE(etats, '')) +
+                               LENGTH(COALESCE(controles, ''))), 0) AS octets
+           FROM parties GROUP BY version ORDER BY version DESC`
+        )
+        .all(),
+    };
+  }
+
+  // La liste complète, adresse comprise — c'est la seule route qui la montre, et
+  // c'est sa raison d'être : sans serveur de courrier, un code oublié se règle en
+  // reconnaissant l'enfant à son adresse avant de lui en poser un nouveau.
+  pilotesAdmin() {
+    return this.db
+      .prepare(
+        `SELECT p.nom, p.email, p.livree, p.carene, p.cree_le, p.vu_le,
+                (SELECT COUNT(*) FROM parties  WHERE pilote = p.nom) AS parties,
+                (SELECT COUNT(*) FROM sessions WHERE pilote = p.nom) AS sessions,
+                (SELECT COALESCE(MAX(score), 0) FROM parties WHERE pilote = p.nom) AS meilleur
+         FROM pilotes p ORDER BY p.vu_le DESC`
+      )
+      .all();
+  }
+
+  // Vide un tableau. `mode` vaut 'arcade', 'survie', ou n'importe quoi d'autre
+  // pour les deux — l'appelant a déjà validé, on ne redevine pas ici.
+  videClassement(mode) {
+    const req =
+      mode === 'arcade' || mode === 'survie'
+        ? this.db.prepare('DELETE FROM parties WHERE mode = ?').run(mode)
+        : this.db.prepare('DELETE FROM parties').run();
+    return Number(req.changes);
+  }
+
+  supprimePartie(id) {
+    return Number(this.db.prepare('DELETE FROM parties WHERE id = ?').run(id).changes);
+  }
+
+  // Le pilote s'en va avec ses parties et ses sessions : c'est la cascade des
+  // clés étrangères qui s'en charge, mais on compte d'abord pour pouvoir le dire.
+  supprimePilote(nom) {
+    const n = this.db.prepare('SELECT COUNT(*) AS n FROM parties WHERE pilote = ?').get(nom).n;
+    const fait = this.db.prepare('DELETE FROM pilotes WHERE nom = ?').run(nom).changes;
+    return { pilote: Number(fait), parties: fait ? n : 0 };
+  }
+
+  // LE CODE OUBLIÉ. C'est le seul cas où le jeu se bloque vraiment : quatre
+  // chiffres perdus, et le pseudo avec tous ses scores devient inaccessible pour
+  // toujours. Un nouveau code, un nouveau sel, et toutes les sessions fermées —
+  // parce qu'on ne pose pas un code neuf en laissant ouvertes les portes qu'on
+  // soupçonnait justement d'être de trop.
+  reposeCode(nom, code) {
+    if (!this.pilote(nom)) return null;
+    const sel = randomBytes(16).toString('hex');
+    this.db
+      .prepare('UPDATE pilotes SET sel = ?, code_hash = ?, jeton_hash = NULL WHERE nom = ?')
+      .run(sel, this._hacheCode(code, sel), nom);
+    return { sessions: this.fermeSessions(nom) };
+  }
+
+  fermeSessions(nom) {
+    const n = this.db.prepare('DELETE FROM sessions WHERE pilote = ?').run(nom).changes;
+    // Le jeton d'avant les sessions vit dans la ligne du pilote : l'oublier ici
+    // laisserait un appareil ancien connecté après qu'on a tout fermé.
+    this.db.prepare('UPDATE pilotes SET jeton_hash = NULL WHERE nom = ?').run(nom);
+    return Number(n);
+  }
+
+  // Relâche les enregistrements sans toucher aux scores : la partie reste au
+  // tableau, on ne peut simplement plus la regarder. `versionMax` permet de ne
+  // libérer que ce qui ne se rejoue plus — un flux enregistré sous des règles
+  // périmées ne raconte plus la partie qu'il prétend raconter.
+  purgeReplays(versionMax = null) {
+    const sql = `UPDATE parties SET flux = NULL, etats = NULL, controles = NULL
+                 WHERE flux IS NOT NULL`;
+    const r =
+      versionMax === null
+        ? this.db.prepare(sql).run()
+        : this.db.prepare(`${sql} AND version <= ?`).run(versionMax);
+    return Number(r.changes);
+  }
+
+  // Une copie cohérente de la base, écrite d'un bloc. VACUUM INTO plutôt qu'une
+  // copie de fichier : il prend un instantané transactionnel, alors que copier
+  // hypernova.db pendant qu'on écrit dedans donne une base à moitié à jour, sans
+  // son journal, donc inutilisable au moment précis où l'on en aurait besoin.
+  sauvegarde(vers) {
+    this.db.prepare('VACUUM INTO ?').run(vers);
+  }
+
   // Les identifiants déjà connus du serveur, pour que le client sache quoi
   // envoyer — et n'envoie pas deux fois la même partie.
   chiffres() {

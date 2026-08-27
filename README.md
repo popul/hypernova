@@ -113,6 +113,37 @@ Un pilote publie sous un pseudo protégé par un code à quatre chiffres ; une a
 demandée à la création pour pouvoir récupérer un code oublié — elle n'apparaît jamais dans le
 classement. Le déploiement se fait par le même chart (`api.enabled=true`).
 
+### La régie
+
+`/admin` est une console d'administration. **Elle n'existe que si le serveur a un secret** :
+sans `ADMIN_TOKEN`, les routes `/api/admin` répondent 404 comme une adresse inventée — une
+installation neuve n'expose pas une porte ouverte en attendant qu'on pense à la fermer.
+
+```bash
+ADMIN_TOKEN="$(openssl rand -base64 32)" node server/index.js
+```
+
+```yaml
+# Le jeton vient d'un Secret : la valeur en clair finirait dans le manifeste de
+# la release, donc dans le dépôt qui la décrit.
+api:
+  admin:
+    existingSecret: hypernova-regie
+    secretKey: jeton
+```
+
+Elle sait vider un tableau des scores (par mode ou en entier), retirer une partie précise,
+supprimer un pilote, fermer ses appareils, libérer les enregistrements d'anciennes règles qui ne
+se rejouent plus, et emporter une sauvegarde cohérente de la base.
+
+Le cas qui l'a vraiment justifiée est **le code oublié**. Sans serveur de courrier, quatre
+chiffres perdus rendaient un pseudo — et tous ses scores — inaccessibles pour toujours. C'est le
+seul endroit du jeu où quelque chose cassait définitivement.
+
+Rien d'irréversible ne se déclenche sur un clic : il faut **recopier à la main** le nom de ce
+qu'on détruit. Et chaque action répond par un nombre — « 47 parties effacées » se vérifie,
+« fait » ne se vérifie pas.
+
 ## PWA
 
 Le jeu est installable (manifest + service worker, icônes générées par

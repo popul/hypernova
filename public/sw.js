@@ -39,6 +39,11 @@ self.addEventListener('fetch', (event) => {
   // panthéon local : c'est le comportement voulu, pas une panne.
   if (url.pathname.startsWith('/api/')) return;
 
+  // La régie non plus. C'est une console d'administration : la servir depuis le
+  // disque montrerait l'état du panthéon tel qu'il était la dernière fois, et
+  // c'est sur cet état-là qu'on cliquerait « vider ».
+  if (url.pathname.startsWith('/admin')) return;
+
   // Navigations : le réseau d'abord, le cache en secours.
   // On ne met jamais en cache une réponse d'erreur (404 de déploiement, 500 transitoire,
   // page de portail captif) : elle écraserait une copie saine servie hors-ligne.
