@@ -34,6 +34,25 @@ import { ArriveeEscale } from './escale-arrivee.js';
 import { Aura } from './aura.js';
 import { PiloteAuto } from './pilote-auto.js';
 import { Colosse } from './asteroide.js';
+import { DemoArme } from './demo-arme.js';
+
+// Combien de temps la carène tourne sur elle-même avant que l'arme ne parle.
+// Un tour complet à 1,1 radian par seconde en fait un peu moins de six ; on
+// s'arrête à un tour et demi de face, ce qui suffit largement à lire la
+// silhouette et ne fait pas attendre celui qui fait défiler les trois.
+const COQUE_PRESENTATION = 1.5;
+// La taille du vaisseau pendant la démonstration. Pas tout à fait celle du jeu :
+// à cette profondeur l'écran ne donne que vingt-trois pixels par unité, et une
+// coque à l'échelle 1 devient une vignette. Un tiers de plus la rend lisible
+// sans que ses propres tirs aient l'air d'appartenir à un autre vaisseau.
+const COQUE_COMBAT = 1.5;
+// Où se tient le vaisseau pendant qu'on le présente, et où il se place ensuite.
+// Pendant la présentation il est deux fois et demie trop gros pour la place qui
+// lui reste au-dessus du panneau : on le recule d'abord, puis il redescend en
+// même temps qu'il rapetisse — ce qui, à l'écran, ressemble à un vaisseau qui
+// vient prendre son poste.
+const COQUE_Z_PRESENTATION = -2;
+const COQUE_Z_COMBAT = 1.5;
 import {
   routesForStage,
   palierDeCoque,
@@ -141,6 +160,11 @@ export class Game {
     // Le bloc qui traverse le champ de débris et balaie tout sur son passage.
     this.colosse = new Colosse(scene);
     this._colosseTimer = 0;
+    // La démonstration d'arme de l'écran de choix. Elle construit dix-sept
+    // vaisseaux : on ne la fabrique qu'à la première ouverture de l'écran, pour
+    // ne pas les payer au démarrage d'une partie qui n'y passera peut-être pas.
+    this.demoArme = null;
+    this._poseCoque = null;
     this.demo = false;
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
@@ -1451,6 +1475,50 @@ export class Game {
     }
   }
 
+  // DEUX TEMPS : ON REGARDE, PUIS ON VOIT TIRER.
+  //
+  // Il fallait choisir entre montrer la CARÈNE — grande, inclinée, tournant sur
+  // elle-même, c'est la seule occasion de la voir — et montrer l'ARME, qui exige
+  // un vaisseau à sa taille réelle au milieu de ses projectiles. Les deux à la
+  // fois donnent un vaisseau deux fois et demie trop gros crachant des balles
+  // minuscules ; l'échelle ment, et on ne comprend plus rien aux distances.
+  //
+  // On ne choisit donc pas : la présentation dure une seconde et demie, le temps
+  // d'un tour complet, puis le vaisseau redescend à sa taille de combat et
+  // l'arme se met au travail. Changer de coque rejoue la présentation.
+  _updateChoixCoque(dt) {
+    const pose = this._poseCoque;
+    if (!pose || !this.demoArme) return;
+    pose.t += dt;
+    const g = this.player.group;
+
+    // L'anneau de frôlement est éteint le temps de la présentation. Il est utile
+    // en vol — c'est lui qui dit jusqu'où l'on peut s'approcher d'une balle —
+    // mais ici c'est une ellipse lumineuse de la taille du vaisseau, posée
+    // dessus, et les trois coques se ressemblent d'un coup beaucoup trop.
+    const halo = g.getObjectByName('grazeAura');
+
+    if (pose.t < COQUE_PRESENTATION) {
+      g.rotation.y += dt * 1.1;
+      g.position.z = COQUE_Z_PRESENTATION;
+      if (halo) halo.visible = false;
+      return;
+    }
+    if (!this.demoArme.actif) {
+      g.rotation.y = 0;
+      this.demoArme.demarre(this);
+    }
+    if (halo) halo.visible = true;
+    // La mise en place, en un demi-tour de main : plus lent, on croirait le
+    // vaisseau en train de reculer plutôt que de se poser.
+    const k = Math.min(1, (pose.t - COQUE_PRESENTATION) / 0.45);
+    const e = k * k * (3 - 2 * k);
+    g.scale.setScalar(2.4 + (COQUE_COMBAT - 2.4) * e);
+    g.rotation.x = -0.35 * (1 - e);
+    g.position.z = COQUE_Z_PRESENTATION + (COQUE_Z_COMBAT - COQUE_Z_PRESENTATION) * e;
+    this.demoArme.update(dt, this);
+  }
+
   _xPourFraction(fraction) {
     if (!this.camera || fraction === 0.5) return 0;
     const cible = fraction * 2 - 1; // fraction d'écran -> coordonnée normalisée
@@ -1673,6 +1741,26 @@ export class Game {
   showChoixCoque(mode, onDone) {
     this.state = 'coques';
     this.hud.root.classList.add('hidden');
+    // LA PARTIE DE L'ÉCRAN D'ACCUEIL S'ARRÊTE ICI.
+    //
+    // Elle continuait, et personne ne l'avait vu : `startRun` ne l'arrête
+    // qu'APRÈS le choix de coque, si bien que le pilote fantôme continuait de
+    // voler — avec le vaisseau de la vitrine, celui qu'on est en train de
+    // regarder, deux fois et demie trop gros et lancé au milieu d'une vague. Il
+    // faut la couper avant de poser quoi que ce soit sur cette scène, et vider
+    // ce qu'elle laisse : des ennemis figés en l'air ne racontent rien.
+    this.arreteDemo();
+    this._arreteVeille?.();
+    this._arreteVeille = null;
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.missiles.clear();
+    this.pickups.clear();
+    this.modules.clear();
+    this.enemies.clear();
+    this.colosse.annule();
+    for (const a of Object.values(this.armes)) a.clear();
+    if (!this.demoArme) this.demoArme = new DemoArme(this.scene);
     const el = this._screen(`
       <div class="screen coques">
         <div class="coque-haut">
@@ -1733,6 +1821,13 @@ export class Game {
       this._vitrine(true, f);
       this.player.rebuild({ ...this._fiche(), carene: c.carene });
       this._vitrine(true, f);
+      // On change de coque : la démonstration en cours n'a plus lieu d'être, et
+      // la nouvelle repart de la présentation. `coque` est posée dès maintenant
+      // parce que c'est elle qui désigne l'arme qui va tirer.
+      this.coque = c.id;
+      this.demoArme?.arrete(this);
+      this.demoArme.place(this.player.group.position.x);
+      this._poseCoque = { t: 0, x: this.player.group.position.x };
       if (avecSon) this.audio.uiTick?.();
       // Une bascule courte : on voit que quelque chose a changé même en un clin
       // d'œil, ce qui compte quand on fait défiler vite.
@@ -1763,10 +1858,22 @@ export class Game {
     // changer de coque pendant la partie suivante.
     // Tourner le téléphone change la disposition ET la place du vaisseau : les deux
     // se recalculent, sinon le vaisseau resterait décalé sur un écran redevenu haut.
-    const replace = () => this._vitrine(true, dispose());
+    const replace = () => {
+      this._vitrine(true, dispose());
+      if (this.demoArme) this.demoArme.place(this.player.group.position.x);
+      if (this._poseCoque) this._poseCoque.x = this.player.group.position.x;
+    };
     const quitte = () => {
       window.removeEventListener('keydown', clavier);
       window.removeEventListener('resize', replace);
+      // La démonstration rend ce qu'elle a emprunté au jeu — liste d'ennemis,
+      // niveaux, compteurs. Sans ça, la partie suivante commencerait avec les
+      // cibles de la vitrine dans sa vague.
+      this.demoArme?.arrete(this);
+      this._poseCoque = null;
+      this.player.group.rotation.set(0, 0, 0);
+      const halo = this.player.group.getObjectByName('grazeAura');
+      if (halo) halo.visible = true;
     };
     window.addEventListener('keydown', clavier);
     window.addEventListener('resize', replace);
@@ -2634,6 +2741,10 @@ export class Game {
     // Le présentoir du hangar tourne doucement : une carène ne se juge pas de face.
     if (this.vitrine && this.state === 'pilots') {
       this.player.group.rotation.y += dt * 0.55;
+      return;
+    }
+    if (this.state === 'coques') {
+      this._updateChoixCoque(dt);
       return;
     }
     if (this.paused) return;
