@@ -16,13 +16,14 @@ import { UPGRADES, priceOf, emptyLevels, computeStats } from './upgrades.js';
 import {
   ARENA,
   COMBO,
-  PLAYER,
-  STORAGE_KEYS,
   GRAZE,
   OVERDRIVE,
   PICKUPS,
+  PLAYER,
+  PRECISION,
   REFLEX,
   ROLL,
+  STORAGE_KEYS,
 } from './constants.js';
 import { Jump } from './jump.js';
 import { biomeForWave, durcisPourBoss, stageForWave, STAGES } from './space/biomes.js';
@@ -2694,16 +2695,44 @@ export class Game {
     const enemies = this.enemies.list;
 
     // Tirs du joueur → ennemis (perforants pendant l'Overdrive).
+    //
+    // LE COUP AU CENTRE COMPTE DOUBLE. Toucher un ennemi n'importe où faisait le
+    // même dégât : viser n'existait pas comme geste, il n'y avait qu'à arroser la
+    // colonne. Le cœur de la cible — le tiers central de son rayon — inflige
+    // maintenant le double, et le dit franchement, sinon personne ne remarquerait
+    // jamais qu'il y a quelque chose à viser.
     const pierceMax = this.odTimer > 0 ? OVERDRIVE.odPierce : 1;
     this.bullets.forEachActive((b) => {
       for (const e of enemies) {
         if (!e.alive || b.hitIds.includes(e.id)) continue;
         const rr = e.def.radius + this.bullets.radius;
-        if (b.mesh.position.distanceToSquared(e.group.position) < rr * rr) {
+        const d2 = b.mesh.position.distanceToSquared(e.group.position);
+        if (d2 < rr * rr) {
           b.hitIds.push(e.id);
           b.pierce++;
           if (b.pierce >= pierceMax) this.bullets.kill(b);
-          if (this.enemies.damage(e, 1, this)) this._onEnemyKilled(e, 'cannon');
+          // L'ÉCART LATÉRAL, PAS LA DISTANCE. Mesurée en trois dimensions, la
+          // précision ne se déclenchait JAMAIS — zéro coup au centre sur dix-huit
+          // touches, mesuré. C'est mécanique : la collision est détectée à la
+          // première image où la balle entre dans le disque, donc toujours par le
+          // BORD, et jamais au moment où elle passe au plus près du centre.
+          //
+          // Ce qui compte est d'ailleurs l'écart de côté, et rien d'autre : une
+          // balle qui monte droit vers un ennemi est bien visée si elle arrive
+          // dans son axe. C'est aussi ce que le joueur croit faire quand il aligne
+          // son vaisseau — la règle rejoint enfin le geste.
+          //
+          // Le seuil se mesure sur le rayon de l'ENNEMI seul, pas sur la somme des
+          // deux : sinon une grosse balle serait critique en effleurant un petit
+          // ennemi, et la précision récompenserait le calibre au lieu de la visée.
+          const coeur = e.def.radius * PRECISION.part;
+          const dx = b.mesh.position.x - e.group.position.x;
+          const dy = b.mesh.position.y - e.group.position.y;
+          const critique = dx * dx + dy * dy < coeur * coeur;
+          if (critique) this._marquePrecision(b.mesh.position, e);
+          const degats = critique ? PRECISION.degats : 1;
+          if (this.enemies.damage(e, degats, this))
+            this._onEnemyKilled(e, critique ? 'precision' : 'cannon');
           if (b.pierce >= pierceMax) break;
         }
       }
@@ -2726,15 +2755,24 @@ export class Game {
     if (!this.player.alive) return;
     const pPos = this.player.position;
 
-    // Tirs ennemis → joueur. Pendant un tonneau, la balle est DÉTRUITE mais ne
-    // touche pas : on doit voir qu'elle a été esquivée, sinon l'invincibilité ne
-    // se lit pas et le joueur croit à un raté du jeu.
+    // Tirs ennemis → joueur. Pendant un tonneau, la balle est RENVOYÉE.
+    //
+    // Elle était simplement détruite : on voyait qu'on l'avait esquivée, ce qui
+    // suffisait à lire l'invincibilité, mais la manœuvre ne rapportait rien
+    // d'autre. La renvoyer change la nature du geste — le tonneau cesse d'être
+    // une fuite pour devenir une réponse, et il faut le tenter au bon moment
+    // plutôt que par précaution. Ça reste payé : neuf points d'énergie, un
+    // demi-seconde de rechargement, et il faut être là où la balle arrive.
     this.enemyBullets.forEachActive((b) => {
       const rr = PLAYER.radius + this.enemyBullets.radius;
       if (b.mesh.position.distanceToSquared(pPos) >= rr * rr) return;
       if (this.player.rolling) {
-        this.fx.burst(b.mesh.position, 0x8ffbff, { count: 4, speed: 6, life: 0.25 });
+        this.fx.burst(b.mesh.position, 0x8ffbff, { count: 6, speed: 8, life: 0.28 });
         this.enemyBullets.kill(b);
+        // Elle repart d'où elle vient, plus vite qu'elle n'est arrivée : un
+        // renvoi mou se ferait rattraper par la formation qui descend, et on ne
+        // verrait jamais ce qu'on a réussi.
+        this._renvoie(b);
         this._addEnergy(GRAZE.energy * 0.35); // une balle traversée reste un risque pris
         return;
       }
@@ -2754,6 +2792,40 @@ export class Game {
         break;
       }
     }
+  }
+
+  // Ce qu'on voit d'un coup au centre. Un dégât doublé qui ne se voit pas n'est
+  // pas une récompense, c'est un hasard : il faut que le joueur SACHE qu'il vient
+  // de bien viser, à l'instant même, sans avoir à compter des points de vie.
+  _marquePrecision(pos, e) {
+    this.fx.burst(pos, 0xfff3d0, { count: 10, speed: 11, life: 0.28, spread: 0.5 });
+    this.fx.shockwave(pos, 0xffc857, e.def.radius * 2.2);
+    this.audio.comboUp?.(3);
+    this.hud.grazePop?.(...this._versEcran(pos));
+  }
+
+  // Un point du monde vers les coordonnées de l'écran, pour les repères du HUD.
+  _versEcran(pos) {
+    this._tmp.copy(pos).project(this.camera);
+    return [
+      ((this._tmp.x + 1) / 2) * window.innerWidth,
+      ((1 - this._tmp.y) / 2) * window.innerHeight,
+    ];
+  }
+
+  // Le renvoi : la balle ennemie devient un projectile du joueur, à la place et
+  // dans la direction opposée. On ne réutilise pas l'objet — les deux pools ont
+  // des tailles, des rayons et des matières différents, et faire voyager une
+  // entrée de l'un à l'autre reviendrait à les mélanger pour économiser une
+  // allocation qui n'existe pas, puisque tout est préalloué des deux côtés.
+  _renvoie(b) {
+    const v = this._tmp.copy(b.vel);
+    const vitesse = Math.max(PLAYER.bulletSpeed * 0.9, v.length() * 1.6);
+    v.set(-b.vel.x, 0, -Math.abs(b.vel.z) || -1)
+      .normalize()
+      .multiplyScalar(vitesse);
+    this.bullets.spawn(b.mesh.position, v);
+    this.audio.shoot?.();
   }
 
   // Mourir coûte désormais six choses lisibles au lieu d'une : la vie, le combo,

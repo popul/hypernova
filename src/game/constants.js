@@ -424,6 +424,18 @@ export const FX = {
 // Elle se paie sur la jauge de furie, un petit peu. C'est ce qui la relie au reste
 // de l'économie : la même ressource sert à esquiver et à frapper, donc chaque
 // tonneau est une bombe qu'on n'aura pas.
+// LE TIR DE PRÉCISION. Toucher le cœur d'un ennemi compte double.
+//
+// Un tiers du rayon, pas la moitié : à la moitié, une balle sur deux serait
+// critique et le coup cesserait d'être un exploit pour devenir la norme — après
+// quoi il n'y aurait plus qu'à rebaisser les dégâts de base, et on aurait fait un
+// tour pour rien. À un tiers, la surface du cœur vaut un neuvième du disque : ça
+// se cherche, et ça se fête.
+export const PRECISION = {
+  part: 0.34,
+  degats: 2,
+};
+
 export const ROLL = {
   doubleTapWindow: 0.28, // secondes entre les deux appuis
   // Tactile : appuyer trop près du vaisseau ne désigne aucun côté. Sous cet écart

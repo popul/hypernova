@@ -34,7 +34,10 @@ import {
 //       d'énergie dépendent de celle qu'on a choisie
 //   7 — HÉLIOS tient le CONTACT et non plus une colonne, et elle surchauffe ;
 //       le canon de VULCAIN et le rythme de sa forge sont revus
-export const VERSION = 7;
+//   8 — la pirouette RENVOIE les tirs au lieu de les effacer, le cœur d'un ennemi
+//       compte double, le dernier mort emporte ses balles, et l'escale devient un
+//       niveau bis sans boss dont le fragment se gagne à la sortie
+export const VERSION = 8;
 
 // --- Écriture ---------------------------------------------------------------
 
