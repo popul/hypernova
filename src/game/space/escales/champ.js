@@ -37,6 +37,7 @@
 // masses-là couvrent la moitié de l'écran.
 
 import * as THREE from 'three';
+import { geometriesCailloux, matiereRoche, textureRoche } from '../cailloux.js';
 
 // Générateur déterministe, repris de landmarks.js : deux parties de même graine
 // doivent traverser le même champ, sinon ce n'est plus un lieu.
@@ -89,6 +90,11 @@ const SOURDINE = 0.78;
 // `fond` est la part de blocs placés SOUS le plan de jeu plutôt que sur les
 // flancs. Elle monte avec la distance : de près on est entre deux parois, de loin
 // on survole un sol.
+// Combien de silhouettes différentes on tire. Quatre suffisent : au-delà, les
+// archétypes se ressemblent entre eux avant que l'œil ne s'en aperçoive, et
+// chaque forme de plus est une géométrie de plus en mémoire.
+const FORMES_PAR_COUCHE = 4;
+
 const COUCHES = [
   // Les colosses. Seize, énormes, les plus rapides. Ils ne remplissent rien : ils
   // donnent l'échelle, et un seul qui traverse l'image en deux secondes vaut cent
@@ -167,74 +173,6 @@ const POUSSIERE = {
   zLoin: -110,
 };
 
-// Un bloc CASSÉ, pas une patate.
-//
-// Deux choses séparent ce caillou de celui de `createAsteroids`, et les deux ne se
-// voient qu'à courte distance.
-//
-// D'abord le déplacement ne dépend QUE de la position. Un icosaèdre de three.js
-// est une géométrie non indexée : les trois coins d'une face ne sont pas les mêmes
-// points que ceux de la face voisine. Déplacer sommet par sommet, comme on le fait
-// pour le champ lointain, sépare donc les faces les unes des autres. À cent unités
-// personne ne le voit ; à dix, le caillou est en morceaux. Trois ondes évaluées sur
-// la position d'origine règlent le problème sans y penser : deux sommets confondus
-// reçoivent exactement le même déplacement, et la coque reste fermée.
-//
-// Ensuite les PLANS DE CASSURE. Un caillou de l'espace ne s'est pas érodé, il
-// s'est brisé : il a des faces plates, et c'est la seule chose qui distingue de
-// loin un éclat d'un galet. Trois plans suffisent à donner une silhouette qu'on
-// reconnaît d'une image sur l'autre.
-function rocher(detail, cassures, seed) {
-  const geo = new THREE.IcosahedronGeometry(1, detail);
-  const pos = geo.attributes.position;
-  const r = rng(seed);
-
-  const ondes = [];
-  for (let k = 0; k < 3; k++) {
-    ondes.push({
-      f: 1.6 + k * 2.4 + r() * 1.2,
-      a: 0.26 / (1 + k * 1.35), // les basses font la masse, les hautes l'aspérité
-      d: new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize(),
-      p: r() * 6.2832,
-    });
-  }
-  const plans = [];
-  for (let k = 0; k < cassures; k++) {
-    plans.push({
-      n: new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize(),
-      d: 0.42 + r() * 0.34,
-    });
-  }
-
-  const p = new THREE.Vector3();
-  let rayon = 0;
-  for (let i = 0; i < pos.count; i++) {
-    p.fromBufferAttribute(pos, i);
-    let k = 1;
-    for (const o of ondes) k += Math.sin(p.dot(o.d) * o.f + o.p) * o.a;
-    p.multiplyScalar(k);
-    for (const pl of plans) {
-      const t = p.dot(pl.n) - pl.d;
-      if (t > 0) p.addScaledVector(pl.n, -t);
-    }
-    pos.setXYZ(i, p.x, p.y, p.z);
-    rayon = Math.max(rayon, p.length());
-  }
-  geo.computeVertexNormals();
-
-  // Attribut de couleur plein de un. Il n'est là que pour autoriser
-  // `vertexColors` : sans lui, three.js déclare bien l'attribut dans la nuance
-  // mais ne le remplit pas, et l'instance sort NOIRE. C'est `instanceColor` qu'on
-  // veut vraiment — il passe par le même chemin.
-  const blanc = new Float32Array(pos.count * 3).fill(1);
-  geo.setAttribute('color', new THREE.BufferAttribute(blanc, 3));
-
-  // Le rayon renvoyé est le plus grand |sommet|, et il borne toute la surface :
-  // une face est plane, donc son point le plus éloigné de l'origine est un de ses
-  // coins. C'est cette valeur, et pas une estimation, qui sert de garde.
-  return { geo, rayon };
-}
-
 // OÙ NAÎT UN BLOC. La règle du couloir est ici, et nulle part ailleurs.
 //
 // Deux familles, et c'est volontairement tout ce qu'il y a. Les blocs de FLANC,
@@ -287,6 +225,8 @@ export function createChamp({ teinte = 0x6b5a48, densite = 1, seed = 1 } = {}) {
   // en vol ne doit pas décaler la suite de la graine, sinon deux parties de même
   // graine divergeraient au premier hoquet d'image.
   const rr = rng(seed * 7919 + 13);
+  // La texture de roche est peinte UNE fois et prêtée aux quatre couches.
+  const planche = textureRoche({ seed });
   const dummy = new THREE.Object3D();
   const couleur = new THREE.Color();
   const couches = [];
@@ -294,10 +234,32 @@ export function createChamp({ teinte = 0x6b5a48, densite = 1, seed = 1 } = {}) {
   for (let ci = 0; ci < COUCHES.length; ci++) {
     const c = COUCHES[ci];
     const n = Math.max(1, Math.round(c.n * densite));
-    const { geo, rayon: rGeo } = rocher(c.detail, c.cassures, seed * 131 + ci * 17 + 1);
+    // DE VRAIS CAILLOUX CASSÉS, et non plus une sphère bosselée.
+    //
+    // On partait d'un icosaèdre qu'on déformait par ondes puis qu'on rabotait de
+    // trois plans. De loin ça allait ; de près ça restait une patate, parce qu'une
+    // déformation par ondes est LISSE par construction et qu'aucune arête n'en
+    // sort jamais franche. Les formes viennent maintenant d'une boîte découpée par
+    // demi-espaces — c'est littéralement ce que fait une fracture — et la
+    // silhouette est en segments droits, comme un morceau de quelque chose de plus
+    // gros. Chaque couche pioche la sienne : on ne reconnaît plus la même patate
+    // répétée d'un plan à l'autre.
+    const formes = geometriesCailloux({
+      nb: FORMES_PAR_COUCHE,
+      seed: seed * 131 + ci * 17 + 1,
+      detail: c.detail,
+    });
+    const geo = formes[ci % formes.length];
+    const rGeo = geo.userData.rayon;
+    for (const autre of formes) if (autre !== geo) autre.dispose();
     const ton = base.clone().multiplyScalar(c.ton * SOURDINE);
-    const mat = new THREE.MeshLambertMaterial({
-      color: ton,
+    const mat = matiereRoche({
+      teinte: ton,
+      seed,
+      // Une seule planche prêtée aux quatre couches : quatre fois la même image
+      // coûterait quatre mégaoctets pour rien.
+      texture: planche,
+      emission: 0.28,
       // Un plancher d'émission, et il ne sert qu'aux paliers du bout du voyage.
       // Passé Neptune, l'hémisphérique tombe à un quart et la teinte du lieu est
       // déjà presque noire : les faces qui ne regardent pas la lumière de bord
@@ -307,9 +269,7 @@ export function createChamp({ teinte = 0x6b5a48, densite = 1, seed = 1 } = {}) {
       // paliers éclairés, où l'apport se noie sous une lumière deux fois plus
       // forte. Ce n'est pas de la roche qui brille : c'est un noir qui n'est
       // jamais tout à fait le fond.
-      emissive: ton.clone().multiplyScalar(0.28),
       flatShading: true,
-      vertexColors: true,
       fog: true,
     });
     const mesh = new THREE.InstancedMesh(geo, mat, n);
