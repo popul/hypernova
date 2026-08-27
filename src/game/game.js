@@ -1017,6 +1017,7 @@ export class Game {
     const coques = ['orion', 'helios', 'vulcain'];
     const coque = coques[Math.floor(Math.random() * coques.length)];
     this.demo = true;
+    this.horlogeDemo = 0;
     this.piloteAuto.reinitialise();
     this._sansPilote(() => this.startRun('arcade', coque));
 
@@ -1039,6 +1040,10 @@ export class Game {
       { vague: 10, type: 'surface' },
       { vague: 22, type: 'anneaux' },
     ];
+    // Les ennemis plongent moins et tirent moins qu'en vraie partie. Personne ne
+    // le verra — on ne compte pas les piqués d'une vague qu'on regarde — mais ça
+    // laisse au fantôme de quoi montrer autre chose que des esquives.
+    this.routeMods = { hp: 1, fire: 0.5, dive: 0.35, credits: 1 };
     const choix = vitrines[Math.floor(Math.random() * vitrines.length)];
     let tirage = 0;
     while (
@@ -2600,14 +2605,27 @@ export class Game {
     // avance comme pour un humain. L'état reste `title`, sinon le menu
     // disparaîtrait — c'est un fond, pas une partie qu'on aurait lancée.
     if (this.demo) {
-      // Le test de relance est AVANT le bloc de jeu, et pas dedans : une vague
-      // nettoyée fait passer l'état à « boutique », après quoi la condition
-      // d'entrée n'était plus vraie et la démonstration se figeait sur un hangar
-      // que personne ne regardait.
-      if (this.state !== 'title' || !this.player.alive) {
-        this._relanceDemo();
-        return;
+      // LA VITRINE NE S'ARRÊTE PAS À LA FIN D'UNE VAGUE.
+      //
+      // Le fantôme, équipé comme il l'est, nettoie un tableau en dix secondes :
+      // mesuré, la démonstration mourait de SUCCÈS et repartait sans arrêt, alors
+      // qu'on lui demande de tenir une bonne minute. Une vague nettoyée enchaîne
+      // donc sur la suivante, sans saut ni hangar — un spectateur n'a que faire
+      // d'un écran de boutique. On ne rebat les cartes (autre coque, autre
+      // tableau) qu'au bout d'une minute et demie.
+      if (this.state !== 'title') {
+        if (this.player.alive && this.horlogeDemo < 90) {
+          this.shop.close();
+          this.state = 'title';
+          this.routeMods = { hp: 1, fire: 0.5, dive: 0.35, credits: 1 };
+          this.startWave(this.wave + 1);
+          this.state = 'title';
+        } else {
+          this._relanceDemo();
+          return;
+        }
       }
+      this.horlogeDemo = (this.horlogeDemo || 0) + dt;
       dt = dtDepuis(quantifieDt(dt));
       this.piloteAuto.update(dt, this);
       this._updatePlaying(dt);
@@ -3123,6 +3141,28 @@ export class Game {
   // Mourir coûte désormais six choses lisibles au lieu d'une : la vie, le combo,
   // toute l'énergie, l'Overdrive en cours, le bouclier et la prime de vague.
   _playerHit() {
+    // LE FANTÔME S'EN SORT TOUJOURS, ET C'EST ASSUMÉ.
+    //
+    // J'ai d'abord essayé de le faire jouer assez bien pour tenir la minute
+    // demandée : anticipation des trajectoires, évaluation de vingt et une
+    // positions, pénalisation du trajet, recul en profondeur. Chaque version a
+    // gagné quelques secondes, aucune n'a passé la barre — mesuré, il tenait
+    // entre quatre et trente-trois secondes selon la vague, sans régularité.
+    // Écrire une IA qui survit vraiment à une vague 13 est un projet en soi, et
+    // ce n'est pas ce qu'on demande à un écran d'accueil.
+    //
+    // Alors il esquive AU DERNIER MOMENT. Le coup qui devait le toucher déclenche
+    // une pirouette et une invulnérabilité brève : on voit un pilote qui s'en
+    // sort de justesse, ce qui est plus beau qu'un pilote qui ne risque rien — et
+    // c'est exactement ce que faisaient les bornes d'arcade, qui ne jouaient pas
+    // non plus. Rien de tout cela n'existe en partie réelle.
+    if (this.demo) {
+      if (!this.player.rolling) this.player.startRoll?.(this.player.position.x > 0 ? -1 : 1);
+      this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.9);
+      this.fx.burst(this.player.position, 0x8ffbff, { count: 8, speed: 9, life: 0.3 });
+      return;
+    }
+
     const result = this.player.takeHit(this);
     if (result === 'shield') {
       this.characters.onShieldLost();
