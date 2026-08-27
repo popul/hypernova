@@ -391,6 +391,7 @@ export class Game {
   // enchaîne directement sur la première vague. Depuis « Histoire », elle revient
   // au titre — sinon rejouer l'intro lancerait une partie non désirée.
   playCinematic({ handoff = false } = {}) {
+    this.quitteVitrine();
     this.state = 'cinematic';
     this.audio.setMode('cinematic');
     this.hud.root.classList.add('hidden');
@@ -887,6 +888,9 @@ export class Game {
   }
 
   async _lanceRejeu(id) {
+    // La vitrine tourne encore quand on clique une ligne du panthéon depuis le
+    // menu : sans ça, `update` prendrait sa branche à elle avant celle du rejeu.
+    this.quitteVitrine();
     // Une ligne du classement ne porte qu'un marqueur : l'enregistrement lui-même
     // ne se télécharge qu'au moment où on le demande. Charger douze replays pour
     // en regarder un seul serait payer douze fois trop.
@@ -1143,6 +1147,47 @@ export class Game {
     reveille();
   }
 
+  // QUITTER LA VITRINE. TOUT CE QUI PART DU MENU PASSE PAR ICI.
+  //
+  // La partie de fond force `state` à `title` à chaque image — c'est ce qui
+  // empêche le menu de disparaître quand la simulation passe en vague ou en
+  // boutique. Mais elle ne sait pas distinguer un changement d'état qu'elle a
+  // provoqué d'un changement VOULU par le joueur : quiconque quittait l'écran
+  // d'accueil se faisait ramener au titre à l'image suivante, avec le fantôme
+  // toujours aux commandes.
+  //
+  // C'était visible sur « Histoire » — la cinématique ne démarrait jamais, on
+  // continuait de regarder la vitrine — et ça valait tout autant pour le choix
+  // du pilote et pour la relecture d'une partie du panthéon. Trois écrans, un
+  // seul défaut : le premier avait été rafistolé sur place, ce qui a masqué les
+  // deux autres. La sortie est donc une seule porte, et chaque écran l'emprunte.
+  quitteVitrine() {
+    // `_demoForce` signale que c'est la vitrine elle-même qui appelle `startRun` :
+    // elle ne doit pas se couper en s'installant.
+    if (!this.demo || this._demoForce) return;
+    this.arreteDemo();
+    this._arreteVeille?.();
+    this._arreteVeille = null;
+    // Ce qu'elle laisse derrière : des ennemis figés en l'air, des balles
+    // suspendues et une bourse pleine ne racontent rien sur l'écran suivant.
+    this.shop.close();
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.missiles.clear();
+    this.pickups.clear();
+    this.modules.clear();
+    this.enemies.clear();
+    this.colosse?.annule();
+    this.soutien?.annule();
+    this.aura?.clear();
+    this.arrivee?.annule();
+    for (const a of Object.values(this.armes)) a.clear();
+    this.characters.taisToi();
+    this.characters.muet = false;
+    this.player.reset();
+    this.hud.root.classList.add('hidden');
+  }
+
   arreteDemo() {
     if (!this.demo) return;
     this.demo = false;
@@ -1235,6 +1280,7 @@ export class Game {
   // les pilotes vivent sur le serveur, donc on y retrouve les copains qui jouent
   // depuis LEUR téléphone. C'était tout l'intérêt de sortir du localStorage.
   async showPilotSelect(onDone = null) {
+    this.quitteVitrine();
     this.state = 'pilots';
     this.hud.root.classList.add('hidden');
     const done = () => {
@@ -1741,25 +1787,7 @@ export class Game {
   showChoixCoque(mode, onDone) {
     this.state = 'coques';
     this.hud.root.classList.add('hidden');
-    // LA PARTIE DE L'ÉCRAN D'ACCUEIL S'ARRÊTE ICI.
-    //
-    // Elle continuait, et personne ne l'avait vu : `startRun` ne l'arrête
-    // qu'APRÈS le choix de coque, si bien que le pilote fantôme continuait de
-    // voler — avec le vaisseau de la vitrine, celui qu'on est en train de
-    // regarder, deux fois et demie trop gros et lancé au milieu d'une vague. Il
-    // faut la couper avant de poser quoi que ce soit sur cette scène, et vider
-    // ce qu'elle laisse : des ennemis figés en l'air ne racontent rien.
-    this.arreteDemo();
-    this._arreteVeille?.();
-    this._arreteVeille = null;
-    this.bullets.clear();
-    this.enemyBullets.clear();
-    this.missiles.clear();
-    this.pickups.clear();
-    this.modules.clear();
-    this.enemies.clear();
-    this.colosse.annule();
-    for (const a of Object.values(this.armes)) a.clear();
+    this.quitteVitrine();
     if (!this.demoArme) this.demoArme = new DemoArme(this.scene);
     const el = this._screen(`
       <div class="screen coques">
@@ -2280,7 +2308,20 @@ export class Game {
   }
 
   _takeRoute(choix, stageIdx) {
-    this.hud.root.classList.remove('hidden');
+    // ON NE CHOISIT QU'UNE FOIS.
+    //
+    // `openShop` AJOUTE son panneau à l'overlay au lieu de le remplacer : après
+    // avoir pris l'argent, l'écran de trajectoire restait donc dans le document,
+    // sous le hangar, ses deux cartes toujours branchées. Un clic sur l'autre
+    // carte rejouait tout — le joueur empochait l'argent ET partait chercher le
+    // fragment, et le vidage d'overlay du second passage détachait au passage le
+    // panneau de hangar que la boutique croyait encore tenir.
+    //
+    // Deux verrous plutôt qu'un : l'état, parce qu'un choix de trajectoire n'a de
+    // sens que tant qu'on est sur cet écran-là ; et l'overlay, parce qu'un écran
+    // qu'on a quitté n'a rien à faire dans le document.
+    if (this.state !== 'route') return;
+    this.overlayRoot.innerHTML = '';
     // Le détour dépose le vaisseau dans un lieu, et un niveau BIS s'y joue — une
     // vague en plus, portant le même numéro que celle qui viendra après. Le
     // tirage sort de la GRAINE, jamais d'un hasard vif : deux parties de même
@@ -2307,7 +2348,6 @@ export class Game {
     // niveau entier à survivre, et c'est ce qui en fait un pari.
     this.bis = !!this.escale;
 
-    this.overlayRoot.innerHTML = '';
     this.state = 'cinematic';
     const suite = () => (this.escale ? this._entreEscale() : this.openShop());
     if (!this.cinematic.playSouvenir(stageIdx, suite)) suite();
@@ -2322,6 +2362,8 @@ export class Game {
       : null;
     if (!lieu) return this.openShop();
     this.stage.space?.setBiome(lieu, { instant: true });
+    this.hud.root.classList.add('hidden');
+    this.characters.hide();
     this.hud.announce(lieu.name, lieu.sub, 2600);
     this.state = 'arrivee';
     const lance = this.arrivee.start({
@@ -2410,6 +2452,11 @@ export class Game {
 
   openShop() {
     if (this.rejeu) return;
+    // Le HUD revient ICI, et pas au choix de trajectoire. Il s'y rallumait, et le
+    // voyage vers l'escale se jouait donc derrière un score, des crédits, un
+    // numéro de vague et les boutons tactiles — pour un plan de trois secondes
+    // dont tout l'intérêt est qu'on ne voie que le vaisseau et le lieu.
+    this.hud.root.classList.remove('hidden');
     this.state = 'shop';
     this.audio.setMode('shop');
     // Purge les projectiles en vol : sinon ils restent gelés pendant la boutique
@@ -2713,8 +2760,10 @@ export class Game {
   // ---- Boucle ----
 
   update(dt) {
-    // Hors combat, rien ne gêne : la parole est libre.
-    if (this.state !== 'playing') this.characters.setCalme(true);
+    // Hors combat, rien ne gêne : la parole est libre. Sauf pendant l'arrivée en
+    // escale, qui est un PLAN de trois secondes : une fenêtre de comm posée
+    // dessus le réduit à un fond d'écran derrière un dialogue de boutique.
+    if (this.state !== 'playing') this.characters.setCalme(this.state !== 'arrivee');
 
     // LA DÉMONSTRATION DE L'ÉCRAN D'ACCUEIL. On fait tourner une vraie partie
     // sous le menu : le pilote fantôme pousse des touches, et la simulation
