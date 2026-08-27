@@ -27,6 +27,8 @@ import {
 import { Jump } from './jump.js';
 import { biomeForWave, durcisPourBoss, stageForWave, STAGES } from './space/biomes.js';
 import { A_UNE_ESCALE, escalePourSecteur } from './space/escales.js';
+import { SoutienAerien } from './soutien.js';
+import { ArriveeEscale } from './escale-arrivee.js';
 import {
   routesForStage,
   palierDeCoque,
@@ -119,6 +121,12 @@ export class Game {
       helios: new ArmeHelios(scene),
       vulcain: new ArmeVulcain(scene),
     };
+    // Le bombardement en escadrille : la bombe lâchée EN PLEINE FURIE n'est plus
+    // une bombe, c'est un appel aux deux autres coques.
+    this.soutien = new SoutienAerien(scene);
+    // L'arrivée dans une escale. Le décor basculait en fondu et on se retrouvait
+    // ailleurs sans avoir voyagé — or c'est un DÉTOUR : il faut le voir se faire.
+    this.arrivee = new ArriveeEscale(scene, camera);
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
     this.shop = new Shop(overlayRoot, {
@@ -565,6 +573,12 @@ export class Game {
     this.hud.setEnergy(this.energy / OVERDRIVE.max);
     this.bombCooldown = OVERDRIVE.bombCooldown;
 
+    // EN PLEINE FURIE, LA BOMBE APPELLE LES AUTRES. Les deux coques qu'on n'a pas
+    // choisies arrivent, bombardent avec nous, et repartent. Le vaisseau s'élève
+    // pendant ce temps — c'est ce qui rend son invulnérabilité lisible sans qu'on
+    // ait à l'écrire nulle part.
+    if (this.odTimer > 0 && this._lanceSoutien()) return;
+
     // N'efface que les tirs PROCHES : la menace lointaine reste à gérer.
     const rr = OVERDRIVE.bombRadius * OVERDRIVE.bombRadius;
     this.enemyBullets.forEachActive((b) => {
@@ -589,6 +603,47 @@ export class Game {
     this.fx.hitStop(0.12);
     this.audio.explosionBig();
     this.hud.announce('NOVA BOMB', '', 900);
+  }
+
+  // Le soutien aérien. Les dégâts restent ICI, jamais dans le module d'animation :
+  // une seule simulation à un seul endroit, sinon le rejeu n'est plus vérifiable.
+  _lanceSoutien() {
+    const deja = new Set();
+    const ok = this.soutien.start({
+      game: this,
+      coqueJoueur: this.coque,
+      onImpact: (pos, rayon) => {
+        // UN ENNEMI NE PREND QU'UNE FOIS. Les vingt-deux impacts se recouvrent —
+        // un ennemi se trouve dans le rayon de trois d'entre eux en moyenne — et
+        // appliquer les dégâts à chaque fois donnerait le triple d'une bombe pour
+        // le même bouton. On garde le premier souffle qui l'atteint ; le reste
+        // n'est que du spectacle.
+        const r2 = rayon * rayon;
+        for (const e of this.enemies.list) {
+          if (!e.alive || deja.has(e)) continue;
+          if (e.group.position.distanceToSquared(pos) > r2) continue;
+          deja.add(e);
+          const d = e.type === 'boss' ? OVERDRIVE.bombBossDamage : OVERDRIVE.bombDamage;
+          if (this.enemies.damage(e, d, this)) this._onEnemyKilled(e, 'bomb');
+        }
+        // Les projectiles pris dans le souffle disparaissent aussi : un tapis de
+        // bombes qui laisserait passer les balles serait incompréhensible.
+        this.enemyBullets.forEachActive((b) => {
+          if (b.mesh.position.distanceToSquared(pos) > r2) return;
+          this.fx.burst(b.mesh.position, 0xff3df0, { count: 2, speed: 4, life: 0.25 });
+          this.enemyBullets.kill(b);
+        });
+      },
+      onDone: () => {
+        this._soutienEnCours = false;
+      },
+    });
+    if (!ok) return false;
+    this._soutienEnCours = true;
+    for (const e of this.enemies.list) {
+      if (e.alive && e.state === 'diving') e.state = 'returning';
+    }
+    return true;
   }
 
   _tryOverdrive() {
@@ -1500,6 +1555,7 @@ export class Game {
     this.mode = mode === 'survie' ? 'survie' : 'arcade';
 
     this.shop.close();
+    this.shop.reinitialise();
     this.overlayRoot.innerHTML = '';
     this.hud.root.classList.remove('hidden');
 
@@ -1612,6 +1668,9 @@ export class Game {
     this.bullets.clear();
     this.enemyBullets.clear();
     this.missiles.clear();
+    for (const a of Object.values(this.armes)) a.clear();
+    this.soutien?.annule();
+    this.arrivee?.annule();
     if (!this.rejeu) this.enregistreur.ouvreVague(this._instantane());
     this.state = 'playing';
     this.audio.setMode('play');
@@ -1683,6 +1742,10 @@ export class Game {
     this.enemyBullets.clear();
     this.bullets.clear();
     this.missiles.clear();
+    // Les armes aussi : sans ça, le rayon d'HÉLIOS et les charges de VULCAIN
+    // traversaient le saut, la boutique et l'écran de trajectoire — le combat
+    // était fini depuis longtemps, l'arme tirait encore.
+    for (const a of Object.values(this.armes)) a.clear();
     this.fx.cancelSlowmo();
     this.jump.start({
       dialogue,
@@ -1865,6 +1928,7 @@ export class Game {
     this.overlayRoot.innerHTML = '';
     this.state = 'cinematic';
     const suite = () => {
+      if (this.escale) return arrive();
       this.openShop();
       // LE DÉCOR BASCULE ICI, et pas avant : le saut a déjà eu lieu quand on
       // choisit sa route, donc l'escale arriverait une vague trop tard si on
@@ -1877,6 +1941,27 @@ export class Game {
       if (!lieu) return;
       this.stage.space?.setBiome(lieu);
       this.hud.announce(lieu.name, lieu.sub, 2600);
+    };
+    // On y ENTRE, on n'y apparaît pas. L'animation prend la main sur la caméra le
+    // temps de l'approche, puis la boutique s'ouvre — sur place.
+    const arrive = () => {
+      const lieu = this.escale
+        ? escalePourSecteur(stageForWave(this.escale.vague), this.escale.tirage)
+        : null;
+      if (!lieu) return this.openShop();
+      this.stage.space?.setBiome(lieu, { instant: true });
+      this.hud.announce(lieu.name, lieu.sub, 2600);
+      this.state = 'arrivee';
+      const lance = this.arrivee.start({
+        type: lieu.escale,
+        teinte: lieu.landmark?.[0]?.teinte,
+        ship: this.player.group,
+        onDone: () => {
+          this.cameraOverride = null;
+          this.openShop();
+        },
+      });
+      if (!lance) this.openShop();
     };
     if (!this.cinematic.playSouvenir(stageIdx, suite)) suite();
   }
@@ -2094,7 +2179,6 @@ export class Game {
     this.levels = { ...etat.niveaux };
     this.coque = etat.coque || 'orion';
     for (const a of Object.values(this.armes)) a.clear();
-    this.armes[this.coque]?.restaure?.(etat.arme);
     this.surcharge = etat.surcharge || 0;
     this.stats = computeStats(this.levels, this.surcharge);
     this.score = etat.score || 0;
@@ -2129,6 +2213,11 @@ export class Game {
     this.hud.setScore(this.score);
     this.hud.setEnergy(this.energy / OVERDRIVE.max);
     this.startWave(etat.w);
+    // APRÈS `startWave`, et l'ordre n'est pas négociable : la vague commence par
+    // purger les armes, comme elle purge les projectiles. Restaurer avant
+    // reviendrait à tout effacer juste après — une charge en vol au changement de
+    // vague manquerait, et le rejeu divergerait à la première détonation.
+    this.armes[this.coque]?.restaure?.(etat.arme);
   }
 
   // Lance la relecture d'une partie enregistrée.
@@ -2222,6 +2311,15 @@ export class Game {
       this.cameraOverride = this.cinematic.update(dt, this.camera);
       return;
     }
+
+    // L'arrivée en escale tient la caméra de la même façon que la cinématique :
+    // `main.js` repose le cadrage à chaque image, et seul `cameraOverride` le
+    // laisse tranquille. Écrire dans la caméra depuis le module ne servirait à
+    // rien — c'est le piège que ce branchement évite.
+    if (this.state === 'arrivee') {
+      this.cameraOverride = this.arrivee.update(dt);
+      return;
+    }
     this.cameraOverride = null;
 
     // Le saut avance avec le temps RÉEL : une transition d'interface ne doit pas
@@ -2285,8 +2383,28 @@ export class Game {
     this._updateBombFront(dt);
 
     this.player.update(dt, this);
+    if (this.soutien.actif) {
+      this.soutien.update(dt, this);
+      // L'invulnérabilité est reposée à chaque image plutôt que fixée une fois :
+      // un coup encaissé juste avant l'appel pourrait sinon la faire expirer au
+      // milieu du bombardement, pendant que le vaisseau est en l'air et que le
+      // joueur n'a plus la main.
+      this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.4);
+    }
     const arme = this.armes[this.coque];
-    if (arme && this.player.alive) arme.update(dt, this);
+    if (arme) {
+      if (this.player.alive) arme.update(dt, this);
+      else if (!this._armeCoupee) {
+        // LE VAISSEAU EST DÉTRUIT, L'ARME AUSSI. `update` ne tourne plus quand le
+        // joueur est mort — et c'était tout le problème : une arme qui n'est plus
+        // mise à jour ne s'efface pas, elle se FIGE. Le rayon d'HÉLIOS restait
+        // donc tendu en travers de l'écran par-dessus l'explosion, jusqu'au
+        // réapparition. Il faut le couper explicitement, une seule fois.
+        arme.clear();
+        this._armeCoupee = true;
+      }
+    }
+    if (this.player.alive) this._armeCoupee = false;
     this.enemies.update(dt, this);
     this.bullets.update(dt);
     this.enemyBullets.update(dt, odActive ? OVERDRIVE.odBulletSlow : 1);
