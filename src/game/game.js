@@ -1950,7 +1950,6 @@ export class Game {
     this.waveEndTimer = 0;
     // Les premières secondes d'une vague : les ennemis entrent encore en formation,
     // personne ne tire. C'est le meilleur moment pour dire quelque chose.
-    this.repit = 3.5;
     this.waveBonusGiven = false;
     this.waveGrazes = 0;
     this.energy = 0;
@@ -2022,14 +2021,25 @@ export class Game {
       seed: this.seed,
       pilote: activePilot()?.name || null,
     });
-    this.startWave(1);
     // LE MODE SURVIE N'A PAS D'HISTOIRE. Pas de KORN, pas de souvenirs, pas de
     // dialogues : cent vagues d'affilée, et rien qui s'interpose. Le récit vit en
     // arcade, où l'on prend le temps de sauter d'un secteur à l'autre.
+    //
+    // LA VITRINE NON PLUS NE PARLE PAS. La partie qui tourne derrière le menu
+    // ouvrait une fenêtre de comm par-dessus elle-même : c'est une bande-annonce,
+    // et une bande-annonce ne se commente pas.
     this.hud.setModeSurvie(this.mode === 'survie');
-    this.characters.muet = this.mode === 'survie';
-    if (this.characters.muet) this.characters.hide();
+    this.characters.muet = this.mode === 'survie' || this.demo;
+    if (this.characters.muet) this.characters.taisToi();
     else this.characters.onRunStart(false);
+    this.startWave(1);
+    // LA RÉPLIQUE D'OUVERTURE ARRIVE AU PREMIER HANGAR, PAS SUR LA VAGUE 1.
+    //
+    // Il n'existe aucun moment calme entre le choix de la coque et le premier
+    // ennemi : la dire au lancement revenait à l'afficher onze secondes durant
+    // par-dessus le pilotage — mesuré — puis, une fois la fenêtre coupée à la
+    // reprise du manche, à ne plus l'afficher du tout. Elle part donc dans la
+    // file, comme le reste, et sort au premier moment où l'on ne vole pas.
   }
 
   startWave(n) {
@@ -2056,7 +2066,6 @@ export class Game {
     this.waveEndTimer = 0;
     // Les premières secondes d'une vague : les ennemis entrent encore en formation,
     // personne ne tire. C'est le meilleur moment pour dire quelque chose.
-    this.repit = 3.5;
     this.waveBonusGiven = false;
     this.waveGrazes = 0;
     this.waveDeath = false;
@@ -2828,13 +2837,17 @@ export class Game {
       this.enemies.setHeat(this.director.heat);
     }
 
-    // Les moments où l'on peut parler sans gêner : l'entrée en formation, la vague
-    // nettoyée, et le vaisseau détruit. Entre les deux, on se tait — sur petit
-    // écran du moins, où le panneau recouvre l'aire de pilotage.
-    if (this.repit > 0) this.repit -= dt;
-    this.characters.setCalme(
-      this.repit > 0 || !this.player.alive || this.enemies.waveCleared() || this.paused
-    );
+    // ON SE TAIT TANT QUE LE JOUEUR PILOTE.
+    //
+    // Trois portes étaient ouvertes : l'entrée en formation, la vague nettoyée et
+    // le vaisseau détruit. Les deux premières laissaient parler PENDANT qu'on
+    // vole — on ne se fait pas tirer dessus, mais le panneau prend quand même le
+    // quart bas de l'écran, celui où l'on manœuvre. Il ne reste donc que les
+    // moments où le manche ne répond plus : coque détruite, ou partie en pause.
+    // Tout le reste — hangar, saut, escale, cinématique, fin de partie — passe
+    // par l'autre branche, celle qui ouvre la parole dès que l'état n'est plus
+    // « playing ».
+    this.characters.setCalme(!this.player.alive || this.paused);
 
     this.timeScale = this.cmd.echelle;
     this._updateCall(dt);

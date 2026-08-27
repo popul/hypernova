@@ -233,17 +233,22 @@ export class Characters {
     this.nameEl = this.el.querySelector('#comm-name');
     this.textEl = this.el.querySelector('#comm-text');
     this.lastShown = -Infinity;
-    // Un écran étroit n'a pas la place d'afficher un dialogue par-dessus l'action.
-    // La règle se réévalue à la rotation : un téléphone tourné en paysage garde le
-    // même problème, un iPad ne l'a jamais eu.
-    this._mq = window.matchMedia('(max-width: 900px), (max-height: 520px)');
-    this.exigeCalme = this._mq.matches;
-    this._mq.addEventListener?.('change', (e) => {
-      this.exigeCalme = e.matches;
-    });
+    // ON NE PARLE JAMAIS PENDANT QU'ON PILOTE.
+    //
+    // La règle ne valait que pour les écrans étroits : ailleurs, NOVA commentait
+    // par-dessus l'action. Mais le reproche n'était pas une affaire de largeur —
+    // c'est de la PLACE PRISE SUR LE JEU qu'il s'agissait, et un panneau de
+    // dialogue en prend autant sur un grand écran. Il n'y a d'ailleurs aucun
+    // moment où l'on souhaite lire quatre lignes de récit en esquivant.
+    //
+    // Le jeu dit à chaque image si l'on tient encore le manche ; tout ce qui
+    // voudrait se dire avant attend le prochain écran.
     this.calme = true;
     this.muet = false;
-    this._enAttente = null;
+    // Ce qui n'a pas pu être dit. Trois au plus, et une seule sortie à chaque
+    // retour au calme : trois répliques qui se déversent d'un coup à la fin d'une
+    // vague seraient pires que le silence.
+    this.file = [];
     this.hideTimer = null;
     this.talkTimer = null;
 
@@ -262,19 +267,39 @@ export class Characters {
   setCalme(v) {
     if (this.calme === v) return;
     this.calme = v;
-    if (!v || !this._enAttente) return;
-    const { text, opts } = this._enAttente;
-    this._enAttente = null;
-    this.sayText(text, opts);
+    // LE MANCHE REPREND, LA FENÊTRE SE FERME.
+    //
+    // Ne pas OUVRIR pendant qu'on pilote ne suffisait pas : une réplique lancée
+    // juste avant la vague continuait de s'afficher onze secondes après le début
+    // des hostilités, puisque sa durée d'affichage est calculée sur le temps de
+    // lecture. Refuser d'ouvrir et laisser traîner ce qui était déjà ouvert
+    // revenait au même pour le joueur, qui voyait un panneau sur son aire de vol.
+    if (!v) this.hide();
+    // Ce qui attendait sort tout seul, une réplique à la fois : c'est `update`
+    // qui s'en charge, quand la précédente a eu le temps d'être lue.
   }
 
   // Appelé chaque frame par la boucle de rendu.
   update(dt) {
     this.rigs.nova.update(dt);
     this.rigs.korn.update(dt);
+    // LA FILE SE VIDE AU CALME, UNE RÉPLIQUE À LA FOIS.
+    //
+    // Le hangar dure une bonne dizaine de secondes : il a la place pour deux ou
+    // trois phrases, à condition de les enchaîner au rythme de la lecture et non
+    // de les jeter d'un bloc. On attend donc que la précédente ait fini d'être
+    // lisible — et qu'aucun échange scénarisé ne soit en cours, celui-là ayant
+    // son propre minutage.
+    if (this.calme && !this.muet && this.file.length && !this.isBusy() && !this.inExchange()) {
+      const { text, opts } = this.file.shift();
+      this.sayText(text, opts);
+    }
   }
 
-  sayText(text, { speaker = 'nova', priority = false, emotion = null, duration = null } = {}) {
+  sayText(
+    text,
+    { speaker = 'nova', priority = false, emotion = null, duration = null, ephemere = false } = {}
+  ) {
     // Typographie française : l'espace qui précède deux-points, point-virgule,
     // point d'exclamation ou d'interrogation doit être INSÉCABLE. Sans elle, la
     // ponctuation tombe seule en début de ligne — « …te jeter / : les tirs te
@@ -296,8 +321,14 @@ export class Characters {
     // raconter, et un dialogue qui s'ouvre entre deux vagues enchaînées serait une
     // gêne pure.
     if (this.muet) return;
-    if (this.exigeCalme && !this.calme) {
-      this._enAttente = { text, opts: { speaker, priority, emotion, duration } };
+    if (!this.calme) {
+      // UNE RÉPLIQUE PÉRISSABLE NE SE MET PAS DE CÔTÉ. « Trois en piqué, axe
+      // court » prévient d'une chose qui arrive maintenant : la ressortir au
+      // hangar deux minutes plus tard ne prévient de rien et occupe la place
+      // d'une réplique qui, elle, aurait encore un sens.
+      if (ephemere) return;
+      if (this.file.length >= 3) this.file.shift();
+      this.file.push({ text, opts: { speaker, priority, emotion, duration } });
       return;
     }
     const now = performance.now();
@@ -396,22 +427,30 @@ export class Characters {
     this.el.classList.remove('visible');
   }
 
+  // Fermer le canal ET oublier ce qui attendait. Sans le second, une réplique
+  // gardée d'une partie précédente ressortirait au premier calme de la suivante —
+  // typiquement par-dessus la vitrine de l'écran d'accueil.
+  taisToi() {
+    this.hide();
+    this.file.length = 0;
+  }
+
   // Hooks sémantiques appelés par le jeu.
   onRunStart(survie) {
     this.say(survie ? 'missionStart' : 'runStart', { priority: true });
   }
 
   onComboUp(mult) {
-    if (mult >= 5) this.say('combo5');
-    else if (mult >= 3) this.say('combo3');
+    if (mult >= 5) this.say('combo5', { ephemere: true });
+    else if (mult >= 3) this.say('combo3', { ephemere: true });
   }
 
   onDive() {
-    this.say('dive');
+    this.say('dive', { ephemere: true });
   }
 
   onShieldLost() {
-    this.say('shieldLost');
+    this.say('shieldLost', { ephemere: true });
   }
 
   onLifeLost() {
