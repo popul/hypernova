@@ -6,3 +6,4 @@ dist/
 
 # La salle d'écoute se construit à la demande : son bundle n'a rien à faire ici.
 dist-ecoute/
+dist-fiches/

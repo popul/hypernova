@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Les trois coques</title>
+    <style>
+      /* Une planche de constructeur.
+         La 3D occupe tout, et l'écriture se pose DESSUS — pas à côté. C'est le
+         parti pris : ce qu'on est venu voir, c'est l'arme qui tire ; le texte
+         n'est là que pour dire où regarder. D'où le nom en très grand et très
+         maigre en haut, la fiche en colonne étroite en bas à gauche, et rien au
+         milieu. */
+      :root {
+        --nuit: #05040f;
+        --cyan: #6fe8ff;
+        --or: #f5c457;
+        --rose: #ff7bd5;
+        --texte: #dce8f7;
+        --gris: #7d8ba3;
+        --voile: rgba(5, 6, 16, 0.72);
+        --trait: rgba(111, 232, 255, 0.22);
+        --display: 'Futura', 'Avenir Next', 'Century Gothic', sans-serif;
+        --corps: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+        --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--nuit);
+        color: var(--texte);
+        font-family: var(--corps);
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      #scene {
+        position: fixed;
+        inset: 0;
+        touch-action: pan-y;
+      }
+
+      #scene canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Deux voiles, en haut et en bas : sans eux, le texte blanc se pose sur des
+         explosions blanches. Ils s'arrêtent avant le centre, là où l'action a
+         lieu. */
+      .voile {
+        position: fixed;
+        left: 0;
+        right: 0;
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .voile.haut {
+        top: 0;
+        height: 30vh;
+        background: linear-gradient(180deg, rgba(5, 4, 15, 0.9), transparent);
+      }
+
+      .voile.bas {
+        bottom: 0;
+        height: 46vh;
+        background: linear-gradient(0deg, rgba(5, 4, 15, 0.94) 30%, transparent);
+      }
+
+      .couche {
+        position: fixed;
+        z-index: 2;
+        pointer-events: none;
+      }
+
+      .couche > * {
+        pointer-events: auto;
+      }
+
+      /* ---- Le nom ---- */
+
+      .tete {
+        top: max(20px, env(safe-area-inset-top));
+        left: max(22px, env(safe-area-inset-left));
+        right: max(22px, env(safe-area-inset-right));
+      }
+
+      .surtitre {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.42em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        opacity: 0.7;
+      }
+
+      #nom {
+        margin: 2px 0 0;
+        font-family: var(--display);
+        font-weight: 300;
+        font-size: clamp(42px, 10vw, 96px);
+        line-height: 0.92;
+        letter-spacing: 0.06em;
+        color: #fff;
+        text-shadow: 0 0 40px rgba(111, 232, 255, 0.3);
+      }
+
+      #nom.entre {
+        animation: entre 0.45s cubic-bezier(0.2, 0.9, 0.3, 1);
+      }
+
+      @keyframes entre {
+        from {
+          opacity: 0;
+          transform: translateX(-14px);
+        }
+      }
+
+      #titre {
+        margin: 4px 0 0;
+        font-family: var(--display);
+        font-size: clamp(12px, 2.6vw, 15px);
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--or);
+      }
+
+      /* ---- La fiche ---- */
+
+      .fiche {
+        bottom: max(78px, calc(env(safe-area-inset-bottom) + 78px));
+        left: max(22px, env(safe-area-inset-left));
+        width: min(430px, calc(100vw - 44px));
+      }
+
+      #phrase {
+        margin: 0 0 14px;
+        font-size: clamp(15px, 3.4vw, 19px);
+        font-style: italic;
+        line-height: 1.4;
+        color: var(--or);
+      }
+
+      .rubrique {
+        margin-bottom: 12px;
+        padding-left: 12px;
+        border-left: 2px solid var(--trait);
+      }
+
+      .rubrique h2 {
+        margin: 0 0 3px;
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        font-weight: 400;
+      }
+
+      .rubrique p {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.45;
+        color: var(--texte);
+      }
+
+      .rubrique p.sourd {
+        color: var(--gris);
+        font-size: 13px;
+      }
+
+      #jauge-nom {
+        color: var(--rose);
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.16em;
+      }
+
+      /* ---- Les chiffres mesurés ---- */
+
+      #chiffres {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0;
+        margin: 14px 0 0;
+        border-top: 1px solid var(--trait);
+        padding-top: 10px;
+      }
+
+      .chiffre dt {
+        font-family: var(--mono);
+        font-size: 9.5px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--gris);
+      }
+
+      .chiffre dd {
+        margin: 2px 0 0;
+        font-family: var(--mono);
+        font-size: 15px;
+        color: var(--texte);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ---- Les onglets ---- */
+
+      .barre {
+        bottom: max(16px, env(safe-area-inset-bottom));
+        left: max(22px, env(safe-area-inset-left));
+        right: max(22px, env(safe-area-inset-right));
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .onglet {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 9px 16px;
+        background: var(--voile);
+        border: 1px solid var(--trait);
+        border-radius: 2px;
+        color: var(--gris);
+        font-family: var(--display);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition:
+          color 0.2s,
+          border-color 0.2s,
+          background 0.2s;
+      }
+
+      .onglet:hover {
+        color: var(--texte);
+        border-color: var(--cyan);
+      }
+
+      .onglet.actif {
+        color: var(--nuit);
+        background: var(--cyan);
+        border-color: var(--cyan);
+      }
+
+      .onglet-num {
+        font-family: var(--mono);
+        font-size: 10px;
+        opacity: 0.65;
+      }
+
+      .aide {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        color: var(--gris);
+        opacity: 0.75;
+      }
+
+      @media (max-width: 620px) {
+        .fiche {
+          bottom: max(124px, calc(env(safe-area-inset-bottom) + 124px));
+        }
+
+        #chiffres {
+          grid-template-columns: repeat(4, 1fr);
+        }
+
+        .aide {
+          display: none;
+        }
+
+        .rubrique:last-of-type {
+          display: none; /* la jauge passe à la trappe : l'écran est trop court */
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #nom.entre {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="scene"></div>
+    <div class="voile haut"></div>
+    <div class="voile bas"></div>
+
+    <header class="couche tete">
+      <p class="surtitre">Hypernova · coques jouables</p>
+      <h1 id="nom">—</h1>
+      <p id="titre">—</p>
+    </header>
+
+    <section class="couche fiche">
+      <p id="phrase">—</p>
+
+      <div class="rubrique">
+        <h2>Armement</h2>
+        <p id="arme">—</p>
+      </div>
+
+      <div class="rubrique">
+        <h2>À regarder</h2>
+        <p id="regarde" class="sourd">—</p>
+      </div>
+
+      <div class="rubrique">
+        <h2>Ce qui remplit la jauge · <span id="jauge-nom">—</span></h2>
+        <p id="jauge-quoi" class="sourd">—</p>
+      </div>
+
+      <dl id="chiffres"></dl>
+    </section>
+
+    <nav class="couche barre">
+      <div id="onglets" style="display: contents"></div>
+      <span class="aide">1 · 2 · 3 ou ← →</span>
+    </nav>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
