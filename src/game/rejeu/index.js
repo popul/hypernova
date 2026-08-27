@@ -150,6 +150,43 @@ export class LecteurReplay {
     return v && v.frames ? this.frame / v.frames : 0;
   }
 
+  // Le total d'images de la partie entière, toutes vagues confondues. C'est
+  // l'échelle de la barre : une progression par vague ferait avancer le curseur
+  // à des vitesses différentes selon que la vague a duré dix secondes ou une
+  // minute, et cliquer dessus n'aurait aucun sens.
+  get totalFrames() {
+    if (this._total == null) this._total = this.vagues.reduce((n, v) => n + v.frames, 0);
+    return this._total;
+  }
+
+  // Où l'on en est dans la partie entière, de 0 à 1.
+  get avancement() {
+    const t = this.totalFrames;
+    if (!t) return 0;
+    let avant = 0;
+    for (let i = 0; i < this.index; i++) avant += this.vagues[i].frames;
+    return Math.min(1, (avant + this.frame) / t);
+  }
+
+  // POUR ALLER QUELQUE PART. On ne peut pas sauter dans un enregistrement de
+  // commandes : il ne contient pas d'états, seulement ce que le joueur a appuyé.
+  // La seule façon d'atteindre une image est donc de repartir du dernier
+  // INSTANTANÉ qui la précède — le début de sa vague — et de rejouer la
+  // simulation jusque-là. C'est à l'appelant de le faire, image par image ; on lui
+  // rend ici l'instantané où se poser et le nombre d'images à repasser.
+  prepareSaut(fraction) {
+    const cible = Math.max(0, Math.min(1, fraction)) * this.totalFrames;
+    let avant = 0;
+    for (let i = 0; i < this.vagues.length; i++) {
+      const fin = avant + this.vagues[i].frames;
+      if (cible <= fin || i === this.vagues.length - 1) {
+        return { etat: this.vaVersVague(i), aRejouer: Math.max(0, Math.round(cible - avant)) };
+      }
+      avant = fin;
+    }
+    return null;
+  }
+
   // Le point de contrôle attendu à la frame courante, s'il y en a un.
   controleAttendu() {
     if (this.frame % PAS_CONTROLE !== 1) return null;

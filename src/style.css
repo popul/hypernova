@@ -2916,11 +2916,29 @@ body.touch .btn-call-touch {
   text-overflow: ellipsis;
 }
 
+/* La piste se clique pour aller quelque part dans la partie. Trois pixels de haut
+   se voient bien mais ne s'attrapent pas : on garde le trait fin et on met la
+   surface de préhension AUTOUR, en marge intérieure — quatorze pixels de haut au
+   doigt, pour un trait qui en fait toujours trois. */
 .rejeu-piste {
   flex: 1 1 90px;
-  height: 3px;
   min-width: 60px;
+  height: 3px;
   background: rgba(79, 242, 255, 0.18);
+  padding-block: 9px;
+  background-clip: content-box;
+  box-sizing: content-box;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.rejeu-piste:hover {
+  background-color: rgba(79, 242, 255, 0.34);
+}
+
+.rejeu-piste:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 4px;
 }
 
 .rejeu-piste i {

@@ -833,7 +833,10 @@ export class Game {
             partie.duree ? ` · ${duree(partie.duree)}` : ''
           }${partie.date ? ` · ${esc(dateCourte(partie.date))}` : ''}</span>
         </div>
-        <div class="rejeu-piste"><i id="rejeu-avance"></i></div>
+        <div class="rejeu-piste" id="rejeu-piste" role="slider" tabindex="0"
+             aria-label="Position dans la partie" aria-valuemin="0" aria-valuemax="100">
+          <i id="rejeu-avance"></i>
+        </div>
         <div class="rejeu-boutons">
           <button id="rejeu-pause" aria-label="Pause">⏸</button>
           <button id="rejeu-vitesse">×1</button>
@@ -860,6 +863,63 @@ export class Game {
     });
     el.querySelector('#rejeu-quitter').addEventListener('click', () => this.quitteRejeu());
     this._rejeuAvance = el.querySelector('#rejeu-avance');
+
+    // ALLER QUELQUE PART DANS LA PARTIE. Un enregistrement ne contient pas
+    // d'états : seulement ce que le joueur a appuyé, image par image. On ne peut
+    // donc pas s'y « téléporter » — la seule façon d'atteindre un instant est de
+    // repartir du dernier instantané qui le précède et de REJOUER la simulation
+    // jusque-là. C'est ce que fait `_chercheDansRejeu`, sans rien afficher.
+    const piste = el.querySelector('#rejeu-piste');
+    const vise = (ev) => {
+      const r = piste.getBoundingClientRect();
+      if (!r.width) return;
+      this._chercheDansRejeu((ev.clientX - r.left) / r.width);
+    };
+    piste.addEventListener('pointerdown', (ev) => {
+      piste.setPointerCapture?.(ev.pointerId);
+      vise(ev);
+    });
+    // On suit le doigt : sur une barre, relâcher au mauvais endroit est frustrant.
+    piste.addEventListener('pointermove', (ev) => {
+      if (ev.buttons) vise(ev);
+    });
+    piste.addEventListener('keydown', (ev) => {
+      const pas = ev.key === 'ArrowLeft' ? -0.02 : ev.key === 'ArrowRight' ? 0.02 : 0;
+      if (!pas || !this.rejeu) return;
+      ev.preventDefault();
+      this._chercheDansRejeu(this.rejeu.lecteur.avancement + pas);
+    });
+  }
+
+  // Rejouer en accéléré jusqu'à l'instant demandé, sans rien montrer ni faire
+  // entendre. Une partie complète fait quelques milliers d'images ; les repasser
+  // prend quelques dizaines de millisecondes, ce qui se ressent comme un saut.
+  _chercheDansRejeu(fraction) {
+    const r = this.rejeu;
+    if (!r || r.fini) return;
+    const saut = r.lecteur.prepareSaut(fraction);
+    if (!saut || !saut.etat) return;
+
+    // Le son est COUPÉ pendant la recherche. Sans ça, repasser mille images en
+    // trente millisecondes déclenche mille tirs et mille explosions d'un coup :
+    // ce n'est pas un bruit désagréable, c'est un mur.
+    const muetAvant = this.audio.muted;
+    if (!muetAvant) this.audio.toggleMute();
+
+    this._restaure(saut.etat);
+    for (let i = 0; i < saut.aRejouer; i++) {
+      const cmd = r.lecteur.suivante();
+      if (!cmd) break;
+      this.cmd = cmd;
+      this._updatePlaying(cmd.dt);
+    }
+
+    if (!muetAvant) this.audio.toggleMute();
+    r.acc = 0;
+    r.ecarts = 0; // les points de contrôle sautés ne sont pas des divergences
+    if (this._rejeuAvance) {
+      this._rejeuAvance.style.transform = `scaleX(${r.lecteur.avancement})`;
+    }
   }
 
   _finDeRejeu() {
@@ -2323,9 +2383,10 @@ export class Game {
       if (attendu && Math.abs(attendu[0] - this.score) > 0) r.ecarts++;
     }
     if (this._rejeuAvance) {
-      const total = r.lecteur.nbVagues || 1;
-      const part = (r.lecteur.index + r.lecteur.progression) / total;
-      this._rejeuAvance.style.transform = `scaleX(${Math.max(0, Math.min(1, part))})`;
+      // En images, pas en vagues : une partie de dix vagues dont la dernière dure
+      // trois fois plus que les autres faisait avancer le curseur par à-coups, et
+      // cliquer dessus n'aurait désigné aucun instant précis.
+      this._rejeuAvance.style.transform = `scaleX(${r.lecteur.avancement})`;
     }
   }
 
