@@ -29,7 +29,30 @@ import { INTRO, souvenirPourPalier } from './cine/sequences.js';
 
 const ANDEL_POS = new THREE.Vector3(0, -4, -150);
 const STAR_POS = new THREE.Vector3(-120, 30, -260);
-const EARTH_POS = new THREE.Vector3(0, -8, -130);
+// L'ÉCHELLE DE LA TERRE, ET POURQUOI ELLE EST SI GRANDE.
+//
+// L'épave fait QUATRE-VINGT-NEUF UNITÉS de long. Avec une Terre de rayon 40, elle
+// était donc plus longue que la planète n'est large : une station de la taille
+// d'un continent, et l'œil le voit immédiatement même sans savoir le nommer.
+//
+// On ne peut pas rétrécir l'épave : les plans sont écrits autour d'elle, en
+// coordonnées du monde, et une épave deux fois plus petite laisserait la caméra
+// cadrer du vide. C'est donc la planète qui grandit — et qui s'éloigne d'autant,
+// pour que la caméra reste dehors.
+//
+// Ce qui change à l'image n'est pas sa taille mais sa COURBURE. À 40 unités de
+// rayon vue de 145, on voyait un disque entier : la lecture est « une bille au
+// loin », et tout ce qui passe devant est énorme. À 420 vue de 440, son bord
+// traverse le cadre en arc doux — la lecture devient « on est en orbite basse »,
+// et l'épave redevient un objet posé devant. Le rapport passe de 1,1 à 0,11.
+//
+// LA BORNE HAUTE, TROUVÉE EN LA DÉPASSANT. À 420 de rayon posée à −430, la
+// surface remonte jusqu'à z = −10 et la caméra, qui descend jusqu'à −6, entrait
+// DEDANS : plus d'épave, plus d'espace, un mur bleu. La contrainte s'écrit en
+// une ligne — la surface doit rester derrière l'épave, donc `pos.z + rayon` doit
+// rester bien en deçà de −130.
+const EARTH_RADIUS = 110;
+const EARTH_POS = new THREE.Vector3(0, -40, -240);
 
 // La lumière raconte autant que la caméra. Elle est indexée sur l'AVANCEMENT de la
 // séquence (0 à 1), pas sur des secondes absolues : un souvenir de dix secondes et
@@ -157,12 +180,25 @@ export class Cinematic {
     this.worlds.group.visible = false;
 
     // Le décor de l'acte III vient du jeu, sans exception.
+    // Le Soleil était posé à −150 : dans le volume de la nouvelle Terre, donc
+    // devant elle. Il part loin derrière, avec un diamètre agrandi d'autant pour
+    // garder exactement le même disque à l'écran.
     this.sun = add(createSun());
-    this.sun.setSize(4);
-    this.sun.group.position.set(0, 30, -150);
+    this.sun.setSize(23);
+    this.sun.group.position.set(0, 170, -880);
     this.sun.group.visible = false;
 
-    this.earth = add(createPlanet({ kind: 'earth', radius: 40, pos: EARTH_POS.toArray() }));
+    // Quatre fois la résolution habituelle : à ce rayon-là, les lumières de ville
+    // d'une texture standard font deux unités de côté et se lisent comme des
+    // débris. C'est le seul endroit du jeu où l'on voit une planète d'aussi près.
+    this.earth = add(
+      createPlanet({
+        kind: 'earth',
+        radius: EARTH_RADIUS,
+        pos: EARTH_POS.toArray(),
+        detail: 4,
+      })
+    );
     this.earth.group.visible = false;
 
     this.wreck = add(createHulk({ variant: 'torn', pos: [-14, -14, -84], scale: 1.5 }));
@@ -189,11 +225,19 @@ export class Cinematic {
     this.relay.group.visible = !!v.relay;
   }
 
+  // LES ÉTOILES SONT DERRIÈRE LA TERRE, PAS DEDANS.
+  //
+  // Elles vivaient sur une coquille de 200 à 360 unités, ce qui allait tant que
+  // la planète tenait dans 40 de rayon à 130. Une Terre de 110 posée à −240
+  // occupe l'espace de −130 à −350 : la moitié des étoiles se retrouvait DEVANT
+  // elle, en pastilles crème sur les continents. On repousse la coquille
+  // au-delà, et la taille des points suit la distance pour qu'elles gardent le
+  // même calibre à l'écran.
   _buildStars() {
     const N = 900;
     const pos = new Float32Array(N * 3);
     for (let i = 0; i < N; i++) {
-      const r = 200 + Math.random() * 160;
+      const r = 620 + Math.random() * 380;
       const th = Math.random() * Math.PI * 2;
       const ph = Math.acos(2 * Math.random() - 1);
       pos[i * 3] = Math.sin(ph) * Math.cos(th) * r;
@@ -205,7 +249,7 @@ export class Cinematic {
     const pts = new THREE.Points(
       geo,
       new THREE.PointsMaterial({
-        size: 0.9,
+        size: 2.7,
         color: 0xcfe0ff,
         transparent: true,
         opacity: 0.55,

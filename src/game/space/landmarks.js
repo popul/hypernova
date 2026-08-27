@@ -64,9 +64,25 @@ const PLANETES = {
 
 // Surface planétaire : bandes bruitées, taches de continent, lumières de nuit.
 // Suffisant à cette distance, et généré une fois pour toutes.
-function surfaceTexture(recipe, seed) {
-  const w = 512;
-  const h = 256;
+// `detail` multiplie la RÉSOLUTION de la texture, pas ce qu'elle dessine.
+//
+// Une planète de rayon 30 et une de rayon 110 partageaient la même image de
+// 512 × 256 : sur la seconde, chaque texel est agrandi presque quatre fois. Les
+// lumières de ville, carrés d'un pixel et demi, devenaient des taches crème de
+// deux unités de côté — on les prenait pour des débris posés devant la Terre.
+//
+// Tout ce qui doit garder sa taille APPARENTE est donc multiplié par `detail` :
+// les bandes, les continents, la tache de Jupiter, l'écart entre deux lumières
+// d'un même amas. Une seule chose ne l'est pas, et c'est le but de l'opération :
+// le point de lumière lui-même, qui reste à un pixel et demi de canevas et
+// rétrécit donc d'autant sur la sphère.
+//
+// À `detail` = 1 le dessin est rigoureusement identique à ce qu'il était : tous
+// les facteurs valent un, et le tirage aléatoire consomme la même suite.
+function surfaceTexture(recipe, seed, detail = 1) {
+  const d = Math.max(1, Math.round(detail));
+  const w = 512 * d;
+  const h = 256 * d;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -81,14 +97,15 @@ function surfaceTexture(recipe, seed) {
   const bands = recipe.stripes ?? 22;
   for (let i = 0; i < bands; i++) {
     const y = r() * h;
-    const th = 3 + r() * (recipe.stripes ? 14 : 8);
+    const th = (3 + r() * (recipe.stripes ? 14 : 8)) * d;
     ctx.globalAlpha = 0.1 + r() * 0.24;
     ctx.fillStyle = recipe.band;
     ctx.beginPath();
     ctx.moveTo(0, y);
-    for (let x = 0; x <= w; x += 16) ctx.lineTo(x, y + Math.sin(x * 0.03 + i) * 3);
+    for (let x = 0; x <= w; x += 16 * d) ctx.lineTo(x, y + Math.sin((x / d) * 0.03 + i) * 3 * d);
     ctx.lineTo(w, y + th);
-    for (let x = w; x >= 0; x -= 16) ctx.lineTo(x, y + th + Math.sin(x * 0.03 + i) * 3);
+    for (let x = w; x >= 0; x -= 16 * d)
+      ctx.lineTo(x, y + th + Math.sin((x / d) * 0.03 + i) * 3 * d);
     ctx.closePath();
     ctx.fill();
   }
@@ -99,11 +116,11 @@ function surfaceTexture(recipe, seed) {
     ctx.fillStyle = recipe.land;
     for (let i = 0; i < 26; i++) {
       const cx = r() * w;
-      const cy = 30 + r() * (h - 60);
+      const cy = 30 * d + r() * (h - 60 * d);
       ctx.beginPath();
       for (let k = 0; k <= 12; k++) {
         const ang = (k / 12) * Math.PI * 2;
-        const rad = (10 + r() * 34) * (recipe.clouds > 0.3 ? 1 : 0.6);
+        const rad = (10 + r() * 34) * (recipe.clouds > 0.3 ? 1 : 0.6) * d;
         const px = cx + Math.cos(ang) * rad;
         const py = cy + Math.sin(ang) * rad * 0.62;
         k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
@@ -119,7 +136,7 @@ function surfaceTexture(recipe, seed) {
     ctx.globalAlpha = 0.75;
     ctx.fillStyle = '#c9553a';
     ctx.beginPath();
-    ctx.ellipse(w * 0.62, h * 0.62, 46, 22, 0, 0, Math.PI * 2);
+    ctx.ellipse(w * 0.62, h * 0.62, 46 * d, 22 * d, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -127,11 +144,13 @@ function surfaceTexture(recipe, seed) {
   if (recipe.lights) {
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#ffd9a0';
-    for (let i = 0; i < 170; i++) {
+    for (let i = 0; i < 170 * d; i++) {
       const cx = r() * w;
-      const cy = 40 + r() * (h - 80);
+      const cy = 40 * d + r() * (h - 80 * d);
       for (let k = 0; k < 5; k++) {
-        ctx.fillRect(cx + (r() - 0.5) * 22, cy + (r() - 0.5) * 14, 1.4, 1.4);
+        // Le point de lumière garde sa taille de CANEVAS : c'est ce qui le fait
+        // rétrécir sur la sphère quand la texture gagne en résolution.
+        ctx.fillRect(cx + (r() - 0.5) * 22 * d, cy + (r() - 0.5) * 14 * d, 1.4, 1.4);
       }
     }
   }
@@ -148,6 +167,8 @@ export function createPlanet({
   pos = [-34, -36, -104],
   rings = null,
   seed = 7,
+  // Une planète vue de près a besoin d'une texture plus fine — voir surfaceTexture.
+  detail = 1,
 } = {}) {
   const recipe = PLANETES[kind] || PLANETES.earth;
   const group = new THREE.Group();
@@ -155,7 +176,7 @@ export function createPlanet({
   const planet = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 44, 30),
     new THREE.MeshStandardMaterial({
-      map: surfaceTexture(recipe, seed + kind.length * 31),
+      map: surfaceTexture(recipe, seed + kind.length * 31, detail),
       roughness: 0.95,
       metalness: 0,
     })
