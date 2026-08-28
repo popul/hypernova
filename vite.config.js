@@ -70,6 +70,10 @@ export default defineConfig({
       '/api': {
         target: process.env.API_URL || 'http://localhost:8099',
         changeOrigin: true,
+        // Le salon du jeu à deux monte en WebSocket sous /api : sans ceci, le
+        // proxy de développement laisse passer les requêtes HTTP et refuse
+        // l'« upgrade », ce qui ne se voit qu'à l'exécution.
+        ws: true,
       },
     },
   },

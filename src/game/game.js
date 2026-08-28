@@ -41,6 +41,7 @@ import { ArriveeEscale } from './escale-arrivee.js';
 import { Aura } from './aura.js';
 import { PiloteAuto } from './pilote-auto.js';
 import { Colosse } from './asteroide.js';
+import { Duo } from './duo.js';
 import { DemoArme } from './demo-arme.js';
 
 // Combien de temps la carène tourne sur elle-même avant que l'arme ne parle.
@@ -1919,10 +1920,173 @@ export class Game {
   // panoplie proposée est celle qu'on aurait vraiment. Le curseur permet ensuite
   // de s'entraîner à l'envers : la vague 25 avec le vaisseau de la vague 3, pour
   // voir. C'est un mode d'essai, il n'a pas à être juste.
-  // Le salon d'attente du jeu à deux. Écrit au chantier suivant : ce bouton ne
-  // doit pas planter d'ici là, et surtout ne doit pas laisser croire qu'il marche.
+  // LE SALON D'ATTENTE.
+  //
+  // Un écran, trois états, et c'est tout : on regarde qui attend, on ouvre sa
+  // propre table, ou on est à table et le compte à rebours tourne. Pas de
+  // recherche de partie automatique — on joue avec un copain qu'on connaît, et
+  // voir son pseudo apparaître dans la liste vaut mieux qu'un appariement qui
+  // décide à votre place.
+  //
+  // Le pilote n'est pas obligatoire : le pseudo sert à s'afficher chez l'autre,
+  // pas à publier. Un enfant qui n'a pas encore de compte peut jouer avec son
+  // frère.
   showSalons(mode) {
-    this.hud.announce('Bientôt', 'Le jeu à deux est en construction', 2200);
+    this.quitteVitrine();
+    this.state = 'salons';
+    this.hud.root.classList.add('hidden');
+    this.player.group.visible = false;
+
+    const nom = activePilot()?.name || 'INVITÉ';
+    const el = this._screen(`
+      <div class="screen salons">
+        <div class="coque-haut">
+          <h2 class="shop-title">Jouer à deux</h2>
+          <div class="coque-sous">${this._sousTitreMode(mode, 'duo')}</div>
+        </div>
+        <div class="salon-etat" id="salon-etat">Connexion au serveur…</div>
+        <div class="salon-liste" id="salon-liste"></div>
+        <div class="rangee" id="salon-actes"></div>
+        <button class="btn-ghost" id="salon-back">← Retour</button>
+      </div>
+    `);
+
+    const zoneEtat = el.querySelector('#salon-etat');
+    const zoneListe = el.querySelector('#salon-liste');
+    const zoneActes = el.querySelector('#salon-actes');
+    const dit = (t) => {
+      if (el.isConnected) zoneEtat.textContent = t;
+    };
+
+    const duo = this.duo || (this.duo = new Duo());
+    // La coque choisie pour cette table. Elle voyage jusqu'à l'autre joueur :
+    // on doit savoir avec quoi il vole avant que ça commence.
+    let coque = this._entrainement?.coque || 'orion';
+
+    const peintActes = () => {
+      if (!el.isConnected) return;
+      zoneActes.innerHTML = '';
+      const coques = document.createElement('div');
+      coques.className = 'entr-coques';
+      for (const c of COQUES) {
+        const b = document.createElement('button');
+        b.className = `entr-coque${c.id === coque ? ' on' : ''}`;
+        b.innerHTML = `<b>${c.nom}</b><span>${esc(c.titre)}</span>`;
+        b.addEventListener('click', () => {
+          coque = c.id;
+          duo.choisitCoque(coque);
+          this.audio.uiTick();
+          peintActes();
+        });
+        coques.append(b);
+      }
+      zoneActes.append(coques);
+      if (duo.etat === 'hall') {
+        const ouvrir = document.createElement('button');
+        ouvrir.className = 'btn-primary';
+        ouvrir.textContent = 'Ouvrir une table';
+        ouvrir.addEventListener('click', () => {
+          this.audio.buy();
+          duo.choisitCoque(coque);
+          duo.cree();
+        });
+        zoneActes.append(ouvrir);
+      } else if (duo.etat === 'salon') {
+        const fermer = document.createElement('button');
+        fermer.className = 'btn-ghost';
+        fermer.textContent = 'Fermer ma table';
+        fermer.addEventListener('click', () => {
+          duo.quitte();
+          peintTout();
+        });
+        zoneActes.append(fermer);
+      }
+    };
+
+    const peintListe = (l) => {
+      if (!el.isConnected) return;
+      zoneListe.innerHTML = '';
+      if (duo.etat === 'salon') return;
+      if (!l?.length) {
+        const vide = document.createElement('p');
+        vide.className = 'salon-vide';
+        vide.textContent =
+          'Personne n’attend. Ouvrez une table : votre copain la verra apparaître.';
+        zoneListe.append(vide);
+        return;
+      }
+      for (const s of l) {
+        const b = document.createElement('button');
+        b.className = 'salon-ligne';
+        b.innerHTML = `<span class="salon-nom">${esc(s.nom)}</span>
+          <span class="salon-coque">${esc(coqueParId(s.coque).nom)}</span>
+          <span class="salon-go">Rejoindre →</span>`;
+        b.addEventListener('click', () => {
+          this.audio.buy();
+          duo.choisitCoque(coque);
+          duo.rejoint(s.id);
+        });
+        zoneListe.append(b);
+      }
+    };
+
+    const peintTout = () => {
+      peintActes();
+      if (duo.etat === 'salon') {
+        dit('Votre table est ouverte. On attend un deuxième pilote…');
+        zoneListe.innerHTML = '';
+      } else {
+        dit('Choisissez une table, ou ouvrez la vôtre.');
+        duo.lister();
+      }
+    };
+
+    duo.r = {
+      onEtat: (e, avant) => {
+        if (e === 'hall') peintTout();
+        else if (e === 'ferme' && avant !== 'ferme') dit('Connexion perdue.');
+      },
+      onSalons: (l) => peintListe(l),
+      onSalon: () => peintTout(),
+      onPair: (p) => dit(`${p.nom} arrive, en ${coqueParId(p.coque).nom}.`),
+      onCompte: (n) => {
+        this.audio.uiTick?.();
+        dit(`Décollage dans ${n}…`);
+      },
+      onGo: (m) => this._lanceDuo(m, mode),
+      onParti: (p) =>
+        dit(p.hote ? 'La table s’est fermée.' : 'Votre copain est parti. La table reste ouverte.'),
+      onErreur: (code) =>
+        dit(
+          code === 'salon-indisponible'
+            ? 'Cette table vient de se remplir.'
+            : 'Le serveur ne répond pas.'
+        ),
+    };
+    duo.connecte({ nom, mode });
+
+    const clavier = (e) => {
+      if (this.state !== 'salons' || e.key !== 'Escape') return;
+      sortie();
+      this.showVariante(mode);
+      e.preventDefault();
+    };
+    const sortie = () => {
+      window.removeEventListener('keydown', clavier);
+      duo.ferme();
+    };
+    window.addEventListener('keydown', clavier);
+    el.querySelector('#salon-back').addEventListener('click', () => {
+      sortie();
+      this.showVariante(mode);
+    });
+  }
+
+  // Le décollage à deux. Écrit au chantier suivant : la simulation partagée
+  // demande un second vaisseau, et ce n'est pas trois lignes.
+  _lanceDuo(m, mode) {
+    this.hud.announce('Décollage', `${m.joueurs.map((j) => j.nom).join(' & ')}`, 2000);
+    this.duo?.ferme();
     this.showVariante(mode);
   }
 

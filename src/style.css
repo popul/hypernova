@@ -3773,3 +3773,89 @@ body.touch .btn-call-touch {
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
+
+/* ---- Le salon d'attente du jeu à deux ------------------------------------ */
+
+.screen.salons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 18px;
+  overflow-y: auto;
+}
+
+/* Une ligne d'état plutôt qu'une suite de fenêtres : à deux, tout est attente,
+   et l'attente se raconte mieux par une phrase qui change que par un écran qui
+   se remplace. */
+.salon-etat {
+  font-size: 14px;
+  color: var(--gold);
+  text-align: center;
+  min-height: 1.4em;
+}
+
+.salon-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(520px, 100%);
+  min-height: 60px;
+}
+
+.salon-vide {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.5;
+  padding: 12px;
+}
+
+.salon-ligne {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--cyan-dim);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--body);
+  cursor: pointer;
+  text-align: left;
+}
+
+.salon-ligne:hover {
+  border-color: var(--cyan);
+  background: rgba(79, 242, 255, 0.12);
+}
+
+.salon-nom {
+  font-family: var(--display);
+  font-size: 15px;
+  color: var(--cyan);
+  flex: 1;
+}
+
+.salon-coque {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.salon-go {
+  font-size: 12px;
+  color: var(--gold);
+}
+
+.screen.salons .rangee {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(520px, 100%);
+}
+
+.screen.salons .entr-coques {
+  width: 100%;
+}

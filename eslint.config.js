@@ -18,6 +18,10 @@ export default [
         // sauvegarde au navigateur par une URL d'objet.
         sessionStorage: 'readonly',
         URL: 'readonly',
+        // Le jeu à deux : adresse du salon et transport temps réel.
+        URLSearchParams: 'readonly',
+        location: 'readonly',
+        WebSocket: 'readonly',
         requestAnimationFrame: 'readonly',
         cancelAnimationFrame: 'readonly',
         performance: 'readonly',
