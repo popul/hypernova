@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Input, isTouchDevice } from './core/input.js';
 import { AudioEngine } from './core/audio.js';
 import { Space } from './game/space/index.js';
-import { ArenaEdges, fitPlayZone } from './game/arena.js';
+import { ArenaEdges, ajusteCadrage } from './game/arena.js';
 import { Fx } from './game/fx.js';
 import { Game } from './game/game.js';
 import './style.css';
@@ -58,16 +58,21 @@ function fitCamera() {
   // On resserre donc là, et seulement là. La largeur visible retombe autour de
   // trente-six unités : l'arène tient toujours, avec trois unités et demie de
   // marge de chaque côté — de quoi voir arriver un ennemi de bord.
-  const serrage = aspect < 0.8 ? 0.75 : 1;
-  const pullback = Math.min(1.85, squeeze) * serrage;
-  CAMERA_BASE.copy(CAMERA_HOME).sub(CAMERA_TARGET).multiplyScalar(pullback).add(CAMERA_TARGET);
-  camera.position.copy(CAMERA_BASE);
-  camera.lookAt(CAMERA_TARGET);
-  camera.updateProjectionMatrix();
-  camera.updateMatrixWorld(true); // fitPlayZone déprojette : la matrice doit être à jour
+  // Poser la caméra à un serrage donné. C'est la seule chose que `ajusteCadrage`
+  // a besoin de savoir faire faire : lui vérifie, nous plaçons.
+  const pose = (serrage) => {
+    const pullback = Math.min(1.85, squeeze) * serrage;
+    CAMERA_BASE.copy(CAMERA_HOME).sub(CAMERA_TARGET).multiplyScalar(pullback).add(CAMERA_TARGET);
+    camera.position.copy(CAMERA_BASE);
+    camera.lookAt(CAMERA_TARGET);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true); // fitPlayZone déprojette : la matrice doit être à jour
+  };
   // La limite arrière du joueur se déduit du cadrage, jamais l'inverse : sinon le
-  // vaisseau sort du champ par le bas sur les écrans larges.
-  fitPlayZone(camera);
+  // vaisseau sort du champ par le bas sur les écrans larges. Elle s'arrête aussi
+  // là où les bords de l'arène cessent d'être visibles — et c'est cette borne-là
+  // qui, en portrait, oblige à relâcher le serrage. Voir ajusteCadrage.
+  ajusteCadrage(camera, pose, aspect < 0.8 ? 0.75 : 1);
   arenaEdges?.setZone();
   // Le décor lointain se recalibre sur le champ HORIZONTAL réel : c'est lui, et
   // pas le champ vertical, qui décide de la taille apparente d'une planète.
