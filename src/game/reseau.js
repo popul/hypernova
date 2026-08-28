@@ -86,6 +86,29 @@ async function appel(chemin, { methode = 'GET', corps = null, avecJeton = false 
   }
 }
 
+// --- Amis --------------------------------------------------------------------
+//
+// Quatre gestes sur le même objet, une seule route : le serveur reçoit un verbe
+// et rend la liste à jour, ce qui évite au client de redemander pour se peindre.
+
+export function mesAmis() {
+  return appel('/amis', { avecJeton: true });
+}
+
+export function gesteAmi(geste, nom) {
+  return appel('/amis', { methode: 'POST', corps: { geste, nom }, avecJeton: true });
+}
+
+// Le lien d'invitation : on le colle dans un message, celui qui le touche devient
+// ami. `neuf` en fabrique un autre, ce qui invalide le précédent.
+export function monLien(neuf = false) {
+  return appel('/amis/invitation', { methode: neuf ? 'POST' : 'GET', avecJeton: true });
+}
+
+export function ouvreLien(code) {
+  return appel('/amis', { methode: 'POST', corps: { geste: 'lien', code }, avecJeton: true });
+}
+
 // --- Inscription ------------------------------------------------------------
 
 // Réclame un pseudo sur le serveur. S'il est libre il devient le nôtre ; s'il est

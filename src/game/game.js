@@ -77,6 +77,7 @@ import {
   challengeText,
 } from './parties.js';
 import * as reseau from './reseau.js';
+import { mesAmis, gesteAmi, monLien, ouvreLien, jeton } from './reseau.js';
 
 import {
   listPilots,
@@ -183,10 +184,26 @@ export class Game {
     // ne pas les payer au démarrage d'une partie qui n'y passera peut-être pas.
     this.demoArme = null;
     this._poseCoque = null;
+    // ON EST ARRIVÉ PAR LE LIEN D'UN COPAIN.
+    //
+    // Le code est retiré de l'adresse tout de suite : il n'a plus rien à y faire,
+    // et une adresse partagée ou mise en favori avec le code dedans ferait ajouter
+    // le même ami à qui la rouvrirait. On le garde de côté le temps de savoir qui
+    // est aux commandes — sans pilote, il n'y a personne à rendre ami.
+    this._lienAmi = new URLSearchParams(location.search).get('ami');
+    if (this._lienAmi) {
+      const propre = new URL(location.href);
+      propre.searchParams.delete('ami');
+      history.replaceState(null, '', propre);
+    }
+
     // L'invitation à poser le jeu sur l'écran d'accueil. Elle écoute dès le
     // départ, parce que le navigateur envoie son crochet quand il l'a décidé —
     // souvent avant qu'on ait affiché quoi que ce soit.
     this.installation = new Installation();
+    // Le canal des amis. Il porte la présence en continu, et sert de salon quand
+    // on veut jouer à deux : une seule connexion pour les deux usages.
+    this.duo = new Duo();
     this.demo = false;
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
@@ -1281,6 +1298,7 @@ export class Game {
         <button class="btn-ghost" id="btn-story">◈ Histoire</button>
         <div class="title-version">v${__VERSION__}</div>
         <div class="title-install" id="title-install" hidden></div>
+        <button class="btn-ghost title-amis" id="btn-amis">☍ Mes copains<span class="amis-pastille" id="amis-pastille" hidden></span></button>
         ${
           scores.length
             ? `<div class="title-lb">
@@ -1319,6 +1337,13 @@ export class Game {
     this._veilleMenu(el);
 
     this._brancheInstallation(el);
+    el.querySelector('#btn-amis').addEventListener('click', () => this.showAmis());
+    // Le titre est le seul écran qu'on traverse forcément — avant comme après
+    // une inscription. C'est donc là qu'on essaie d'honorer le lien reçu.
+    this._consommeLienAmi().then(() => {
+      this._rafraichitPastilleAmis(el);
+      this.ouvreCanalAmis();
+    });
     el.querySelector('#btn-story').addEventListener('click', () => this.playCinematic());
     el.querySelector('#btn-pilot').addEventListener('click', () => this.showPilotSelect());
   }
@@ -1941,6 +1966,250 @@ export class Game {
     });
   }
 
+  // Le lien reçu se consomme UNE FOIS, quand on sait qui l'ouvre. Sans pilote on
+  // le garde : l'enfant vient peut-être d'arriver et va s'inscrire dans la
+  // minute, et lui faire perdre l'invitation de son copain serait bête.
+  // Le canal reste ouvert tant qu'on est identifié : c'est lui qui dit quand un
+  // copain arrive. Sans pilote, il n'y a personne à annoncer et rien à ouvrir.
+  ouvreCanalAmis() {
+    if (!jeton()) return;
+    this.duo.r = {
+      ...this.duo.r,
+      onPresence: (l) => this._surPresence(l),
+    };
+    this.duo.connecte({ nom: activePilot()?.name, mode: this.mode, jeton: jeton() });
+  }
+
+  // UN COPAIN VIENT D'ARRIVER. On le dit une fois, discrètement, et seulement
+  // pour les nouveaux venus : réannoncer à chaque battement de douze secondes
+  // ceux qui sont là depuis une heure serait le meilleur moyen qu'on cesse de
+  // lire les annonces.
+  _surPresence(l) {
+    const avant = this._presence || {};
+    this._presence = l;
+    const amis = new Set((this._amis?.amis || []).map((a) => a.nom));
+    for (const nom of Object.keys(l)) {
+      if (avant[nom] || !amis.has(nom)) continue;
+      this.hud.announce(`${nom} est en ligne`, l[nom].partie ? 'en pleine partie' : '', 2600);
+    }
+    // Le nombre d'amis connectés se lit sur l'écran d'accueil sans y entrer.
+    const pastille = this.overlayRoot.querySelector('#amis-pastille');
+    if (pastille) this._rafraichitPastilleAmis(this.overlayRoot);
+  }
+
+  async _consommeLienAmi() {
+    if (!this._lienAmi || !jeton()) return;
+    const code = this._lienAmi;
+    this._lienAmi = null;
+    const r = await ouvreLien(code);
+    if (!r.ok) {
+      this.hud.announce(
+        'Lien périmé',
+        r.erreur === 'soi-meme' ? 'C’est votre propre lien' : 'Ce lien ne vaut plus',
+        2600
+      );
+      return;
+    }
+    this._amis = r;
+    this.hud.announce(
+      r.deja ? 'Déjà copains' : 'Nouveau copain',
+      `${r.nom} est dans votre liste`,
+      2800
+    );
+  }
+
+  // La pastille sur le bouton : combien de demandes attendent une réponse, et
+  // combien d'amis sont là maintenant. C'est la seule chose qui doit se voir
+  // depuis l'écran d'accueil — le reste est à un clic.
+  async _rafraichitPastilleAmis(el) {
+    const p = el.querySelector('#amis-pastille');
+    if (!p || !jeton()) return;
+    const r = await mesAmis();
+    if (!r.ok || !p.isConnected) return;
+    this._amis = r;
+    const n = r.recues?.length || 0;
+    p.hidden = n === 0;
+    p.textContent = n || '';
+  }
+
+  // MES COPAINS. La liste, les demandes, et le lien à coller dans un message.
+  showAmis() {
+    this.quitteVitrine();
+    this.state = 'amis';
+    this.hud.root.classList.add('hidden');
+    this.player.group.visible = false;
+
+    const el = this._screen(`
+      <div class="screen amis">
+        <div class="coque-haut">
+          <h2 class="shop-title">Mes copains</h2>
+          <div class="coque-sous" id="amis-sous">…</div>
+        </div>
+        <div class="amis-corps" id="amis-corps"></div>
+        <div class="rangee amis-actes">
+          <button class="btn-primary" id="amis-inviter">✉ Inviter un copain</button>
+          <button class="btn-ghost" id="amis-ajouter">+ Ajouter par pseudo</button>
+        </div>
+        <button class="btn-ghost" id="amis-back">← Retour</button>
+      </div>
+    `);
+
+    const corps = el.querySelector('#amis-corps');
+    const sous = el.querySelector('#amis-sous');
+
+    const peint = (r) => {
+      if (!el.isConnected) return;
+      this._amis = r;
+      corps.innerHTML = '';
+      const enLigne = r.enLigne || this._presence || {};
+      const combien = (r.amis || []).filter((a) => enLigne[a.nom]).length;
+      sous.textContent = !jeton()
+        ? 'Il faut un pilote pour avoir des copains.'
+        : `${r.amis?.length || 0} copain(s) · ${combien} en ligne`;
+
+      for (const d of r.recues || []) {
+        const ligne = document.createElement('div');
+        ligne.className = 'ami-ligne ami-demande';
+        ligne.innerHTML = `<span class="ami-nom">${esc(d.nom)}</span>
+          <span class="ami-etat">vous demande en ami</span>`;
+        const oui = document.createElement('button');
+        oui.className = 'btn-ghost petit';
+        oui.textContent = 'Accepter';
+        oui.addEventListener('click', async () => peint(await gesteAmi('accepter', d.nom)));
+        const non = document.createElement('button');
+        non.className = 'btn-ghost petit';
+        non.textContent = 'Refuser';
+        non.addEventListener('click', async () => peint(await gesteAmi('refuser', d.nom)));
+        ligne.append(oui, non);
+        corps.append(ligne);
+      }
+
+      for (const a of r.amis || []) {
+        const p = enLigne[a.nom];
+        const ligne = document.createElement('div');
+        ligne.className = `ami-ligne${p ? ' ami-en-ligne' : ''}`;
+        ligne.innerHTML = `<span class="ami-nom">${esc(a.nom)}</span>
+          <span class="ami-etat">${p ? (p.partie ? 'en partie' : 'en ligne') : 'hors ligne'}</span>`;
+        const retirer = document.createElement('button');
+        retirer.className = 'btn-ghost petit';
+        retirer.textContent = '✕';
+        retirer.title = 'Retirer de mes copains';
+        retirer.addEventListener('click', async () => peint(await gesteAmi('oublier', a.nom)));
+        ligne.append(retirer);
+        corps.append(ligne);
+      }
+
+      for (const d of r.envoyees || []) {
+        const ligne = document.createElement('div');
+        ligne.className = 'ami-ligne ami-attente';
+        ligne.innerHTML = `<span class="ami-nom">${esc(d.nom)}</span>
+          <span class="ami-etat">demande envoyée</span>`;
+        corps.append(ligne);
+      }
+
+      if (!corps.children.length) {
+        const vide = document.createElement('p');
+        vide.className = 'salon-vide';
+        vide.textContent = jeton()
+          ? 'Personne encore. Envoyez votre lien à un copain : il n’a qu’à le toucher.'
+          : 'Créez un pilote depuis l’écran d’accueil pour ajouter des copains.';
+        corps.append(vide);
+      }
+    };
+
+    el.querySelector('#amis-inviter').addEventListener('click', () => this._partageLienAmi());
+    el.querySelector('#amis-ajouter').addEventListener('click', async () => {
+      const nom = await this._demandeTexte(
+        'Ajouter un copain',
+        'Son pseudo, exactement comme il l’a écrit.'
+      );
+      if (!nom) return;
+      const r = await gesteAmi('demander', nom);
+      if (!r.ok)
+        return this.hud.announce(
+          'Impossible',
+          r.erreur === 'inconnu' ? 'Pseudo inconnu' : '',
+          2000
+        );
+      peint(r);
+    });
+    const sortie = () => window.removeEventListener('keydown', clavier);
+    const clavier = (e) => {
+      if (this.state !== 'amis' || e.key !== 'Escape') return;
+      sortie();
+      this.showTitle();
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', clavier);
+    el.querySelector('#amis-back').addEventListener('click', () => {
+      sortie();
+      this.showTitle();
+    });
+
+    if (this._amis) peint(this._amis);
+    if (jeton()) mesAmis().then((r) => r.ok && peint(r));
+    else peint({});
+  }
+
+  // LE LIEN, DANS LA FEUILLE DE PARTAGE DU TÉLÉPHONE.
+  //
+  // `navigator.share` ouvre le sélecteur du système : messages, WhatsApp, ce
+  // qu'on veut. C'est la seule façon d'atteindre ces applications depuis une page
+  // web, et c'est aussi la bonne — on ne demande aucun contact, on ne lit rien,
+  // c'est l'utilisateur qui choisit à qui.
+  //
+  // Sur un ordinateur, `share` n'existe souvent pas : on recopie alors le lien
+  // dans le presse-papiers, ce qui revient au même en un geste de plus.
+  async _partageLienAmi() {
+    if (!jeton()) return this.hud.announce('Il faut un pilote', 'Créez-en un d’abord', 2200);
+    const r = await monLien();
+    if (!r.ok) return this.hud.announce('Lien indisponible', '', 1800);
+    const lien = `${location.origin}/?ami=${r.code}`;
+    const texte = `Viens jouer à HYPERNOVA avec moi : ${lien}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'HYPERNOVA', text: texte, url: lien });
+        return;
+      }
+      await navigator.clipboard.writeText(lien);
+      this.hud.announce('Lien copié', 'Collez-le dans un message', 2400);
+    } catch {
+      // Partage annulé : rien à faire, et surtout rien à dire.
+    }
+  }
+
+  // Une saisie courte, dans un dialogue du document. Voir la régie : `prompt`
+  // fige l'onglet et se désactive dans certains navigateurs.
+  _demandeTexte(titre, detail) {
+    return new Promise((resolve) => {
+      const boite = document.createElement('div');
+      boite.className = 'install-pomme';
+      boite.innerHTML = `
+        <div class="install-carte">
+          <h3>${esc(titre)}</h3>
+          <p>${esc(detail)}</p>
+          <input type="text" id="dt-champ" autocomplete="off" maxlength="10" />
+          <div class="rangee" style="justify-content:flex-end">
+            <button class="btn-ghost" id="dt-non">Annuler</button>
+            <button class="btn-primary" id="dt-oui">Valider</button>
+          </div>
+        </div>`;
+      this.overlayRoot.append(boite);
+      const champ = boite.querySelector('#dt-champ');
+      const fin = (v) => {
+        boite.remove();
+        resolve(v);
+      };
+      boite.querySelector('#dt-oui').addEventListener('click', () => fin(champ.value.trim()));
+      boite.querySelector('#dt-non').addEventListener('click', () => fin(null));
+      champ.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') fin(champ.value.trim());
+        if (e.key === 'Escape') fin(null);
+      });
+      champ.focus();
+    });
+  }
+
   showVariante(mode) {
     this.quitteVitrine();
     this.state = 'variante';
@@ -2060,7 +2329,7 @@ export class Game {
       if (el.isConnected) zoneEtat.textContent = t;
     };
 
-    const duo = this.duo || (this.duo = new Duo());
+    const duo = this.duo;
     // La coque choisie pour cette table. Elle voyage jusqu'à l'autre joueur :
     // on doit savoir avec quoi il vole avant que ça commence.
     let coque = this._entrainement?.coque || 'orion';
@@ -2143,7 +2412,11 @@ export class Game {
       }
     };
 
+    // On AJOUTE les rappels du salon sans effacer ceux du canal des amis : la
+    // même connexion sert aux deux, et remplacer l'objet entier couperait la
+    // présence dès qu'on entre ici.
     duo.r = {
+      ...duo.r,
       onEtat: (e, avant) => {
         if (e === 'hall') peintTout();
         else if (e === 'ferme' && avant !== 'ferme') dit('Connexion perdue.');
@@ -2167,7 +2440,7 @@ export class Game {
             : 'Le serveur ne répond pas.'
         ),
     };
-    duo.connecte({ nom, mode });
+    duo.connecte({ nom, mode, jeton: jeton() });
 
     const clavier = (e) => {
       if (this.state !== 'salons' || e.key !== 'Escape') return;
@@ -2177,7 +2450,9 @@ export class Game {
     };
     const sortie = () => {
       window.removeEventListener('keydown', clavier);
-      duo.ferme();
+      // On ne FERME pas : cette connexion porte aussi la présence des amis. On
+      // quitte seulement la table, si l'on en occupait une.
+      if (duo.salonId) duo.quitte();
     };
     window.addEventListener('keydown', clavier);
     el.querySelector('#salon-back').addEventListener('click', () => {

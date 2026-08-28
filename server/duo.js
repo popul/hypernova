@@ -104,6 +104,11 @@ export class Duo {
         if (c.salon) this._annonceSalon(c.salon);
         else this._diffuseListe();
         return;
+      // Le mode se change sans rouvrir la connexion : elle sert aussi de canal de
+      // présence, et la fermer pour passer d'arcade à survie couperait les amis.
+      case 'mode':
+        c.mode = m.mode === 'survie' ? 'survie' : 'arcade';
+        return this._listePour(c);
       case 'creer':
         return this._cree(c);
       case 'rejoindre':

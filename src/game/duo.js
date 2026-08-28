@@ -37,8 +37,10 @@ export const PAS = 1 / 60;
 // coup — il vaut mieux avouer le décrochage.
 const RATTRAPAGE_MAX = 8;
 
-function adresse(nom, mode) {
+function adresse(nom, mode, jeton) {
   const p = new URLSearchParams({ nom: nom || 'PILOTE', mode: mode || 'arcade' });
+  // Le jeton vaut identité : sans lui on peut jouer, mais aucun ami ne nous voit.
+  if (jeton) p.set('jeton', jeton);
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${location.host}${RACINE}/duo?${p}`;
 }
@@ -64,11 +66,28 @@ export class Duo {
 
   // --- Connexion -------------------------------------------------------------
 
-  connecte({ nom, mode }) {
+  // LA CONNEXION EST OUVERTE DÈS LE DÉMARRAGE, PAS SEULEMENT AU SALON.
+  //
+  // C'est elle qui porte la présence des amis. Ne l'ouvrir qu'en entrant dans le
+  // salon revenait à n'apprendre qu'un copain est en ligne qu'au moment où l'on
+  // cherchait déjà à jouer avec lui — c'est-à-dire trop tard pour que ça serve à
+  // quelque chose.
+  //
+  // Rouvrir une connexion déjà ouverte coûterait une poignée de main pour rien :
+  // on se contente alors de redemander la liste des tables.
+  connecte({ nom, mode, jeton = null }) {
+    if (this.ws?.readyState === 1) {
+      if (mode && mode !== this.mode) {
+        this.mode = mode;
+        this._envoie({ t: 'mode', mode });
+      }
+      this.lister();
+      return;
+    }
     this.ferme();
     this.etat = 'connexion';
     this.mode = mode;
-    const ws = new WebSocket(adresse(nom, mode));
+    const ws = new WebSocket(adresse(nom, mode, jeton));
     this.ws = ws;
     ws.onopen = () => {
       this.etat = 'hall';
@@ -141,6 +160,9 @@ export class Duo {
     switch (m.t) {
       case 'salons':
         return this.r.onSalons?.(m.l);
+      case 'presence':
+        this.presence = m.l;
+        return this.r.onPresence?.(m.l);
       case 'salon':
         this.salonId = m.id;
         this.role = m.role;

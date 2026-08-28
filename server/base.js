@@ -117,6 +117,19 @@ export class Base {
         faite_le TEXT NOT NULL,
         PRIMARY KEY (de, vers)
       );
+      -- LE LIEN D'INVITATION. Un code court, propre à un pilote, qu'on colle dans
+      -- un message. Il vaut mieux qu'un pseudo à retaper : « JEANNE » se tape de
+      -- travers, un lien se touche.
+      --
+      -- Il est RÉUTILISABLE et sans échéance, à dessein : on le partage dans le
+      -- groupe de la classe, et chacun le touche quand il veut. C'est un choix,
+      -- pas un oubli — quiconque a le lien devient ami. En échange il se
+      -- régénère d'un geste, ce qui invalide l'ancien.
+      CREATE TABLE IF NOT EXISTS invitations (
+        code    TEXT PRIMARY KEY,
+        pilote  TEXT NOT NULL UNIQUE REFERENCES pilotes(nom) ON DELETE CASCADE,
+        cree_le TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS amis_b ON amis(b);
       CREATE INDEX IF NOT EXISTS demandes_vers ON demandes(vers);
       CREATE INDEX IF NOT EXISTS sessions_pilote ON sessions(pilote);
@@ -361,6 +374,50 @@ export class Base {
       .prepare('DELETE FROM demandes WHERE (de = ? AND vers = ?) OR (de = ? AND vers = ?)')
       .run(a, b, b, a);
     return { ok: true, oublies: Number(n) };
+  }
+
+  // Le code d'invitation d'un pilote, créé au premier appel. Huit caractères
+  // tirés au sort : assez pour qu'on ne tombe pas dessus par hasard, assez court
+  // pour tenir dans un message sans le couper.
+  invitation(nom) {
+    const connu = this.db.prepare('SELECT code FROM invitations WHERE pilote = ?').get(nom);
+    if (connu) return connu.code;
+    return this.regenereInvitation(nom);
+  }
+
+  regenereInvitation(nom) {
+    const code = randomBytes(6).toString('base64url').slice(0, 8);
+    this.db
+      .prepare(
+        `INSERT INTO invitations (code, pilote, cree_le) VALUES (?, ?, ?)
+         ON CONFLICT(pilote) DO UPDATE SET code = excluded.code, cree_le = excluded.cree_le`
+      )
+      .run(code, nom, new Date().toISOString());
+    return code;
+  }
+
+  parInvitation(code) {
+    if (!code) return null;
+    const r = this.db.prepare('SELECT pilote FROM invitations WHERE code = ?').get(String(code));
+    return r ? r.pilote : null;
+  }
+
+  // Ouvrir le lien de quelqu'un, c'est devenir son ami TOUT DE SUITE. Il a
+  // partagé ce lien pour ça ; lui demander de confirmer ensuite serait une étape
+  // qui n'apprend rien à personne. Le lien EST le consentement.
+  parLien(qui, code) {
+    const autre = this.parInvitation(code);
+    if (!autre) return { ok: false, erreur: 'lien-inconnu' };
+    if (autre === qui) return { ok: false, erreur: 'soi-meme' };
+    if (this.sontAmis(qui, autre)) return { ok: true, deja: true, nom: autre };
+    const [a, b] = this._paire(qui, autre);
+    this.db
+      .prepare('INSERT OR IGNORE INTO amis (a, b, depuis) VALUES (?, ?, ?)')
+      .run(a, b, new Date().toISOString());
+    this.db
+      .prepare('DELETE FROM demandes WHERE (de = ? AND vers = ?) OR (de = ? AND vers = ?)')
+      .run(a, b, b, a);
+    return { ok: true, nom: autre };
   }
 
   demandesRecues(nom) {

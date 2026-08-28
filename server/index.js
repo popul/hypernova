@@ -295,6 +295,15 @@ async function route(req, res, chemin) {
     });
   }
 
+  // GET /amis/invitation — mon lien à partager. POST pour en changer.
+  if (chemin === '/amis/invitation' && (req.method === 'GET' || req.method === 'POST')) {
+    const pilote = base.parJeton(jetonDe(req));
+    if (!pilote) return repond(res, 401, { erreur: 'jeton' });
+    const code =
+      req.method === 'POST' ? base.regenereInvitation(pilote.nom) : base.invitation(pilote.nom);
+    return repond(res, 200, { code });
+  }
+
   // POST /amis — demander, accepter, refuser, oublier. Une seule route et un
   // verbe dans le corps : quatre routes pour quatre gestes sur le même objet
   // auraient coûté quatre fois la même vérification de jeton.
@@ -302,6 +311,19 @@ async function route(req, res, chemin) {
     const pilote = base.parJeton(jetonDe(req));
     if (!pilote) return repond(res, 401, { erreur: 'jeton' });
     const corps = await lisCorps(req);
+    // Le geste « lien » ne porte pas de pseudo : c'est tout son intérêt, on colle
+    // un lien sans savoir qui est derrière.
+    if (corps.geste === 'lien') {
+      const r = base.parLien(pilote.nom, String(corps.code || '').slice(0, 32));
+      if (!r.ok) return repond(res, 400, r);
+      return repond(res, 200, {
+        ...r,
+        amis: base.amis(pilote.nom),
+        recues: base.demandesRecues(pilote.nom),
+        envoyees: base.demandesEnvoyees(pilote.nom),
+        enLigne: duo.enLigne(),
+      });
+    }
     const qui = nomPropre(corps.nom);
     if (!qui) return repond(res, 400, { erreur: 'nom' });
     let r;

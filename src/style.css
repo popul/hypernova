@@ -3951,3 +3951,115 @@ body.touch .btn-call-touch {
 .install-note {
   font-size: 12px;
 }
+
+/* ---- Les copains --------------------------------------------------------- */
+
+.title-amis {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Le seul chiffre qui doit se voir depuis l'accueil : combien de demandes
+   attendent une réponse. Le reste est à un clic. */
+.amis-pastille {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--magenta);
+  color: #12010f;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.screen.amis {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 18px;
+  overflow-y: auto;
+}
+
+.amis-corps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(520px, 100%);
+  min-height: 80px;
+}
+
+.ami-ligne {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--cyan-dim);
+  background: var(--panel);
+}
+
+/* Un ami connecté se voit d'un coup d'œil : c'est toute la raison d'avoir une
+   liste plutôt qu'un carnet d'adresses. */
+.ami-en-ligne {
+  border-color: rgba(79, 224, 138, 0.45);
+}
+
+.ami-en-ligne .ami-etat {
+  color: #4fe08a;
+}
+
+.ami-demande {
+  border-color: rgba(255, 61, 240, 0.45);
+}
+
+.ami-nom {
+  font-family: var(--display);
+  font-size: 15px;
+  color: var(--cyan);
+  flex: 1;
+}
+
+.ami-etat {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.ami-attente {
+  opacity: 0.6;
+}
+
+.btn-ghost.petit {
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
+.amis-actes {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#dt-champ {
+  font-family: var(--display);
+  font-size: 16px;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--cyan-dim);
+  border-radius: 6px;
+  padding: 10px;
+  width: 100%;
+}

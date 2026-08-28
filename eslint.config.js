@@ -22,6 +22,7 @@ export default [
         URLSearchParams: 'readonly',
         location: 'readonly',
         WebSocket: 'readonly',
+        history: 'readonly',
         requestAnimationFrame: 'readonly',
         cancelAnimationFrame: 'readonly',
         performance: 'readonly',
