@@ -2400,9 +2400,17 @@ export class Game {
           <div class="coque-sous" id="amis-sous">…</div>
         </div>
         <div class="amis-corps" id="amis-corps"></div>
+        <!-- DEUX GESTES, ET IL FAUT SAVOIR LEQUEL FAIT QUOI AVANT D'APPUYER.
+             « Inviter un copain » était le bouton principal et ouvrait le
+             sélecteur de partage du système : on croyait taper un pseudo, on
+             tombait sur la feuille de partage du téléphone. Le geste courant —
+             ajouter quelqu'un qu'on connaît déjà par son pseudo — était relégué
+             au bouton secondaire.
+             Les deux ont échangé leur place et disent maintenant ce qu'ils font :
+             l'un envoie une DEMANDE, l'autre envoie un LIEN. -->
         <div class="rangee amis-actes">
-          <button class="btn-primary" id="amis-inviter">✉ Inviter un copain</button>
-          <button class="btn-ghost" id="amis-ajouter">+ Ajouter par pseudo</button>
+          <button class="btn-primary" id="amis-ajouter">+ Demander par pseudo</button>
+          <button class="btn-ghost" id="amis-inviter">✉ Envoyer un lien</button>
         </div>
         <button class="btn-ghost" id="amis-back">← Retour</button>
       </div>
@@ -2495,12 +2503,18 @@ export class Game {
       );
       if (!nom) return;
       const r = await gesteAmi('demander', nom);
-      if (!r.ok)
+      if (!r.ok) {
+        this._ditAmis(r.erreur === 'inconnu' ? `Personne ne s'appelle ${nom}.` : 'Impossible.');
         return this.hud.announce(
           'Impossible',
           r.erreur === 'inconnu' ? 'Pseudo inconnu' : '',
           2000
         );
+      }
+      // ON DIT QUE C'EST PARTI. Une demande d'ami ne produit rien de visible chez
+      // celui qui l'envoie — l'autre doit encore l'accepter — donc sans un mot,
+      // le bouton a l'air de n'avoir rien fait.
+      this._ditAmis(`Demande envoyée à ${nom}. Il doit l'accepter.`);
       peint(r);
     });
     const sortie = () => window.removeEventListener('keydown', clavier);
@@ -2530,6 +2544,12 @@ export class Game {
   //
   // Sur un ordinateur, `share` n'existe souvent pas : on recopie alors le lien
   // dans le presse-papiers, ce qui revient au même en un geste de plus.
+  // LE PARTAGE NATIF EST RÉSERVÉ AU LIEN, ET SEULEMENT AU LIEN.
+  //
+  // C'est son seul usage légitime : on colle un lien dans une conversation pour
+  // quelqu'un qui n'a peut-être pas encore de compte. Ajouter un copain qu'on
+  // connaît déjà passe par son pseudo et par une demande d'ami — pas par la
+  // feuille de partage du téléphone.
   async _partageLienAmi() {
     if (!jeton()) return this.hud.announce('Il faut un pilote', 'Créez-en un d’abord', 2200);
     const r = await monLien();
