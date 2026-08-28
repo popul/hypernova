@@ -1686,6 +1686,17 @@ export class Game {
 
   showGameOver() {
     if (this.rejeu) return; // on regarde une partie : elle est déjà finie
+    // LA MORT DU COPAIN N'EST PAS LA NÔTRE. On la reconstitue à l'écran comme le
+    // reste, mais elle n'ouvre pas d'écran de fin et ne publie rien : ce score
+    // appartient à celui qui l'a joué.
+    if (this.spectateur) {
+      this.hud.announce(`${this.spectateur.de} est tombé`, 'En attente de la suite', 2600);
+      return;
+    }
+    this.duo?.annonceJeu(false);
+    // Ceux qui regardaient n'ont plus rien à voir : on les libère.
+    for (const qui of this._regardeurs || []) this.duo.signale(qui, 'regard-fin', null);
+    this._regardeurs?.clear();
     this.state = 'gameover';
     this.audio.setMode('title');
     this.audio.gameOver();
@@ -1983,7 +1994,7 @@ export class Game {
     this.duo.r = {
       ...this.duo.r,
       onPresence: (l) => this._surPresence(l),
-      onSignal: (de, sujet, d) => this.voix.recois(de, sujet, d),
+      onSignal: (de, sujet, d) => this._surSignal(de, sujet, d),
     };
     this.duo.connecte({ nom: activePilot()?.name, mode: this.mode, jeton: jeton() });
   }
@@ -2024,6 +2035,166 @@ export class Game {
       `${r.nom} est dans votre liste`,
       2800
     );
+  }
+
+  // REGARDER LA PARTIE D'UN COPAIN.
+  //
+  // C'est le système de REJEU, mais en cours d'écriture. L'hôte envoie son
+  // instantané de vague puis ses commandes au fil de l'eau ; le spectateur
+  // restaure et rejoue. Tout le code existe déjà et il est éprouvé depuis des
+  // mois — c'est ce qui rend cette fonction si peu coûteuse, alors que basculer
+  // une partie solo en duo au milieu d'une vague aurait demandé du transfert
+  // d'état en vol, c'est-à-dire le genre de chose qui casse en silence.
+  //
+  // Quelques octets par image, et le spectateur voit exactement la même partie :
+  // mêmes ennemis, mêmes tirs, même score.
+
+  // Le canal des amis porte deux conversations : la voix et le spectacle. On
+  // trie ici, et la voix reçoit ce qui la concerne.
+  _surSignal(de, sujet, d) {
+    switch (sujet) {
+      case 'regarde':
+        return this._demandeDeRegard(de);
+      case 'regard-oui':
+        return this._commenceARegarder(de);
+      case 'regard-non':
+        return this.hud.announce('Refusé', `${de} préfère jouer tranquille`, 2400);
+      case 'regard-fin':
+        this._regardeurs?.delete(de);
+        return;
+      case 'vue':
+        if (this.spectateur?.de !== de) return;
+        this._restaure(d);
+        this.spectateur.vue = true;
+        this.spectateur.file.length = 0;
+        this.spectateur.amorti = false;
+        // `_restaure` a rappelé `startWave`, qui repose l'état à « playing ».
+        return;
+      case 'vc':
+        if (this.spectateur?.de === de) this.spectateur.file.push(d);
+        return;
+      default:
+        return this.voix.recois(de, sujet, d);
+    }
+  }
+
+  // On demande la permission. Le copain répond, et c'est lui qui décide.
+  demandeARegarder(nom) {
+    this.duo.signale(nom, 'regarde', null);
+    this.hud.announce('Demande envoyée', `${nom} doit accepter`, 2400);
+  }
+
+  // Chez l'hôte : quelqu'un veut regarder. On ne l'accepte JAMAIS d'office —
+  // savoir qu'on est observé change la façon de jouer, et c'est à l'hôte de
+  // décider s'il veut d'un public.
+  _demandeDeRegard(qui) {
+    const barre = document.createElement('div');
+    barre.className = 'voix-barre';
+    barre.innerHTML = `<span class="voix-nom">${esc(qui)} veut regarder votre partie</span>`;
+    const b = (texte, classe, action) => {
+      const el = document.createElement('button');
+      el.className = classe;
+      el.textContent = texte;
+      el.addEventListener('click', () => {
+        barre.remove();
+        action();
+      });
+      barre.append(el);
+    };
+    b('Accepter', 'btn-ghost petit voix-oui', () => this._accepteRegard(qui));
+    b('Refuser', 'btn-ghost petit', () => this.duo.signale(qui, 'regard-non', null));
+    document.body.append(barre);
+    // Une demande qui reste à l'écran pendant une vague est une gêne : elle
+    // s'efface d'elle-même, et le copain saura que c'est non.
+    setTimeout(() => barre.remove(), 12000);
+  }
+
+  _accepteRegard(qui) {
+    this._regardeurs = this._regardeurs || new Set();
+    this._regardeurs.add(qui);
+    this.duo.signale(qui, 'regard-oui', null);
+    this.hud.announce(`${qui} vous regarde`, '', 2000);
+    // On l'accroche tout de suite à la vague en cours plutôt que d'attendre la
+    // suivante : sinon il fixe un écran vide pendant une minute.
+    if (this.state === 'playing') this.duo.signale(qui, 'vue', this._instantane());
+  }
+
+  // Chez le spectateur : on est accepté, on se met en position.
+  _commenceARegarder(qui) {
+    this.quitteVitrine();
+    this.spectateur = { de: qui, file: [], vue: false };
+    // L'ÉTAT EST « playing », ET C'EST LE POINT DE TOUT.
+    //
+    // J'avais donné au spectateur un état à lui, ce qui paraissait plus propre.
+    // Mesuré : la reconstitution divergeait à la quatre-centième image, et
+    // toujours sur une pirouette. La cause tient en une ligne — `_tryRoll`
+    // commence par `if (this.state !== 'playing') return`, comme la bombe,
+    // l'Overdrive et l'Appel. Le spectateur refusait donc en silence des gestes
+    // que l'hôte avait bel et bien faits.
+    //
+    // La règle générale est celle-là : pour reconstituer une partie à
+    // l'identique, il faut emprunter EXACTEMENT les mêmes chemins. Un état
+    // différent est un chemin différent, et chaque garde qui le teste devient
+    // une divergence. On se distingue donc par `spectateur`, jamais par l'état.
+    this.state = 'playing';
+    this.hud.root.classList.remove('hidden');
+    this.overlayRoot.innerHTML = '';
+    this.hud.announce(`Vous regardez ${qui}`, 'En attente de la vague', 2600);
+    this._montreBandeauRegard(qui);
+  }
+
+  _montreBandeauRegard(qui) {
+    const barre = document.createElement('div');
+    barre.id = 'regard-barre';
+    barre.className = 'voix-barre';
+    barre.innerHTML = `<span class="voix-nom">👁 Vous regardez ${esc(qui)}</span>`;
+    const stop = document.createElement('button');
+    stop.className = 'btn-ghost petit';
+    stop.textContent = 'Arrêter';
+    stop.addEventListener('click', () => this.arreteDeRegarder());
+    barre.append(stop);
+    document.body.append(barre);
+  }
+
+  arreteDeRegarder() {
+    if (!this.spectateur) return;
+    this.duo.signale(this.spectateur.de, 'regard-fin', null);
+    this.spectateur = null;
+    this.state = 'title';
+    document.getElementById('regard-barre')?.remove();
+    this.enemies.clear();
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.missiles.clear();
+    this.showTitle();
+  }
+
+  // Une image de spectacle. La file sert d'AMORTISSEUR : le réseau ne livre pas
+  // soixante paquets régulièrement espacés, il en livre trois d'un coup puis
+  // rien. Sans réserve, l'image saccaderait au rythme du réseau plutôt qu'à
+  // celui du jeu.
+  _updateRegard(dtReel) {
+    const sp = this.spectateur;
+    if (!sp || !sp.vue) return;
+    let n = this.duo.pas(dtReel);
+    while (n-- > 0) {
+      if (sp.file.length <= (sp.amorti ? 0 : 6)) {
+        // On laisse la réserve se remplir avant de partir, et on s'arrête net
+        // quand elle est vide plutôt que d'inventer des images.
+        sp.amorti = sp.file.length > 6;
+        return;
+      }
+      sp.amorti = true;
+      tableauVersCommande(sp.file.shift(), this.cmd);
+      // LE PAS VIENT DE LA COMMANDE, PAS DE L'HORLOGE.
+      //
+      // Passer un soixantième « rond » paraît naturel et c'est une divergence :
+      // l'hôte a joué un pas QUANTIFIÉ, dont la valeur diffère de 1/60 de
+      // quelques millionièmes. Mesuré, cet écart-là suffisait à faire dériver la
+      // reconstitution — 1990 points contre 3165 au bout de douze secondes. La
+      // commande porte le pas exact ; c'est d'ailleurs ce que fait le rejeu.
+      this._updatePlaying(this.cmd.dt);
+    }
   }
 
   // L'ÉTAT DE LA LIGNE, EN UN BANDEAU. Un appel qui sonne doit se voir quel que
@@ -2152,6 +2323,15 @@ export class Game {
           appel.textContent = '🎙 Parler';
           appel.addEventListener('click', () => this.voix.appelle(a.nom));
           ligne.append(appel);
+          // On ne propose de regarder que ceux qui jouent : proposer de regarder
+          // quelqu'un assis dans un menu ne mène nulle part.
+          if (p.partie) {
+            const voir = document.createElement('button');
+            voir.className = 'btn-ghost petit';
+            voir.textContent = '👁 Regarder';
+            voir.addEventListener('click', () => this.demandeARegarder(a.nom));
+            ligne.append(voir);
+          }
         }
         const retirer = document.createElement('button');
         retirer.className = 'btn-ghost petit';
@@ -3068,6 +3248,8 @@ export class Game {
     if (this.characters.muet) this.characters.taisToi();
     else this.characters.onRunStart(false);
     this.startWave(Math.max(1, options?.vague || 1));
+    // Nos amis peuvent maintenant proposer de regarder.
+    this.duo?.annonceJeu(true);
     // LA RÉPLIQUE D'OUVERTURE ARRIVE AU PREMIER HANGAR, PAS SUR LA VAGUE 1.
     //
     // Il n'existe aucun moment calme entre le choix de la coque et le premier
@@ -3096,6 +3278,13 @@ export class Game {
     this.colosse?.annule();
     this.arrivee?.annule();
     if (!this.rejeu) this.enregistreur.ouvreVague(this._instantane());
+    // Le spectateur se recale à chaque vague : c'est ce qui empêche un écart
+    // minuscule de s'accumuler, et c'est aussi ce qui lui permet d'arriver en
+    // cours de route sans rien avoir vu de ce qui précède.
+    if (this._regardeurs?.size && !this.rejeu) {
+      const vue = this._instantane();
+      for (const qui of this._regardeurs) this.duo.signale(qui, 'vue', vue);
+    }
     this.state = 'playing';
     this.audio.setMode('play');
     this.waveEndTimer = 0;
@@ -3878,7 +4067,9 @@ export class Game {
       return;
     }
 
-    if (this.state === 'playing') {
+    if (this.spectateur) {
+      this._updateRegard(dt);
+    } else if (this.state === 'playing') {
       // À deux, le temps ne se consomme pas de la même façon : voir _updateDuo.
       if (this.variante === 'duo') this._updateDuo(dt);
       else this._updatePlaying(dt);
@@ -3901,10 +4092,27 @@ export class Game {
     // la commande est déjà posée par le lecteur. À deux, c'est `_updateDuo` qui
     // s'en est chargé avant d'appeler ici — sans quoi on lirait le clavier deux
     // fois pour la même image.
-    if (!this.rejeu && this.variante !== 'duo') {
+    // TROIS FAÇONS DE NE PAS LIRE LE CLAVIER, et il fallait la troisième.
+    //
+    // En relecture, la commande vient du fichier. À deux, `_updateDuo` l'a déjà
+    // posée. Et EN SPECTATEUR, elle vient du copain qu'on regarde — sans ce
+    // dernier cas, on reconstruisait sa partie en y appliquant NOS touches.
+    // Mesuré : 1990 points contre 3165, et un vaisseau qui ne bouge pas puisque
+    // notre propre clavier ne dit rien.
+    if (!this.rejeu && !this.spectateur && this.variante !== 'duo') {
       this._construitCommande(dt);
       this.enregistreur.frame(this.cmd, this._controle());
       dt = this.cmd.dt;
+    }
+    // ON DIFFUSE À CEUX QUI REGARDENT.
+    //
+    // Rien de la partie ne part sur le réseau : seulement la commande de
+    // l'image, quelques octets. Le spectateur possède déjà l'instantané de la
+    // vague et la même graine ; il rejoue donc la partie chez lui, exactement
+    // comme le fait le mode replay depuis des mois. C'est le même code.
+    if (this._regardeurs?.size && !this.rejeu && !this.spectateur) {
+      const c = commandeVersTableau(this.cmd);
+      for (const qui of this._regardeurs) this.duo.signale(qui, 'vc', c);
     }
     if (this.cmd.ev) this._executeEvenement(this.cmd.ev);
 

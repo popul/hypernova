@@ -120,6 +120,12 @@ export class Duo {
       // enfants qui se parlent ne passent pas par ma machine.
       case 'signal':
         return this._signale(c, m);
+      // Le client dit quand il entre et sort d'une partie : c'est la seule façon
+      // pour le serveur de le savoir, et c'est ce qui permet à un ami de proposer
+      // de la regarder.
+      case 'joue':
+        c.enPartie = !!m.oui;
+        return this._diffusePresence();
       case 'creer':
         return this._cree(c);
       case 'rejoindre':
@@ -336,7 +342,13 @@ export class Duo {
     const out = {};
     for (const c of this.clients) {
       if (!c.identifie || !c.nom) continue;
-      out[c.nom] = { salon: !!c.salon, partie: !!c.salon && !!this.salons.get(c.salon)?.enCours };
+      // « En partie » vaut aussi pour une partie SOLO : c'est justement celle
+      // qu'un copain voudra regarder. Le client l'annonce, puisque le serveur ne
+      // sait rien de ce qui se joue.
+      out[c.nom] = {
+        salon: !!c.salon,
+        partie: !!c.enPartie || !!this.salons.get(c.salon)?.enCours,
+      };
     }
     return out;
   }

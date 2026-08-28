@@ -150,6 +150,12 @@ export class Duo {
     this._envoie({ t: 'signal', vers, sujet, d });
   }
 
+  // Le serveur ne sait pas ce qui se joue chez nous : on le lui dit, pour que nos
+  // amis puissent proposer de regarder.
+  annonceJeu(oui) {
+    this._envoie({ t: 'joue', oui: !!oui });
+  }
+
   annonceFin(score, vague) {
     this._envoie({ t: 'fin', score, vague });
   }
