@@ -616,9 +616,33 @@ body.touch .btn-energy-touch {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* CENTRÉ, MAIS JAMAIS ROGNÉ EN HAUT.
+     
+     Un contenu plus haut que l'écran, centré, dépasse des DEUX côtés — et celui
+     du haut est perdu, puisqu'on ne peut pas remonter. Sur un téléphone, le logo
+     passait ainsi sous la barre d'état. `safe center` centre tant que ça tient
+     et bascule en alignement haut sinon ; les navigateurs qui l'ignorent gardent
+     la ligne précédente. */
+  justify-content: safe center;
   gap: 22px;
   pointer-events: auto;
   animation: screen-in 0.5s ease-out;
+  overflow-y: auto;
+}
+
+/* LA PLACE DES ENCOCHES ET DES BOUTONS DE COIN.
+   
+   Le jeu s'affiche bord à bord (viewport-fit=cover), donc rien ne réserve la
+   barre d'état d'un iPhone : le titre passait dessous. Et les deux boutons de
+   coin — le pilote, les copains — occupent une bande en haut que le contenu
+   ignorait. On réserve les deux. */
+.screen.title,
+.screen.amis,
+.screen.variantes,
+.screen.entrainement,
+.screen.salons {
+  padding: calc(env(safe-area-inset-top, 0px) + 62px) 14px
+    calc(env(safe-area-inset-bottom, 0px) + 14px);
 }
 
 @keyframes screen-in {
@@ -1127,6 +1151,14 @@ body.touch .btn-energy-touch {
 
 .title-lb {
   width: min(430px, 92vw);
+}
+
+/* Écran court — un téléphone en portrait, une fenêtre basse. Les espacements de
+   vingt-deux pixels entre neuf blocs coûtent deux cents pixels à eux seuls. */
+@media (max-height: 900px) {
+  .screen.title {
+    gap: 14px;
+  }
 }
 
 /* LE PANTHÉON SORT DE LA COLONNE, SUR LES ÉCRANS LARGES.

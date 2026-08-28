@@ -926,10 +926,15 @@ export class Game {
   // Le tableau commun. Le classement du serveur remplace le local dès qu'il
   // arrive — jamais avant : un écran qui s'affiche vide en attendant le réseau est
   // pire qu'un écran qui montre ce qu'on a sous la main.
-  async _rafraichitPantheon(el, selecteur = '#go-lb', mode = 'arcade') {
+  // `limite` compte, et son absence était un bogue : l'écran d'accueil rendait
+  // trois lignes, puis CE rafraîchissement en réinjectait dix par-dessus. Le
+  // premier affichage était donc court, et le tableau reprenait toute la hauteur
+  // dès que le serveur répondait — c'est-à-dire aussitôt, et c'est ce qu'on
+  // voyait sur le téléphone.
+  async _rafraichitPantheon(el, selecteur = '#go-lb', mode = 'arcade', limite = 10) {
     const cible = el?.querySelector?.(selecteur);
     if (!cible) return;
-    const distant = await classement(10, mode);
+    const distant = (await classement(10, mode))?.slice(0, limite);
     if (!distant || !cible.isConnected) return;
     cible.innerHTML = this._leaderboardHtml(distant, -1, mode);
     this._brancheRejeux(cible);
@@ -1335,7 +1340,7 @@ export class Game {
       </div>
     `);
     this._brancheRejeux(el); // le panthéon du menu est cliquable, comme celui de fin
-    this._rafraichitPantheon(el, '#title-lb', mode);
+    this._rafraichitPantheon(el, '#title-lb', mode, 3);
     for (const b of el.querySelectorAll('.lb-onglet')) {
       b.addEventListener('click', () => {
         this._modeTableau = b.dataset.mode;
