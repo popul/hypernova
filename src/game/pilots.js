@@ -102,10 +102,7 @@ function retiensPilote(p) {
 // simplement plus ici.
 export function oubliePilote(nom) {
   try {
-    localStorage.setItem(
-      CLE_CONNUS,
-      JSON.stringify(pilotesConnus().filter((p) => p.name !== nom))
-    );
+    localStorage.setItem(CLE_CONNUS, JSON.stringify(pilotesConnus().filter((p) => p.name !== nom)));
   } catch {
     /* rien à faire : la liste restera telle quelle */
   }
