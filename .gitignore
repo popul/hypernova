@@ -7,3 +7,8 @@ dist/
 # La salle d'écoute se construit à la demande : son bundle n'a rien à faire ici.
 dist-ecoute/
 dist-fiches/
+
+# Bancs d'essai jetables. Ils portent un tiret bas devant pour que `npm test`,
+# qui ne ramasse que test/**/*.test.mjs, les ignore — et ils n'ont pas non plus
+# à entrer dans l'historique : ce sont des brouillons de mesure, pas du produit.
+test/_*.mjs
