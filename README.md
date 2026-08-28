@@ -119,9 +119,45 @@ Un même pilote peut rester connecté sur **plusieurs appareils** (huit sessions
 tablette ne déconnecte pas le téléphone.
 
 ```bash
-node server/index.js          # PORT=8081, DB_PATH=/data/hypernova.db
+npm run api                   # PORT=8081, DB_PATH=/data/hypernova.db
 npm run dev                   # le proxy Vite envoie /api au serveur
 ```
+
+#### Éprouver le jeu en réseau, en local
+
+Le jeu à deux, la présence, la voix et le mode spectateur demandent **deux joueurs
+différents en même temps**. Deux onglets ne suffisent pas : le jeton de session vit dans le
+`localStorage`, qui est indexé par ORIGINE — deux onglets du même site partagent donc le même
+pilote, et le second écrase le premier sans rien dire.
+
+Le contournement tient en un port :
+
+```bash
+npm run api                   # le serveur, une fois
+npm run dev                   # premier joueur  : http://localhost:5173
+npm run dev:2                 # second joueur   : http://localhost:5174
+```
+
+Une origine, c'est un protocole, un hôte **et un port** : `:5173` et `:5174` ont donc chacun
+leur `localStorage`, donc chacun leur pilote, tout en parlant au même serveur. C'est le seul
+moyen d'éprouver honnêtement ces fonctions sans deux machines — et il a servi : c'est ce banc
+qui a montré que le mode spectateur divergeait quand on s'accrochait au milieu d'une vague.
+
+Un piège à connaître : **le serveur ne se recharge pas à chaud**. Après une modification de
+`server/`, il faut le relancer, sinon on éprouve l'ancienne version en croyant tester la
+nouvelle.
+
+#### Les épreuves automatiques
+
+```bash
+npm test                      # node --test, aucune dépendance
+```
+
+Elles couvrent ce qui se vérifie sans navigateur : la courbe de difficulté, l'économie et les
+paliers d'amélioration, la quantification des commandes — dont dépendent le rejeu ET le jeu à
+deux — le format binaire d'enregistrement, la base du panthéon, le protocole WebSocket et les
+salons. Le rendu, les collisions et tout ce qui touche à Three.js restent hors de portée : ils
+continuent d'être vérifiés à la main, dans le navigateur.
 
 Un pilote publie sous un pseudo protégé par un code à quatre chiffres ; une adresse est
 demandée à la création pour pouvoir récupérer un code oublié — elle n'apparaît jamais dans le

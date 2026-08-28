@@ -41,8 +41,13 @@ jobs:
           # vague. Ni le lint ni le build ne l'attrapent : le jeu s'arrête net au
           # milieu d'une partie. Cette vérification-là coûte une seconde.
           node scripts/verifie-decors.mjs
+          # Les épreuves automatiques : courbe de difficulté, économie,
+          # quantification des commandes, format d'enregistrement, base du
+          # panthéon, protocole WebSocket et salons. Aucune dépendance : le
+          # lanceur est celui de Node.
+          npm test
           npm run build
-          echo "✅ lint + format + décors + build"
+          echo "✅ lint + format + décors + tests + build"
 
       - name: Lint et rendu du chart
         run: |

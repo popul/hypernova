@@ -85,12 +85,16 @@ export class Duo {
       return;
     }
     this.ferme();
+    // Ce qu'il faut pour revenir tout seul si la ligne tombe.
+    this._voulu = true;
+    this._dernier = { nom, mode, jeton };
     this.etat = 'connexion';
     this.mode = mode;
     const ws = new WebSocket(adresse(nom, mode, jeton));
     this.ws = ws;
     ws.onopen = () => {
       this.etat = 'hall';
+      this._essais = 0; // la ligne est revenue : on repart d'une attente courte
       this.r.onEtat?.('hall');
     };
     ws.onmessage = (e) => this._recois(e.data);
@@ -103,10 +107,35 @@ export class Duo {
       // fermeture au salon : dans le premier cas, quelqu'un est en train de
       // jouer et il faut le prévenir tout de suite.
       this.r.onEtat?.('ferme', avant);
+      this._replanifie();
     };
   }
 
+  // ON SE RECONNECTE, SINON LA PRÉSENCE MEURT AU PREMIER HOQUET.
+  //
+  // Un téléphone qui se met en veille, un tunnel, un changement de réseau : la
+  // connexion tombe, et rien ne la rouvrait. Les amis restaient alors
+  // éternellement « hors ligne », les appels ne passaient plus et le mode
+  // spectateur non plus — sans aucun message, puisque de notre côté tout avait
+  // l'air normal.
+  //
+  // L'attente double à chaque échec, plafonnée à trente secondes : on ne
+  // martèle pas un serveur qui ne répond pas, et on revient vite quand ce
+  // n'était qu'un trou de réseau.
+  _replanifie() {
+    if (this._voulu === false || !this._dernier) return;
+    this._essais = (this._essais || 0) + 1;
+    const attente = Math.min(30000, 1000 * Math.pow(2, this._essais - 1));
+    clearTimeout(this._reprise);
+    this._reprise = setTimeout(() => {
+      if (this._voulu !== false) this.connecte(this._dernier);
+    }, attente);
+  }
+
   ferme() {
+    // Fermeture VOULUE : on ne se reconnecte pas derrière le dos de l'appelant.
+    this._voulu = false;
+    clearTimeout(this._reprise);
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.close();

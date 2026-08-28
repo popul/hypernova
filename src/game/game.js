@@ -2071,6 +2071,8 @@ export class Game {
       case 'regard-oui':
         return this._commenceARegarder(de);
       case 'regard-non':
+        clearTimeout(this._attenteRegard);
+        this._ditAmis(`${de} préfère jouer tranquille.`);
         return this.hud.announce('Refusé', `${de} préfère jouer tranquille`, 2400);
       case 'regard-fin':
         this._regardeurs?.delete(de);
@@ -2081,6 +2083,8 @@ export class Game {
         this.spectateur.vue = true;
         this.spectateur.file.length = 0;
         this.spectateur.amorti = false;
+        // La vague commence : on cesse d'annoncer une attente.
+        this._ditRegard(`👁 Vous regardez ${de}`);
         // `_restaure` a rappelé `startWave`, qui repose l'état à « playing ».
         return;
       case 'vc':
@@ -2092,9 +2096,28 @@ export class Game {
   }
 
   // On demande la permission. Le copain répond, et c'est lui qui décide.
+  // LE RETOUR PASSE PAR L'ÉCRAN, PAS PAR LE HUD.
+  //
+  // `hud.announce` était invisible ici : l'écran des copains masque le HUD, comme
+  // tous les écrans de menu. Le bouton envoyait donc bien sa demande et ne
+  // disait rien — c'est-à-dire qu'il « ne faisait rien » pour celui qui appuie.
+  //
+  // Et il faut une SUITE : sans réponse au bout de quelques secondes, on doit
+  // savoir que le copain n'a pas vu ou n'a pas voulu, plutôt que de rester devant
+  // un bouton muet.
   demandeARegarder(nom) {
     this.duo.signale(nom, 'regarde', null);
-    this.hud.announce('Demande envoyée', `${nom} doit accepter`, 2400);
+    this._ditAmis(`Demande envoyée à ${nom} — il doit accepter…`);
+    clearTimeout(this._attenteRegard);
+    this._attenteRegard = setTimeout(() => {
+      if (!this.spectateur) this._ditAmis(`${nom} n'a pas répondu.`);
+    }, 14000);
+  }
+
+  // La ligne d'état de l'écran des copains, quand il est affiché.
+  _ditAmis(texte) {
+    const el = this.overlayRoot.querySelector('#amis-sous');
+    if (el) el.textContent = texte;
   }
 
   // Chez l'hôte : quelqu'un veut regarder. On ne l'accepte JAMAIS d'office —
@@ -2126,14 +2149,25 @@ export class Game {
     this._regardeurs = this._regardeurs || new Set();
     this._regardeurs.add(qui);
     this.duo.signale(qui, 'regard-oui', null);
-    this.hud.announce(`${qui} vous regarde`, '', 2000);
-    // On l'accroche tout de suite à la vague en cours plutôt que d'attendre la
-    // suivante : sinon il fixe un écran vide pendant une minute.
-    if (this.state === 'playing') this.duo.signale(qui, 'vue', this._instantane());
+    this.hud.announce(`${qui} vous regarde`, 'à la prochaine vague', 2400);
+    // ON NE L'ACCROCHE PAS EN COURS DE VAGUE, ET C'EST UNE CONTRAINTE, PAS UN
+    // CHOIX DE CONFORT.
+    //
+    // J'envoyais l'instantané tout de suite pour ne pas le faire attendre. Or
+    // `_restaure` termine par `startWave` : la vague REPART de son début chez le
+    // spectateur pendant qu'elle est à sa moitié chez l'hôte. Les deux
+    // simulations racontent alors deux parties différentes, sans rien signaler.
+    // Mesuré sur deux onglets : 875 points contre 1690, une vie contre trois.
+    //
+    // Un instantané ne décrit pas un instant quelconque : il décrit un DÉBUT DE
+    // VAGUE. C'est ce qui fait tenir le rejeu depuis des mois, et c'est la même
+    // propriété ici. Le spectateur attend donc la vague suivante — trente
+    // secondes au pire — et démarre sur un point de reprise exact.
   }
 
   // Chez le spectateur : on est accepté, on se met en position.
   _commenceARegarder(qui) {
+    clearTimeout(this._attenteRegard);
     this.quitteVitrine();
     this.spectateur = { de: qui, file: [], vue: false };
     // L'ÉTAT EST « playing », ET C'EST LE POINT DE TOUT.
@@ -2152,15 +2186,20 @@ export class Game {
     this.state = 'playing';
     this.hud.root.classList.remove('hidden');
     this.overlayRoot.innerHTML = '';
-    this.hud.announce(`Vous regardez ${qui}`, 'En attente de la vague', 2600);
+    this.hud.announce(`Vous regardez ${qui}`, 'Ça commence à sa prochaine vague', 3000);
     this._montreBandeauRegard(qui);
+  }
+
+  _ditRegard(texte) {
+    const t = document.getElementById('regard-texte');
+    if (t) t.textContent = texte;
   }
 
   _montreBandeauRegard(qui) {
     const barre = document.createElement('div');
     barre.id = 'regard-barre';
     barre.className = 'voix-barre';
-    barre.innerHTML = `<span class="voix-nom">👁 Vous regardez ${esc(qui)}</span>`;
+    barre.innerHTML = `<span class="voix-nom" id="regard-texte">👁 ${esc(qui)} — en attente de sa prochaine vague…</span>`;
     const stop = document.createElement('button');
     stop.className = 'btn-ghost petit';
     stop.textContent = 'Arrêter';
@@ -2275,6 +2314,11 @@ export class Game {
   // MES COPAINS. La liste, les demandes, et le lien à coller dans un message.
   showAmis() {
     this.quitteVitrine();
+    // On ouvre le canal ICI aussi, et pas seulement au titre : sans ça, arriver
+    // sur cet écran par un autre chemin montre tous les copains hors ligne, ce
+    // qui est faux et ne s'explique par rien à l'écran. L'appel ne coûte rien si
+    // la ligne est déjà debout.
+    this.ouvreCanalAmis();
     this.state = 'amis';
     this.hud.root.classList.add('hidden');
     this.player.group.visible = false;
