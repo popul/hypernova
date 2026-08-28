@@ -71,6 +71,27 @@ class Enemy {
   }
 }
 
+// QUI VISE-T-ON, QUAND ILS SONT DEUX ?
+//
+// Le plus proche, en profondeur d'abord. Un ennemi qui plonge choisit la menace
+// la plus immédiate, et c'est ce que fait un joueur quand il décide où tirer :
+// il regarde qui est le plus avancé, pas qui est le mieux placé latéralement.
+//
+// On rend le VAISSEAU, pas la position : la visée prédictive a besoin de sa
+// vitesse pour anticiper. Et l'on ignore les morts — tirer sur une épave laisse
+// l'autre tranquille, ce qui est exactement l'inverse de ce qu'on veut.
+//
+// Aucune allocation : la fonction rend l'un des deux objets existants.
+function cible(game) {
+  const a = game.player;
+  const b = game.joueur2;
+  if (!b || !b.alive) return a;
+  if (!a.alive) return b;
+  // `position.z` décroît vers le fond : le plus GRAND z est le plus avancé vers
+  // l'ennemi, donc le plus proche de lui.
+  return b.position.z > a.position.z ? b : a;
+}
+
 export class Enemies {
   constructor(scene) {
     this.scene = scene;
@@ -268,7 +289,7 @@ export class Enemies {
         // Au-delà de trackUntil la correction est figée : pas de « snap » injuste.
         if (e.diveStyle !== 'strafe' && e.t >= DIVES.trackFrom) {
           if (e.t <= DIVES.trackUntil) {
-            const want = game.player.position.x - (pos.x + (e.homeX || 0));
+            const want = cible(game).position.x - (pos.x + (e.homeX || 0));
             const step = this.diff.diveTrackMax * dt * (1 - e.t);
             e.homeX = (e.homeX || 0) + THREE.MathUtils.clamp(want, -step, step);
           }
@@ -365,12 +386,12 @@ export class Enemies {
     const start = e.group.position.clone();
     // Anticipation dès le lancement : la plongée dure 1,5 à 2,4 s, viser la position
     // actuelle revenait à viser le vide.
-    const px = game.player.position.x + game.player.vx * ENEMY.diveLead + offsetX;
+    const px = cible(game).position.x + cible(game).vx * ENEMY.diveLead + offsetX;
     e.homeX = 0;
 
     if (style === 'strafe') {
       // Rasante latérale : arrive toujours du côté opposé au joueur, pour le traverser.
-      const dir = start.x >= game.player.position.x ? 1 : -1;
+      const dir = start.x >= cible(game).position.x ? 1 : -1;
       e.curve = new THREE.CubicBezierCurve3(
         start,
         new THREE.Vector3(dir * 20, 0, start.z + 9),
@@ -408,10 +429,10 @@ export class Enemies {
   _predictPoint(fromZ, game, roleMul) {
     // Temps de vol mesuré jusqu'à la position RÉELLE du joueur : depuis qu'il peut
     // avancer et reculer, viser le plan de départ manquerait systématiquement.
-    const tof = Math.abs(game.player.position.z - fromZ) / this.diff.bulletSpeed;
+    const tof = Math.abs(cible(game).position.z - fromZ) / this.diff.bulletSpeed;
     const lead = this.diff.lead ?? ENEMY.leadBase;
     const jitter = ecart(ENEMY.leadJitter);
-    const x = game.player.position.x + game.player.vx * tof * lead * roleMul + jitter;
+    const x = cible(game).position.x + cible(game).vx * tof * lead * roleMul + jitter;
     return THREE.MathUtils.clamp(x, -ARENA.playerXMax, ARENA.playerXMax);
   }
 
@@ -424,7 +445,7 @@ export class Enemies {
     // sa balle arrive par en dessous, hors du regard, sur un joueur qui surveille
     // le haut de l'écran. Ce n'est pas une difficulté, c'est une embuscade — et
     // l'esquive n'y sert à rien puisqu'on ne voit rien venir.
-    if (from.z > game.player.position.z - ENEMY.noFireBehind) return false;
+    if (from.z > cible(game).position.z - ENEMY.noFireBehind) return false;
     // NI À PLAT. Un ennemi très à l'écart mais à peine plus haut envoie une balle
     // qui traverse l'écran presque à l'horizontale : elle arrive par le côté, dans
     // la direction où l'on esquive justement, et le seul mouvement qui y échappe
@@ -434,7 +455,7 @@ export class Enemies {
     if (Math.abs(dir.z) < Math.abs(dir.x) * ENEMY.minShotSlope) return false;
     const speed = dir.length();
     if (speed > 1e-3) {
-      const dist = from.distanceTo(game.player.position);
+      const dist = from.distanceTo(cible(game).position);
       if (dist / speed < ENEMY.minReactionTime) return false;
     }
     game.enemyBullets.spawn(from, dir, kind);
@@ -443,7 +464,7 @@ export class Enemies {
 
   // Tire une balle depuis `from` vers le point x cible (au plan du joueur).
   _shootToward(from, aimX, game, speedMul = 1, spread = 0, kind = 'aimed') {
-    const dir = this._tmp2.set(aimX - from.x, 0, game.player.position.z - from.z);
+    const dir = this._tmp2.set(aimX - from.x, 0, cible(game).position.z - from.z);
     dir.normalize();
     if (spread) {
       dir.x += ecart(spread);
@@ -628,7 +649,7 @@ export class Enemies {
 
     // TRAQUE. Il descend et suit le joueur en x, sans jamais l'atteindre tout à
     // fait — le retard est ce qui laisse une chance de le semer.
-    const cible = THREE.MathUtils.clamp(game.player.position.x, -8.5, 8.5);
+    const cible = THREE.MathUtils.clamp(cible(game).position.x, -8.5, 8.5);
     p.x += (cible - p.x) * Math.min(1, 1.35 * ph.vitesse * dt);
     p.z += (-8.5 - p.z) * Math.min(1, 0.9 * dt);
     p.y = Math.sin(e.time * 3.1) * 0.25;
@@ -669,7 +690,7 @@ export class Enemies {
   _fireFan(e, game, offsetU = 0, ph = BOSS_PHASES[0]) {
     const from = this._tmp.copy(e.group.position);
     from.z += 1.2;
-    const dz = Math.max(1, game.player.position.z - from.z);
+    const dz = Math.max(1, cible(game).position.z - from.z);
     // La maille se resserre à la dernière phase, mais l'éventail se raccourcit
     // d'autant : un mur plus dense ET plus large ne serait plus une difficulté,
     // seulement une impasse.

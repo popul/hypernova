@@ -23,6 +23,22 @@ const MAX_REPLAYS_PAR_PILOTE = 12;
 // jetons oubliés pendant des mois.
 const MAX_SESSIONS = 8;
 
+// LES QUATRE TABLEAUX.
+//
+// Le jeu à deux a son propre classement, et c'est la seule réponse honnête :
+// comparer un score fait à deux à un score fait seul n'a pas de sens — la
+// difficulté monte, mais on est deux à tirer et l'un couvre l'autre.
+//
+// On l'écrit comme un MODE plutôt que comme une colonne à part. Toute la
+// mécanique existante — les index, l'élagage par mode qui empêche un marathon
+// de chasser les enregistrements d'arcade — s'applique alors sans une ligne de
+// plus. Un suffixe, et le duo hérite de tout.
+const MODES = ['arcade', 'survie', 'arcade2', 'survie2'];
+
+export function modePropre(v) {
+  return MODES.includes(v) ? v : 'arcade';
+}
+
 export class Base {
   constructor(chemin) {
     mkdirSync(dirname(chemin), { recursive: true });
@@ -251,7 +267,7 @@ export class Base {
       .run(
         id,
         pilote,
-        p.mode === 'survie' ? 'survie' : 'arcade',
+        modePropre(p.mode),
         p.score,
         p.vague,
         p.duree || 0,
@@ -262,7 +278,7 @@ export class Base {
         p.etats ? JSON.stringify(p.etats) : null,
         p.controles ? JSON.stringify(p.controles) : null
       );
-    this._elague(pilote, p.mode === 'survie' ? 'survie' : 'arcade');
+    this._elague(pilote, modePropre(p.mode));
     return id;
   }
 
@@ -294,8 +310,10 @@ export class Base {
   // question qu'on s'y pose est « jusqu'où es-tu allé ? », pas « combien as-tu
   // marqué en chemin ? ».
   classement(limite = 20, mode = 'arcade') {
-    const m = mode === 'survie' ? 'survie' : 'arcade';
-    const ordre = m === 'survie' ? 'vague DESC, score DESC' : 'score DESC, vague DESC';
+    const m = modePropre(mode);
+    // La survie se classe à la vague atteinte, l'arcade au score — à deux comme
+    // en solo, puisque c'est la QUESTION qui change, pas le nombre de pilotes.
+    const ordre = m.startsWith('survie') ? 'vague DESC, score DESC' : 'score DESC, vague DESC';
     return this.db
       .prepare(
         `SELECT id, pilote AS nom, mode, score, vague, duree, jouee_le,

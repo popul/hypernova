@@ -16,12 +16,17 @@ import * as reseau from './reseau.js';
 // ouverture d'écran ; il n'est jamais écrit sur disque et meurt avec l'onglet.
 const cache = { arcade: null, survie: null };
 
+// Les quatre tableaux : arcade et survie, en solo et à deux. Voir server/base.js,
+// qui tient la même liste — c'est le prix d'un serveur qui n'importe rien du jeu.
+const MODES = ['arcade', 'survie', 'arcade2', 'survie2'];
+export const modePropre = (v) => (MODES.includes(v) ? v : 'arcade');
+
 export function classementConnu(mode = 'arcade') {
-  return cache[mode === 'survie' ? 'survie' : 'arcade'] || [];
+  return cache[modePropre(mode)] || [];
 }
 
 export async function classement(max = 10, mode = 'arcade') {
-  const m = mode === 'survie' ? 'survie' : 'arcade';
+  const m = modePropre(mode);
   const l = await reseau.classementDistant(max, m);
   if (l) cache[m] = l;
   // Pas de réseau : on rend ce qu'on avait vu. Un tableau vide et un tableau
@@ -37,7 +42,7 @@ export async function partieParId(id) {
 // Une partie terminée. Elle entre dans la file, la file part si elle peut, et le
 // rang se lit dans le classement que le serveur renvoie ensuite.
 export async function enregistrePartie({ name, score, wave, duree, mode = 'arcade', replay }) {
-  const m = mode === 'survie' ? 'survie' : 'arcade';
+  const m = modePropre(mode);
   reseau.enFile({
     name,
     score,

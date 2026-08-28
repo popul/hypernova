@@ -95,6 +95,7 @@ import { Director, romanTier } from './director.js';
 import {
   SURVIE,
   DEFAULT_MODS,
+  DUO,
   BOSS_PHASES,
   MODULE_RARETE,
   COQUES,
@@ -1659,7 +1660,7 @@ export class Game {
     // L'enregistrement de la partie, lui, se compresse — donc il s'écrit APRÈS
     // l'affichage. On ne fait pas attendre un écran de fin pour un gzip.
     const pilot = activePilot();
-    const scores = classementConnu(this.mode);
+    const scores = classementConnu(this.modeTableau);
     const pilotLine =
       this.score > 0 && pilot
         ? `<div class="go-pilot" id="go-pilot">${esc(pilot.name)} — inscription au panthéon…</div>`
@@ -1675,8 +1676,8 @@ export class Game {
         </div>
         ${pilotLine}
         <div class="title-lb">
-          <div class="lb-title">${this.mode === 'survie' ? '— Survie —' : '— Panthéon —'}</div>
-          <div id="go-lb">${this._leaderboardHtml(scores, -1, this.mode)}</div>
+          <div class="lb-title">${this._titreTableau()}</div>
+          <div id="go-lb">${this._leaderboardHtml(scores, -1, this.modeTableau)}</div>
         </div>
         <div class="title-menu">
           <button class="btn-secondary" id="btn-share">📣 Défier les copains</button>
@@ -1696,7 +1697,10 @@ export class Game {
     // L'ENTRAÎNEMENT NE PUBLIE RIEN. C'est sa raison d'être : on y recommence la
     // même vague dix fois, avec l'équipement qu'on veut, et aucun de ces essais
     // n'est comparable à une partie jouée depuis le début.
-    if (this.score > 0 && pilot && this.variante === 'solo') this._archive(el, pilot);
+    // L'ENTRAÎNEMENT NE PUBLIE JAMAIS. Le duo publie s'il y a un pilote — jouer
+    // à l'invitation d'un copain sans compte reste possible, ça ne laisse
+    // simplement pas de trace au tableau.
+    if (this.score > 0 && pilot && this.variante !== 'entrainement') this._archive(el, pilot);
   }
 
   // Écrit la partie — score, nom, et l'enregistrement qui permettra de la revoir.
@@ -1720,13 +1724,13 @@ export class Game {
       score: this.score,
       wave: this.wave,
       duree: replay?.duree || 0,
-      mode: this.mode,
+      mode: this.modeTableau,
       replay,
     });
     // Le local d'abord, le serveur ensuite : la partie est déjà en sûreté sur
     // l'appareil quand on tente de la publier, donc une panne réseau ne coûte rien.
     reseau.enFile(partieParId(id));
-    reseau.pousse().then(() => this._rafraichitPantheon(el, '#go-lb', this.mode));
+    reseau.pousse().then(() => this._rafraichitPantheon(el, '#go-lb', this.modeTableau));
 
     if (!el.isConnected) return;
     const ligne = el.querySelector('#go-pilot');
@@ -2062,8 +2066,10 @@ export class Game {
         dit(`Décollage dans ${n}…`);
       },
       onGo: (m) => this._lanceDuo(m, mode),
-      onParti: (p) =>
-        dit(p.hote ? 'La table s’est fermée.' : 'Votre copain est parti. La table reste ouverte.'),
+      onParti: (p) => {
+        if (this.state === 'playing' && this.variante === 'duo') return this._duoSeul();
+        dit(p.hote ? 'La table s’est fermée.' : 'Votre copain est parti. La table reste ouverte.');
+      },
       onErreur: (code) =>
         dit(
           code === 'salon-indisponible'
@@ -2109,6 +2115,31 @@ export class Game {
     this.hud.announce('Décollage', `${moi.nom} & ${lui.nom}`, 2000);
   }
 
+  // LE COPAIN EST PARTI, LA PARTIE CONTINUE.
+  //
+  // On ne renvoie pas au menu : celui qui reste est peut-être à sa meilleure
+  // vague, et perdre sa partie parce que l'autre a fermé son onglet serait la
+  // pire façon de découvrir le jeu à deux. La partie redevient donc SOLO — le
+  // second vaisseau s'efface, la difficulté redescend à la vague suivante, et le
+  // score continue de compter.
+  //
+  // Elle ne rejoint pas pour autant le panthéon solo : elle a commencé à deux,
+  // avec l'aide de quelqu'un, et la comparer à une partie jouée seule du début à
+  // la fin serait faux. Elle reste au tableau du jeu à deux.
+  _duoSeul() {
+    if (this.variante !== 'duo') return;
+    this._fermeSecondBord();
+    this._duoAttente = false;
+    this._duoAbandonne = false;
+    this.duo?.ferme();
+    // La variante reste « duo » pour le tableau des scores, mais la simulation
+    // repasse en temps réel : il n'y a plus personne à attendre.
+    this._duoAbandonne = true;
+    this.hud.announce('Seul aux commandes', 'Votre copain a quitté la partie', 2600);
+    // S'il était mort en attendant que l'autre tombe, la partie s'arrête ici.
+    if (!this.player.alive && this.lives <= 0) this.gameOverTimer = 1.8;
+  }
+
   // Le second vaisseau, et son poste de pilotage. Il vit tant que la partie à
   // deux dure ; le premier joueur, lui, est celui du jeu depuis toujours.
   _ouvreSecondBord(duo) {
@@ -2127,6 +2158,7 @@ export class Game {
       energy: 0,
       credits: 0,
       lives: PLAYER.baseLives,
+      respawnTimer: 0,
       score: 0,
       nom: duo.luiNom,
     };
@@ -2149,7 +2181,8 @@ export class Game {
   // d'avoir les commandes des deux joueurs.
   _updateDuo(dtReel) {
     const d = this.duo;
-    if (!d || d.etat !== 'partie') return this._updatePlaying(PAS_DUO);
+    // Plus de copain : on ne verrouille plus rien, on joue comme en solo.
+    if (this._duoAbandonne || !d || d.etat !== 'partie') return this._updatePlaying(dtReel);
     let n = d.pas(dtReel);
     while (n-- > 0) {
       if (!d.pret()) {
@@ -2472,6 +2505,7 @@ export class Game {
     // Le second vaisseau n'existe qu'à deux, et il est reconstruit à chaque
     // partie : sa coque change avec le copain qu'on a en face.
     this.duoMoi = options?.duo ? options.duo.moi : 0;
+    this._duoAttente = false;
     if (options?.duo) this._ouvreSecondBord(options.duo);
     else this._fermeSecondBord();
     // Filet : un secteur caché pour une cinématique se rallume à sa fin, mais un
@@ -2666,8 +2700,29 @@ export class Game {
         noBoss: boss === false ? true : undefined,
       });
       // Le risque choisi sur la route ne vaut que pour UNE vague : on le consomme.
-      const mods = this.routeMods ? { ...DEFAULT_MODS, ...this.routeMods } : DEFAULT_MODS;
+      // TOUJOURS UNE COPIE. Sans le `...` du cas par défaut, `mods` ÉTAIT l'objet
+      // DEFAULT_MODS lui-même — une constante partagée par tout le jeu. Le
+      // multiplicateur du duo la modifiait alors définitivement : il se composait
+      // à chaque vague (1,35 puis 1,82 puis 2,46…) et contaminait les parties
+      // solo suivantes jusqu'au rechargement de la page. Mesuré avant
+      // correction : 137 points de vie en solo, 276 à deux, là où l'on attendait
+      // 185.
+      const mods = { ...DEFAULT_MODS, ...(this.routeMods || {}) };
       this.routeMods = null;
+      // À DEUX, LA VAGUE EST PLUS DURE — sinon elle est deux fois plus facile.
+      //
+      // Deux vaisseaux, c'est deux fois la puissance de feu et deux fois les
+      // chances qu'un tir trouve une cible. Les chiffres ci-dessous ne doublent
+      // pas la difficulté pour autant : à deux on se gêne, on partage l'arène, et
+      // l'un couvre l'autre. Un tiers de points de vie en plus, un quart de tirs
+      // et de piqués en plus — assez pour qu'on ait besoin d'être deux, pas assez
+      // pour que ce soit une punition. Les crédits, eux, ne bougent pas : chacun
+      // ramasse les siens et la boutique reste au même prix.
+      if (this.variante === 'duo' && this.joueur2) {
+        mods.hp *= DUO.hp;
+        mods.fire *= DUO.fire;
+        mods.dive *= DUO.dive;
+      }
       this.enemies.startWave(def, nDiff, mods, this.director.heat);
       this.hud.setWave(survie ? `${n}/${SURVIE.vagues}` : n);
       this.hud.announce(
@@ -2752,6 +2807,18 @@ export class Game {
       tier: palierDeCoque(this.fragments),
       levels: this.levels,
     };
+  }
+
+  // Sous quel tableau cette partie s'inscrit. Le duo a le sien : comparer un
+  // score fait à deux à un score fait seul n'aurait pas de sens.
+  _titreTableau() {
+    if (this.variante === 'entrainement') return '— Entraînement · hors panthéon —';
+    const duo = this.variante === 'duo' ? ' à deux' : '';
+    return this.mode === 'survie' ? `— Survie${duo} —` : `— Panthéon${duo} —`;
+  }
+
+  get modeTableau() {
+    return this.variante === 'duo' ? `${this.mode}2` : this.mode;
   }
 
   _refreshShip() {
@@ -3534,18 +3601,14 @@ export class Game {
 
     this._collisions();
 
-    // Respawn / game over différés.
-    if (!this.player.alive) {
-      if (this.lives > 0) {
-        this.respawnTimer -= dt;
-        // On repart sans bouclier : son timer redémarre à plein.
-        if (this.respawnTimer <= 0) {
-          this.player.reset({ keepUpgrades: false, shieldRecharge: this.stats.shieldRecharge });
-        }
-      } else {
-        this.gameOverTimer -= dt;
-        if (this.gameOverTimer <= 0) this.showGameOver();
-      }
+    // Respawn / game over différés, par pilote.
+    this._respawn(dt, this);
+    if (this.joueur2) this._respawn(dt, this.bord2);
+    // La fin de partie n'appartient qu'au poste local : à deux, tant que le
+    // copain vole encore, on attend.
+    if (!this.player.alive && this.lives <= 0 && !this._duoAttente) {
+      this.gameOverTimer -= dt;
+      if (this.gameOverTimer <= 0) this.showGameOver();
     }
 
     // Fin de vague → bonus, puis boutique (ou victoire de mission en campagne).
@@ -3790,8 +3853,22 @@ export class Game {
       }
     });
 
-    if (!this.player.alive) return;
-    const pPos = this.player.position;
+    // CHAQUE PILOTE A SES PROPRES COLLISIONS. À deux, un tir ne touche pas « le
+    // joueur » : il touche l'un des deux, et l'autre continue. Les tirs des
+    // JOUEURS, eux, restent communs — il n'y a qu'une arène et qu'un tas
+    // d'ennemis.
+    this._collisionsPilote(this, enemies);
+    if (this.joueur2) this._collisionsPilote(this.bord2, enemies);
+  }
+
+  // `bord` désigne le poste de pilotage : le jeu lui-même pour le premier joueur,
+  // `bord2` pour le second. Les vaisseaux ne se gênent pas entre eux — ni
+  // collision, ni tir fratricide — parce qu'à deux on se serre, et qu'un jeu où
+  // l'on se bouscule punit la coopération qu'il vient d'inventer.
+  _collisionsPilote(bord, enemies) {
+    const qui = bord === this ? this.player : this.joueur2;
+    if (!qui?.alive) return;
+    const pPos = qui.position;
 
     // Tirs ennemis → joueur. Pendant un tonneau, la balle est RENVOYÉE.
     //
@@ -3804,7 +3881,7 @@ export class Game {
     this.enemyBullets.forEachActive((b) => {
       const rr = PLAYER.radius + this.enemyBullets.radius;
       if (b.mesh.position.distanceToSquared(pPos) >= rr * rr) return;
-      if (this.player.rolling) {
+      if (qui.rolling) {
         this.fx.burst(b.mesh.position, 0x8ffbff, { count: 6, speed: 8, life: 0.28 });
         this.enemyBullets.kill(b);
         // Elle repart d'où elle vient, plus vite qu'elle n'est arrivée : un
@@ -3815,7 +3892,7 @@ export class Game {
         return;
       }
       this.enemyBullets.kill(b);
-      this._playerHit();
+      this._playerHit(bord);
     });
 
     // Collision de plein fouet avec un ennemi (plongée).
@@ -3826,9 +3903,21 @@ export class Game {
         if (e.type !== 'boss') {
           if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e, 'ram');
         }
-        this._playerHit();
+        this._playerHit(bord);
         break;
       }
+    }
+  }
+
+  // Le retour en vol d'un pilote. Chacun a son compte à rebours : à deux, l'un
+  // peut revenir pendant que l'autre se bat.
+  _respawn(dt, bord) {
+    const qui = bord === this ? this.player : this.joueur2;
+    if (!qui || qui.alive || bord.lives <= 0) return;
+    bord.respawnTimer -= dt;
+    // On repart sans bouclier : son timer redémarre à plein.
+    if (bord.respawnTimer <= 0) {
+      qui.reset({ keepUpgrades: false, shieldRecharge: bord.stats.shieldRecharge });
     }
   }
 
@@ -3868,7 +3957,7 @@ export class Game {
 
   // Mourir coûte désormais six choses lisibles au lieu d'une : la vie, le combo,
   // toute l'énergie, l'Overdrive en cours, le bouclier et la prime de vague.
-  _playerHit() {
+  _playerHit(bord = this) {
     // LE FANTÔME S'EN SORT TOUJOURS, ET C'EST ASSUMÉ.
     //
     // J'ai d'abord essayé de le faire jouer assez bien pour tenir la minute
@@ -3891,27 +3980,48 @@ export class Game {
       return;
     }
 
-    const result = this.player.takeHit(this);
+    // `bord` est le poste touché : le jeu lui-même pour le premier pilote, le
+    // second bord pour l'autre. `moi` dit si c'est CE joueur-ci — le HUD, les
+    // répliques et la secousse ne concernent que lui.
+    const moi = bord === this;
+    const qui = moi ? this.player : this.joueur2;
+    const result = qui.takeHit(this, bord);
     if (result === 'shield') {
-      this.characters.onShieldLost();
-      this.director.onShieldBroken();
+      if (moi) {
+        this.characters.onShieldLost();
+        this.director.onShieldBroken();
+      }
+      return;
     }
     if (result !== 'hit') return;
-    this.lives--;
-    this.hud.setLives(this.lives);
-    this.combo = { chain: 0, mult: 1, timer: 0 };
-    this.energy = 0;
-    this.hud.setEnergy(0);
-    this.odTimer = 0;
-    this.hud.setOverdrive(false);
-    this.bombCooldown = 0;
-    this.waveDeath = true;
-    this.director.onDeath();
-    this.player.die(this);
-    if (this.lives > 0) {
-      this.respawnTimer = 1.3;
-      this.characters.onLifeLost();
-    } else {
+    bord.lives--;
+    bord.energy = 0;
+    bord.odTimer = 0;
+    if (moi) {
+      this.hud.setLives(this.lives);
+      this.combo = { chain: 0, mult: 1, timer: 0 };
+      this.hud.setEnergy(0);
+      this.hud.setOverdrive(false);
+      this.bombCooldown = 0;
+      this.waveDeath = true;
+      this.director.onDeath();
+    }
+    qui.die(this);
+    if (bord.lives > 0) {
+      // LA RENAISSANCE EST PROPRE À CHACUN. À deux, l'un peut être en train de
+      // revenir pendant que l'autre se bat : un seul compteur les ferait
+      // réapparaître ensemble, ce qui n'a aucun sens.
+      bord.respawnTimer = 1.3;
+      if (moi) this.characters.onLifeLost();
+    } else if (moi) {
+      // LA PARTIE NE FINIT PAS PARCE QUE J'AI PERDU. À deux, on attend que
+      // l'autre tombe aussi — c'est la règle du jeu, et c'est ce qui rend la
+      // dernière vie du copain intéressante à regarder.
+      if (!this.joueur2 || this.bord2.lives <= 0) this.gameOverTimer = 1.8;
+      else this._duoAttente = true;
+    } else if (this.lives <= 0) {
+      // L'autre vient de tomber alors que j'étais déjà à terre : c'est fini.
+      this._duoAttente = false;
       this.gameOverTimer = 1.8;
     }
   }

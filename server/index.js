@@ -15,7 +15,7 @@
 // ce qui le remplit.
 
 import { createServer } from 'node:http';
-import { Base } from './base.js';
+import { Base, modePropre } from './base.js';
 import { routeAdmin, administrable } from './admin.js';
 import { brancheWebSocket } from './websocket.js';
 import { Duo } from './duo.js';
@@ -264,7 +264,7 @@ async function route(req, res, chemin) {
     // que le serveur ne lit jamais. Il en vérifie la taille et le type, rien de plus.
     const flux = typeof corps.flux === 'string' && corps.flux.length < 200_000 ? corps.flux : null;
     const id = base.ajoutePartie(pilote.nom, {
-      mode: corps.mode === 'survie' ? 'survie' : 'arcade',
+      mode: modePropre(corps.mode),
       score,
       vague,
       duree: entier(corps.duree, 86400) ?? 0,
@@ -287,7 +287,7 @@ async function route(req, res, chemin) {
     // classement d'une seule ligne sans que rien ne le signale.
     const brut = url.searchParams.get('limite');
     const limite = (brut === null ? null : entier(brut, 100)) ?? 20;
-    const mode = url.searchParams.get('mode') === 'survie' ? 'survie' : 'arcade';
+    const mode = modePropre(url.searchParams.get('mode'));
     return repond(res, 200, { mode, classement: base.classement(limite, mode) });
   }
 

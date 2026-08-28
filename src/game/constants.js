@@ -481,6 +481,20 @@ export const REFLEX = {
 // Aucune n'a été construite pour se battre : les Élides fuyaient, ils ont emporté
 // des outils. Le détail est dans docs/classes.md, et il n'est pas décoratif — c'est
 // lui qui a dicté les trois mécaniques.
+// LE JEU À DEUX. Ce que la présence d'un second pilote change à la vague.
+//
+// Doubler la difficulté serait le réflexe et ce serait faux : deux joueurs ne
+// valent pas deux fois un joueur seul. Ils se gênent, ils partagent la largeur
+// de l'arène, et surtout ils ne peuvent pas être partout — un ennemi qui plonge
+// sur l'un est un ennemi que l'autre ne couvre pas. Les valeurs ci-dessous
+// rendent la vague exigeante pour deux sans la rendre injouable ; elles restent
+// à ajuster une fois qu'on aura vu deux enfants y jouer une soirée.
+export const DUO = {
+  hp: 1.35,
+  fire: 1.25,
+  dive: 1.25,
+};
+
 export const COQUES = [
   {
     id: 'orion',
