@@ -37,7 +37,7 @@ const VAGUE_MAX = 999;
 const base = new Base(CHEMIN_BASE);
 // Le jeu à deux vit entièrement en mémoire : un salon n'a pas à survivre au
 // redémarrage du serveur, et une partie encore moins.
-const duo = new Duo({ nomPropre });
+const duo = new Duo({ nomPropre, sontAmis: (a, b) => base.sontAmis(a, b) });
 
 // --- Limitation de débit ----------------------------------------------------
 // En mémoire : le service tourne en un seul exemplaire, et une limite approximative

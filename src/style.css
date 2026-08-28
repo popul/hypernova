@@ -4063,3 +4063,46 @@ body.touch .btn-call-touch {
   padding: 10px;
   width: 100%;
 }
+
+/* ---- La ligne vocale ----------------------------------------------------- */
+
+/* Un bandeau, pas une fenêtre : un appel qui sonne doit se voir quel que soit
+   l'écran — y compris en pleine vague, où c'est justement le moment où l'on veut
+   savoir qu'un copain appelle. Posé en haut au centre, hors du champ de tir. */
+.voix-barre {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(8, 12, 30, 0.92);
+  border: 1px solid var(--cyan-dim);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  z-index: 60;
+}
+
+.voix-nom {
+  font-family: var(--display);
+  font-size: 13px;
+  color: var(--cyan);
+  letter-spacing: 0.05em;
+}
+
+/* Décrocher est le geste qu'on cherche : il se distingue des autres. */
+.voix-oui {
+  color: #12010f;
+  background: #4fe08a;
+  border-color: #4fe08a;
+}
+
+.voix-oui:hover {
+  background: #6df2a3;
+}
+
+.voix-appel {
+  color: var(--gold);
+}

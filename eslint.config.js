@@ -23,6 +23,8 @@ export default [
         location: 'readonly',
         WebSocket: 'readonly',
         history: 'readonly',
+        // La voix entre joueurs : liaison directe entre navigateurs.
+        RTCPeerConnection: 'readonly',
         requestAnimationFrame: 'readonly',
         cancelAnimationFrame: 'readonly',
         performance: 'readonly',

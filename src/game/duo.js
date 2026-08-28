@@ -146,6 +146,10 @@ export class Duo {
     this._envoie({ t: 'lister' });
   }
 
+  signale(vers, sujet, d) {
+    this._envoie({ t: 'signal', vers, sujet, d });
+  }
+
   annonceFin(score, vague) {
     this._envoie({ t: 'fin', score, vague });
   }
@@ -163,6 +167,10 @@ export class Duo {
       case 'presence':
         this.presence = m.l;
         return this.r.onPresence?.(m.l);
+      // La signalisation de la voix passe par le même canal. Le contenu ne nous
+      // regarde pas : on le remet à qui sait le lire.
+      case 'signal':
+        return this.r.onSignal?.(m.de, m.sujet, m.d);
       case 'salon':
         this.salonId = m.id;
         this.role = m.role;

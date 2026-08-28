@@ -43,6 +43,7 @@ import { PiloteAuto } from './pilote-auto.js';
 import { Colosse } from './asteroide.js';
 import { Duo, PAS as PAS_DUO } from './duo.js';
 import { Installation } from './installation.js';
+import { Voix } from './voix.js';
 import { DemoArme } from './demo-arme.js';
 
 // Combien de temps la carène tourne sur elle-même avant que l'arme ne parle.
@@ -204,6 +205,12 @@ export class Game {
     // Le canal des amis. Il porte la présence en continu, et sert de salon quand
     // on veut jouer à deux : une seule connexion pour les deux usages.
     this.duo = new Duo();
+    // La voix. Elle emprunte le canal des amis pour se présenter, puis l'audio va
+    // d'un navigateur à l'autre sans passer par le serveur.
+    this.voix = new Voix({
+      envoie: (vers, sujet, d) => this.duo.signale(vers, sujet, d),
+      onEtat: (etat, qui) => this._surVoix(etat, qui),
+    });
     this.demo = false;
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
@@ -1976,6 +1983,7 @@ export class Game {
     this.duo.r = {
       ...this.duo.r,
       onPresence: (l) => this._surPresence(l),
+      onSignal: (de, sujet, d) => this.voix.recois(de, sujet, d),
     };
     this.duo.connecte({ nom: activePilot()?.name, mode: this.mode, jeton: jeton() });
   }
@@ -2016,6 +2024,54 @@ export class Game {
       `${r.nom} est dans votre liste`,
       2800
     );
+  }
+
+  // L'ÉTAT DE LA LIGNE, EN UN BANDEAU. Un appel qui sonne doit se voir quel que
+  // soit l'écran — y compris en pleine vague, où c'est justement le moment où
+  // l'on veut savoir qu'un copain appelle.
+  _surVoix(etat, qui) {
+    let barre = document.getElementById('voix-barre');
+    if (etat === 'raccroche' || etat === 'refus' || etat === 'echec') {
+      barre?.remove();
+      if (etat === 'echec') {
+        this.hud.announce('Liaison impossible', 'Votre réseau ne laisse pas passer l’appel', 3000);
+      }
+      return;
+    }
+    if (!barre) {
+      barre = document.createElement('div');
+      barre.id = 'voix-barre';
+      barre.className = 'voix-barre';
+      document.body.append(barre);
+    }
+    barre.innerHTML = '';
+    const nom = document.createElement('span');
+    nom.className = 'voix-nom';
+    nom.textContent =
+      etat === 'sonne'
+        ? `${qui} vous appelle`
+        : etat === 'appelle'
+          ? `Appel de ${qui}…`
+          : `En ligne avec ${qui}`;
+    barre.append(nom);
+
+    const bouton = (texte, classe, action) => {
+      const b = document.createElement('button');
+      b.className = classe;
+      b.textContent = texte;
+      b.addEventListener('click', action);
+      barre.append(b);
+      return b;
+    };
+    if (etat === 'sonne') {
+      bouton('Décrocher', 'btn-ghost petit voix-oui', () => this.voix.decroche());
+      bouton('Refuser', 'btn-ghost petit', () => this.voix.refuse());
+    } else {
+      const m = bouton(this.voix.muet ? '🔇 Muet' : '🎙 Micro', 'btn-ghost petit', () => {
+        m.textContent = this.voix.basculeMuet() ? '🔇 Muet' : '🎙 Micro';
+      });
+      bouton('Raccrocher', 'btn-ghost petit', () => this.voix.raccroche());
+    }
   }
 
   // La pastille sur le bouton : combien de demandes attendent une réponse, et
@@ -2090,6 +2146,13 @@ export class Game {
         ligne.className = `ami-ligne${p ? ' ami-en-ligne' : ''}`;
         ligne.innerHTML = `<span class="ami-nom">${esc(a.nom)}</span>
           <span class="ami-etat">${p ? (p.partie ? 'en partie' : 'en ligne') : 'hors ligne'}</span>`;
+        if (p) {
+          const appel = document.createElement('button');
+          appel.className = 'btn-ghost petit voix-appel';
+          appel.textContent = '🎙 Parler';
+          appel.addEventListener('click', () => this.voix.appelle(a.nom));
+          ligne.append(appel);
+        }
         const retirer = document.createElement('button');
         retirer.className = 'btn-ghost petit';
         retirer.textContent = '✕';

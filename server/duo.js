@@ -46,8 +46,12 @@ const COQUES = ['orion', 'helios', 'vulcain'];
 const coquePropre = (v) => (COQUES.includes(v) ? v : COQUES[0]);
 
 export class Duo {
-  constructor({ nomPropre }) {
+  // `sontAmis` vient de la base : le relais de signalisation ne fait passer un
+  // message qu'entre deux personnes qui se sont déclarées amies. Sans ce
+  // contrôle, n'importe qui pourrait ouvrir une ligne audio chez n'importe qui.
+  constructor({ nomPropre, sontAmis }) {
     this.nomPropre = nomPropre;
+    this.sontAmis = sontAmis;
     // Tout le monde connecté, salon ou pas : c'est à eux qu'on pousse la liste.
     this.clients = new Set();
     this.salons = new Map();
@@ -109,6 +113,13 @@ export class Duo {
       case 'mode':
         c.mode = m.mode === 'survie' ? 'survie' : 'arcade';
         return this._listePour(c);
+      // LA SIGNALISATION DE LA VOIX. Le serveur ne transporte AUCUN son : il fait
+      // passer les quelques messages qui permettent aux deux navigateurs de se
+      // trouver, puis l'audio va de l'un à l'autre en direct. C'est mieux pour la
+      // latence, pour la bande passante du homelab, et pour la vie privée — deux
+      // enfants qui se parlent ne passent pas par ma machine.
+      case 'signal':
+        return this._signale(c, m);
       case 'creer':
         return this._cree(c);
       case 'rejoindre':
@@ -134,6 +145,20 @@ export class Duo {
       }
       default:
         return;
+    }
+  }
+
+  // On ne relaie qu'entre AMIS, et seulement si les deux sont identifiés. Le
+  // message est passé tel quel : le serveur ne lit pas ce qu'il y a dedans, et
+  // n'a pas à connaître WebRTC.
+  _signale(c, m) {
+    const vers = this.nomPropre(m.vers);
+    if (!c.identifie || !vers) return;
+    if (!this.sontAmis(c.nom, vers)) return;
+    for (const autre of this.clients) {
+      if (autre.identifie && autre.nom === vers) {
+        autre.co.envoieJSON({ t: 'signal', de: c.nom, sujet: m.sujet, d: m.d });
+      }
     }
   }
 
