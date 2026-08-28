@@ -91,3 +91,53 @@ test('la limite arrière du joueur reste dans le champ', () => {
     assert.ok(ARENA.playerZMax < 40, `${nom} : la zone de jeu part à ${ARENA.playerZMax}`);
   }
 });
+
+// --- LA SIMULATION NE DÉPEND PAS DE L'ÉCRAN -----------------------------------
+//
+// C'est la promesse la plus lourde du fichier, parce que trois choses reposent
+// dessus : le spectateur voit la MÊME partie, le jeu à deux avance au pas
+// verrouillé, et un rejeu rejoue la partie enregistrée.
+//
+// Elle était fausse. La zone de jeu se déduisait du cadrage, donc de la taille de
+// la fenêtre. Mesuré sur le banc à deux origines, 1280×683 contre 500×811 :
+//
+//     playerZMax        14,096   contre   13,557
+//     bulletCullZMax    26,296   contre   37,235
+//
+// Le spectateur créditait un frôlement de plus que l'hôte — vingt-cinq points —
+// pour une balle que l'hôte avait déjà effacée et que lui gardait en vol jusqu'à
+// z = 30,5. Vingt-cinq points, c'est peu ; la cause ne l'est pas.
+
+test('la zone de jeu ne bouge pas d’un écran à l’autre', () => {
+  const releve = ECRANS.map(([nom, aspect]) => {
+    cadre(aspect);
+    return { nom, zMax: ARENA.playerZMax, cull: ARENA.bulletCullZMax };
+  });
+  const premier = releve[0];
+  for (const r of releve) {
+    assert.equal(
+      r.zMax,
+      premier.zMax,
+      `${r.nom} joue jusqu’à ${r.zMax} quand ${premier.nom} joue jusqu’à ${premier.zMax}`
+    );
+    assert.equal(
+      r.cull,
+      premier.cull,
+      `${r.nom} efface ses balles à ${r.cull} et ${premier.nom} à ${premier.cull}`
+    );
+  }
+});
+
+test('le cadrage montre toute la zone de jeu, bas compris', () => {
+  // L’autre moitié de l’échange : puisque la zone ne s’adapte plus, c’est la
+  // caméra qui doit la montrer entièrement — sinon le vaisseau sort du champ par
+  // le bas, ce qui se ressent comme un bug puisque plus rien ne dit où sont les
+  // limites.
+  const coin = new THREE.Vector3();
+  for (const [nom, aspect] of ECRANS) {
+    const { camera } = cadre(aspect);
+    coin.set(0, 0, ARENA.playerZMax).project(camera);
+    const y = (1 - coin.y) / 2; // 0 en haut, 1 en bas
+    assert.ok(y < 0.97, `${nom} : le bas de la zone tombe à ${(y * 100).toFixed(1)} % de l’écran`);
+  }
+});

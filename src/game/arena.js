@@ -137,7 +137,6 @@ export class ArenaEdges {
 // puisque plus rien ne dit où sont les limites. En portrait, la caméra recule
 // tellement que le rayon du bord bas ne rencontre plus jamais le plan de jeu —
 // il n'y a alors aucune contrainte, et on garde la valeur de repli.
-const _ray = new THREE.Vector3();
 
 // ---------------------------------------------------------------- LE CADRAGE
 //
@@ -190,22 +189,6 @@ function bordGauche(camera, z) {
   return (_coin.x + 1) / 2;
 }
 
-// La profondeur la plus avancée où les deux bords tiennent encore dans le cadre.
-// Le champ se resserre à mesure qu'on approche de la caméra, donc la fonction est
-// monotone et une simple dichotomie suffit.
-function zOuLesBordsTiennent(camera, zMin, zMax) {
-  if (bordGauche(camera, zMax) >= MARGE_BORD) return zMax;
-  if (bordGauche(camera, zMin) < MARGE_BORD) return zMin; // même au fond, ça ne tient pas
-  let bas = zMin;
-  let haut = zMax;
-  for (let i = 0; i < 24; i++) {
-    const m = (bas + haut) / 2;
-    if (bordGauche(camera, m) >= MARGE_BORD) bas = m;
-    else haut = m;
-  }
-  return bas;
-}
-
 // Pour les épreuves, et pour qui voudra mesurer : où en est le bord à la limite
 // de jeu la plus avancée.
 export function bordArene(camera) {
@@ -214,56 +197,56 @@ export function bordArene(camera) {
 
 // La profondeur de jeu qu'on refuse de descendre en dessous. C'est à peu près ce
 // dont on dispose en paysage : le portrait doit rendre la même course, pas moins.
-const ZONE_MINI = 13;
+// Ce qu'on garde entre le bas de la zone de jeu et le bas de l'écran.
+const MARGE_BAS = 0.04;
 
-// LE SERRAGE SE RELÂCHE JUSQU'À RENDRE UNE VRAIE ZONE DE JEU.
-//
-// Les deux leviers se répondent, et il faut les deux. Borner la zone à ce qu'on
-// voit, seul, écrase la course à deux unités sur un téléphone étroit — injouable.
-// Reculer la caméra, seul, ne fait qu'étendre la zone vers la partie la plus
-// étroite du champ et empire le problème (mesuré : le bord passe de -0,086 à
-// -0,117). Ensemble : on borne la zone à ce qui se voit, PUIS on recule jusqu'à ce
-// que cette zone bornée redevienne assez profonde pour jouer.
-//
-// `pose(serrage)` est fourni par l'appelant : lui seul sait où vit sa caméra et
-// comment elle recule. On place, on mesure, on recommence.
+// Le point le plus avancé de la zone de jeu tombe-t-il assez haut dans le cadre ?
+// Un vaisseau qui sort par le bas de l'écran se ressent comme un bug, puisque plus
+// rien ne dit où sont les limites.
+function basVisible(camera) {
+  _coin.set(0, 0, ARENA.playerZMax).project(camera);
+  return (1 - _coin.y) / 2 < 1 - MARGE_BAS;
+}
+
 export function ajusteCadrage(camera, pose, serrageDepart = 1) {
   let serrage = serrageDepart;
   pose(serrage);
-  fitPlayZone(camera);
-  for (let i = 0; i < 14 && serrage < 1; i++) {
-    if (ARENA.playerZMax >= ZONE_MINI) break;
-    serrage = Math.min(1, serrage * 1.04);
+  // On recule jusqu'à ce que la zone de jeu — qui est FIXE — tienne tout entière
+  // dans le cadre : ses bords à gauche et à droite, et son point le plus avancé
+  // au-dessus du bas de l'écran. Reculer élargit et relève à la fois, donc les
+  // deux conditions vont dans le même sens et la boucle converge.
+  //
+  // Le serrage du portrait reste le point de départ : il ne se relâche que de ce
+  // qu'il faut, et pas d'un pouce de plus. Sans lui, un téléphone tenu droit
+  // gâche quatre dixièmes de sa largeur en vide latéral.
+  for (let i = 0; i < 30 && serrage < 1.85; i++) {
+    if (bordGauche(camera, ARENA.playerZMax) >= MARGE_BORD && basVisible(camera)) break;
+    serrage *= 1.04;
     pose(serrage);
-    fitPlayZone(camera);
   }
   return serrage;
 }
 
-export function fitPlayZone(camera) {
-  _ray.set(0, -1, 0.5).unproject(camera).sub(camera.position);
-  // Le rayon doit descendre vers le plan pour le couper devant la caméra.
-  if (_ray.y < -1e-4) {
-    const t = -camera.position.y / _ray.y;
-    const zBottom = camera.position.z + _ray.z * t;
-    if (t > 0 && zBottom > ARENA.playerZMin + 4) {
-      // Deux bornes, et l'on garde la plus contraignante : le bas de l'écran, et
-      // la profondeur au-delà de laquelle on ne verrait plus les bords de l'arène.
-      const parLeBas = zBottom - ARENA.playerZMargin;
-      ARENA.playerZMax = Math.min(
-        parLeBas,
-        zOuLesBordsTiennent(camera, ARENA.playerZMin + 4, parLeBas)
-      );
-      // Les projectiles s'effacent APRÈS le bas de l'écran, jamais devant. La borne
-      // était fixe (26) alors que le champ visible, lui, dépend du cadrage : en
-      // portrait il descend plus bas, et l'on voyait les tirs ennemis s'évaporer en
-      // plein vol derrière le vaisseau. Une balle doit sortir du champ, pas
-      // disparaître dedans.
-      ARENA.bulletCullZMax = zBottom + 10;
-      return ARENA.playerZMax;
-    }
-  }
-  ARENA.playerZMax = 14;
+// LA SIMULATION NE DÉPEND PLUS DE L'ÉCRAN. C'est la caméra qui s'adapte.
+//
+// `fitPlayZone` faisait l'inverse : elle DÉDUISAIT la zone de jeu du cadrage, en
+// suivant le bas de l'écran. Deux joueurs n'avaient donc pas la même arène.
+// Mesuré sur le banc à deux origines, une fenêtre de 1280×683 contre une de
+// 500×811 :
+//
+//     playerZMax        14,096   contre   13,557
+//     bulletCullZMax    26,296   contre   37,235
+//
+// Les conséquences vont bien au-delà du cadrage. Le spectateur voyait une AUTRE
+// partie que celle qu'il regardait — mesuré : vingt-cinq points d'écart, soit un
+// frôlement, crédité par une balle que l'hôte avait déjà effacée et que le
+// spectateur gardait en vol jusqu'à z = 30,5. Et le jeu à DEUX repose sur le pas
+// verrouillé, c'est-à-dire sur la promesse que les deux machines simulent
+// exactement la même chose : elles ne le faisaient pas.
+//
+// Les bornes sont donc des constantes, les mêmes pour tout le monde, et c'est le
+// CADRAGE qui a désormais la charge de les montrer — voir ajusteCadrage.
+export function fitPlayZone() {
   return ARENA.playerZMax;
 }
 

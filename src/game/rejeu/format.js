@@ -56,7 +56,12 @@ import {
 //       bords sont des murs. Un enregistrement d'avant a été joué dans une arène
 //       qui bouclait toujours : rejoué ici, le vaisseau taperait un mur là où il
 //       passait, et la partie divergerait dès le premier bord touché.
-export const VERSION = 14;
+//  15 — la zone de jeu est la même pour tout le monde. Elle se déduisait du
+//       CADRAGE, donc de la taille de la fenêtre : en portrait on volait jusqu'à
+//       z = 26 quand un écran large s'arrêtait à 14, et les balles s'effaçaient
+//       onze unités plus loin. Un enregistrement d'avant a été joué dans une
+//       arène qui n'existe plus, aux dimensions de l'écran de celui qui l'a fait.
+export const VERSION = 15;
 
 // --- Écriture ---------------------------------------------------------------
 

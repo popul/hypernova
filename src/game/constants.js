@@ -13,7 +13,15 @@ export const ARENA = {
   // La borne arrière est CALCULÉE au lancement à partir du cadrage réel (voir
   // fitPlayZone) : à 17,5 en dur, le vaisseau passait sous le bord bas de l'écran,
   // qui tombe à z = 16,3 en 16/9. Une limite de jeu qu'on ne voit pas est un bug.
-  playerZMax: 14, // valeur de repli, écrasée dès le premier cadrage
+  // LA ZONE DE JEU EST UNE CONSTANTE, la même pour tout le monde.
+  //
+  // Elle était déduite du cadrage — donc de la taille de la fenêtre — et deux
+  // joueurs n'avaient pas la même arène. Mesuré entre une fenêtre de 1280×683 et
+  // une de 500×811 : playerZMax valait 14,096 contre 13,557, et la limite
+  // d'effacement des balles 26,3 contre 37,2. Le spectateur voyait une AUTRE
+  // partie, et le pas verrouillé du jeu à deux reposait sur une promesse fausse.
+  // C'est la caméra qui s'adapte désormais — voir ajusteCadrage.
+  playerZMax: 14,
   playerZMargin: 2.2, // recul gardé sur le bord bas : longueur de coque + confort
   playerZSpeedMul: 0.8, // l'axe de profondeur reste un peu plus lent que le latéral
   // Le bord n'est pas visible : buter contre un mur invisible se ressent comme un
