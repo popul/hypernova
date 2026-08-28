@@ -611,7 +611,12 @@ export class Base {
     const ordre = this._ordre(m);
     return this.db
       .prepare(
-        `SELECT id, pilote AS nom, mode, score, vague, duree, jouee_le,
+        // LA VERSION PART AVEC LA LIGNE. Sans elle, le client ne peut pas savoir
+        // qu'un enregistrement a été fait sous d'autres règles : il propose un
+        // bouton « revoir », le joueur clique, et rien ne se passe. Le serveur,
+        // lui, ne sait pas quelle version le client sait lire — c'est donc au
+        // client de comparer, et il lui faut le nombre.
+        `SELECT id, pilote AS nom, mode, score, vague, duree, jouee_le, version,
                 (flux IS NOT NULL) AS a_replay
          FROM parties WHERE mode = ? ORDER BY ${ordre} LIMIT ?`
       )

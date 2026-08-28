@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { Player } from './player.js';
+import { VERSION as VERSION_REJEU } from './rejeu/format.js';
 import { note, poseContexte } from '../core/journal.js';
 import { Enemies } from './enemies.js';
 import { PlayerBullets, EnemyBullets, Missiles } from './bullets.js';
@@ -928,7 +929,16 @@ export class Game {
     }
     return `<ol class="lb-list">${scores
       .map((s, i) => {
-        const revoyable = !!s.flux;
+        // UNE LIGNE NE PROPOSE PAS CE QU'ELLE NE PEUT PAS TENIR.
+        //
+        // Un enregistrement fait sous d'autres règles ne se rejoue pas — la
+        // simulation d'aujourd'hui ne referait pas la partie d'hier. Le bouton
+        // « revoir » s'affichait quand même : on cliquait, et rien ne se passait,
+        // parce que le refus s'annonçait dans un HUD masqué par l'écran du
+        // panthéon. Signalé par Paul, et c'est arrivé le jour où les règles ont
+        // changé quatre fois.
+        const perime = s.version != null && s.version !== VERSION_REJEU;
+        const revoyable = !!s.flux && !perime;
         const balise = revoyable ? 'button' : 'div';
         return `
         <li class="lb-row${i + 1 === highlightRank ? ' me' : ''}${i === 0 ? ' first' : ''}">
@@ -942,7 +952,9 @@ export class Game {
                 ? `<span class="lb-score">v.${s.wave}</span><span class="lb-wave">${s.score} pts</span>`
                 : `<span class="lb-wave">v.${s.wave}</span><span class="lb-score">${s.score}</span>`
             }
-            <span class="lb-play">${revoyable ? '▶' : ''}</span>
+            <span class="lb-play" ${
+              perime && s.flux ? 'title="Enregistré par une version antérieure du jeu"' : ''
+            }>${revoyable ? '▶' : perime && s.flux ? '⧖' : ''}</span>
           </${balise}>
         </li>`;
       })
@@ -1038,6 +1050,28 @@ export class Game {
     }
   }
 
+  // UN MOT SUR L'ÉCRAN QU'ON REGARDE, quel qu'il soit.
+  //
+  // `hud.announce` ne vaut qu'en partie : tous les écrans de menu masquent le
+  // HUD. Ce bandeau-là se pose sur l'overlay, donc il se voit partout — et c'est
+  // le troisième endroit du jeu où l'on tombe dans le même piège, après la
+  // demande de regard et l'ajout d'un copain.
+  _ditEcran(texte, combien = 3600) {
+    document.getElementById('mot-ecran')?.remove();
+    const b = document.createElement('div');
+    b.id = 'mot-ecran';
+    b.className = 'voix-barre';
+    b.innerHTML = `<span class="voix-nom">${esc(texte)}</span>`;
+    const f = document.createElement('button');
+    f.className = 'btn-ghost petit';
+    f.textContent = 'OK';
+    f.addEventListener('click', () => b.remove());
+    b.append(f);
+    document.body.append(b);
+    clearTimeout(this._motEcran);
+    this._motEcran = setTimeout(() => b.remove(), combien);
+  }
+
   async _lanceRejeu(id) {
     // La vitrine tourne encore quand on clique une ligne du panthéon depuis le
     // menu : sans ça, `update` prendrait sa branche à elle avant celle du rejeu.
@@ -1045,19 +1079,25 @@ export class Game {
     // Une ligne du classement ne porte qu'un marqueur : l'enregistrement lui-même
     // ne se télécharge qu'au moment où on le demande. Charger douze replays pour
     // en regarder un seul serait payer douze fois trop.
-    this.hud.announce('Chargement…', '', 1200);
+    // LE MESSAGE DOIT ARRIVER OÙ LE JOUEUR REGARDE. `hud.announce` écrit dans le
+    // HUD, et le HUD est MASQUÉ sur tous les écrans de menu — dont celui du
+    // panthéon, d'où l'on ouvre justement un rejeu. Chargement, refus, échec :
+    // les trois partaient dans le vide, et cliquer une ligne « ne faisait rien ».
+    this._ditEcran('Chargement…');
     const partie = await partieParId(id);
     if (!partie || !partie.flux) {
-      this.hud.announce('Enregistrement indisponible', '', 1800);
+      this._ditEcran('Enregistrement indisponible.');
       return;
     }
     const ok = await this.regarde(partie);
     if (ok === 'obsolete') {
-      this.hud.announce('Partie trop ancienne', 'Les règles ont changé depuis', 2400);
+      this._ditEcran(
+        'Cette partie a été enregistrée par une version antérieure — les règles ont changé depuis, elle ne se rejouerait pas fidèlement.'
+      );
       return;
     }
     if (!ok) {
-      this.hud.announce('Enregistrement illisible', '', 1800);
+      this._ditEcran('Enregistrement illisible.');
       return;
     }
     this._montreBandeauRejeu(partie);
@@ -1384,7 +1424,7 @@ export class Game {
         <div class="title-tag">— Faites décoller la légende —</div>
         <div class="title-menu">
           <button class="btn-launch" id="btn-arcade">
-            Partie classique${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}
+            Arcade${IS_TOUCH ? '' : ' <span class="key-hint">Espace</span>'}
           </button>
           <button class="btn-secondary" id="btn-survie">
             Survie · ${SURVIE.vagues} vagues
@@ -1775,7 +1815,15 @@ export class Game {
 
   // « Rejouer » relance le même mode AVEC la même coque : celui qui enchaîne les
   // parties pour améliorer son score ne veut pas repasser par le choix à chaque fois.
+  //
+  // SAUF EN ENTRAÎNEMENT, et c'est tout l'inverse. On s'y entraîne à une vague
+  // PRÉCISE, avec un équipement PRÉCIS — c'est la seule raison d'être du mode.
+  // Relancer avec la même coque mais depuis la vague 1 et le vaisseau nu, c'est
+  // perdre exactement ce qu'on était venu régler : le joueur mourait à la vague
+  // 18 et se retrouvait à la 1, sans rien comprendre. On revient donc au menu du
+  // mode, avec ses réglages en place, prêt à repartir d'un bouton.
   _replay() {
+    if (this.variante === 'entrainement') return this.showEntrainement(this.mode);
     this.startRun(this.mode === 'survie' ? 'survie' : 'arcade', this.coque);
   }
 
@@ -1798,16 +1846,26 @@ export class Game {
     this.hud.root.classList.add('hidden');
 
     // Arcade : records + inscription au panthéon local.
-    const newRecord = this.score > 0 && this.score >= this.hiscore;
-    if (this.score > this.hiscore) this.hiscore = this.score;
-    if (this.wave > this.bestWave) this.bestWave = this.wave;
+    // LE RECORD NON PLUS. Commencer à la vague 20 avec un vaisseau garni et
+    // battre son record de partie honnête n'aurait aucun sens : le record cesse
+    // alors de dire ce qu'il dit.
+    const horsConcours = this.variante === 'entrainement';
+    const newRecord = !horsConcours && this.score > 0 && this.score >= this.hiscore;
+    if (!horsConcours && this.score > this.hiscore) this.hiscore = this.score;
+    if (!horsConcours && this.wave > this.bestWave) this.bestWave = this.wave;
     // Inscription automatique au panthéon sous le pilote actif : zéro friction.
     // L'enregistrement de la partie, lui, se compresse — donc il s'écrit APRÈS
     // l'affichage. On ne fait pas attendre un écran de fin pour un gzip.
     const pilot = activePilot();
     const scores = classementConnu(this.modeTableau);
-    const pilotLine =
-      this.score > 0 && pilot
+    // L'ENTRAÎNEMENT NE S'INSCRIT NULLE PART, ET IL DOIT LE DIRE. Rien n'était
+    // publié — la garde existe plus bas — mais l'écran de fin annonçait quand
+    // même « inscription au panthéon… », promesse qui ne s'accomplissait jamais.
+    // Un mode d'essai qui a l'air de compter est pire qu'un mode qui compte.
+    const entraine = this.variante === 'entrainement';
+    const pilotLine = entraine
+      ? '<div class="go-pilot">Entraînement — rien n’est inscrit au panthéon.</div>'
+      : this.score > 0 && pilot
         ? `<div class="go-pilot" id="go-pilot">${esc(pilot.name)} — inscription au panthéon…</div>`
         : '';
     const el = this._screen(`
@@ -1980,7 +2038,7 @@ export class Game {
   // Ce qu'on est en train de jouer, en une ligne : le mode et sa variante. Trois
   // écrans l'affichent, il n'y a donc qu'un endroit où l'écrire.
   _sousTitreMode(mode, variante = this.variante) {
-    const base = mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie classique';
+    const base = mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Arcade';
     if (variante === 'entrainement') return `${base} · Entraînement`;
     if (variante === 'duo') return `${base} · À deux`;
     return base;
@@ -1994,7 +2052,7 @@ export class Game {
   // deux niveaux plutôt que six boutons côte à côte, qui ne diraient plus ce qui
   // change de ce qui reste pareil.
   //
-  // La touche Espace continue de lancer une partie classique en solo : c'est le
+  // La touche Espace continue de lancer une partie d'arcade en solo : c'est le
   // chemin le plus fréquent, et il ne doit pas coûter un clic de plus qu'avant.
   // L'INVITATION À INSTALLER, sur l'écran d'accueil et nulle part ailleurs.
   //
@@ -3012,7 +3070,7 @@ export class Game {
     const el = this._screen(`
       <div class="screen variantes">
         <div class="coque-haut">
-          <h2 class="shop-title">${survie ? 'Survie' : 'Partie classique'}</h2>
+          <h2 class="shop-title">${survie ? 'Survie' : 'Arcade'}</h2>
           <div class="coque-sous">${
             survie
               ? `${SURVIE.vagues} vagues d'affilée, sans boutique`
@@ -3407,7 +3465,7 @@ export class Game {
         <div class="coque-haut">
           <h2 class="shop-title">Entraînement</h2>
           <div class="coque-sous">${
-            mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Partie classique'
+            mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Arcade'
           } · hors panthéon</div>
         </div>
 
@@ -3693,6 +3751,20 @@ export class Game {
     this.coque = coque;
     this.mode = mode === 'survie' ? 'survie' : 'arcade';
     this.variante = options?.variante || 'solo';
+    // LA PARTIE RETIENT SES PROPRES RÉGLAGES D'ENTRAÎNEMENT.
+    //
+    // Ils n'étaient mémorisés qu'au clic sur « Lancer ». Toute partie
+    // d'entraînement démarrée autrement — et c'est le cas quand on revient au
+    // menu après être mort — retrouvait donc le curseur à la vague 1, c'est-à-dire
+    // perdait exactement ce qu'on était venu régler. C'est la PARTIE qui sait ce
+    // qu'elle joue ; c'est donc elle qui doit le retenir.
+    if (this.variante === 'entrainement') {
+      this._entrainement = {
+        vague: options?.vague || 1,
+        coque,
+        part: this._entrainement?.part ?? null,
+      };
+    }
     // Le second vaisseau n'existe qu'à deux, et il est reconstruit à chaque
     // partie : sa coque change avec le copain qu'on a en face.
     this.duoMoi = options?.duo ? options.duo.moi : 0;
