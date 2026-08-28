@@ -281,6 +281,25 @@ async function route(req, res, chemin) {
     return void n;
   }
 
+  // GET /profil?nom=… — la meilleure partie d'un pilote dans chaque mode.
+  //
+  // SOI-MÊME, OU UN AMI. Pas plus loin. Le panthéon est public parce qu'un
+  // classement n'a de sens qu'ouvert ; un profil, non — c'est ce qu'on montre à
+  // ceux qu'on a acceptés. La règle est la même que pour regarder une partie, et
+  // elle passe par la même question : `sontAmis`.
+  if (req.method === 'GET' && chemin === '/profil') {
+    const moi = base.parJeton(jetonDe(req));
+    if (!moi) return repond(res, 401, { erreur: 'jeton' });
+    const url = new URL(req.url, 'http://x');
+    const qui = nomPropre(url.searchParams.get('nom')) || moi.nom;
+    if (qui !== moi.nom && !base.sontAmis(moi.nom, qui)) {
+      return repond(res, 403, { erreur: 'pas-ami' });
+    }
+    const p = base.profil(qui);
+    if (!p) return repond(res, 404, { erreur: 'inconnu' });
+    return repond(res, 200, p);
+  }
+
   // GET /pilotes — RÉSERVÉ AUX PILOTES IDENTIFIÉS.
   //
   // Elle était publique et sans jeton : n'importe qui pouvait énumérer les pseudos

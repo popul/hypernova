@@ -90,7 +90,7 @@ import {
   challengeText,
 } from './parties.js';
 import * as reseau from './reseau.js';
-import { mesAmis, gesteAmi, monLien, ouvreLien, jeton } from './reseau.js';
+import { mesAmis, gesteAmi, monLien, ouvreLien, jeton, profilDistant } from './reseau.js';
 
 import {
   pilotesConnus,
@@ -1496,6 +1496,81 @@ export class Game {
   // L'ÉCRAN D'IDENTIFICATION. Ce n'est plus une liste locale mais une connexion :
   // les pilotes vivent sur le serveur, donc on y retrouve les copains qui jouent
   // depuis LEUR téléphone. C'était tout l'intérêt de sortir du localStorage.
+  // ---------------------------------------------------------------- LE PROFIL
+  //
+  // SA MEILLEURE PARTIE, ET CELLE DE SES COPAINS.
+  //
+  // Le panthéon répond à « qui est le meilleur ». Il ne répond pas à « qu'est-ce
+  // que TU as fait de mieux » : celui qui n'entre pas dans les vingt premiers n'y
+  // trouve jamais sa propre partie — et c'est pourtant la seule qu'il ait envie de
+  // remontrer. Le profil est fait pour ça.
+  //
+  // Un mode par colonne, parce que les deux ne se comparent pas : l'arcade se juge
+  // au score, la survie à la vague atteinte. Afficher les deux sous le même chiffre
+  // laisserait croire qu'ils se mesurent.
+  async showProfil(nom = null, retour = null) {
+    this.quitteVitrine();
+    this.state = 'profil';
+    this.hud.root.classList.add('hidden');
+    const revenir = retour || (() => this.showTitle());
+    const el = this._screen(`
+      <div class="screen profil">
+        <h2 class="shop-title" id="profil-nom">${esc(nom || activePilot()?.name || 'Profil')}</h2>
+        <div class="coque-sous" id="profil-sous">Chargement…</div>
+        <div class="profil-cartes" id="profil-cartes"></div>
+        <button class="btn-ghost" id="profil-back">← Retour</button>
+      </div>`);
+    el.querySelector('#profil-back').addEventListener('click', revenir);
+
+    const p = await profilDistant(nom);
+    if (!el.isConnected) return;
+    const sous = el.querySelector('#profil-sous');
+    if (!p) {
+      sous.textContent = nom
+        ? `Impossible de voir le profil de ${nom} — êtes-vous bien copains ?`
+        : 'Profil indisponible — pas de réseau.';
+      return;
+    }
+    el.querySelector('#profil-nom').textContent = p.nom;
+    const total = Object.values(p.parties || {}).reduce((a, b) => a + b, 0);
+    sous.textContent = total
+      ? `${total} partie${total > 1 ? 's' : ''} jouée${total > 1 ? 's' : ''}`
+      : 'Aucune partie pour l’instant.';
+
+    const MODES = [
+      ['arcade', 'Arcade', (m) => `${m.score} pts`, (m) => `vague ${m.vague}`],
+      ['survie', 'Survie', (m) => `vague ${m.vague}`, (m) => `${m.score} pts`],
+    ];
+    el.querySelector('#profil-cartes').innerHTML = MODES.map(([cle, titre, gros, petit]) => {
+      const m = p.meilleures?.[cle];
+      if (!m) {
+        return `<div class="profil-carte vide"><h3>${titre}</h3>
+                  <div class="profil-rien">Jamais joué</div></div>`;
+      }
+      // MÊME RÈGLE QU'AU PANTHÉON : on ne propose pas un rejeu qu'on ne sait plus
+      // lire. Une partie enregistrée sous d'autres règles ne se rejouerait pas
+      // fidèlement, et le bouton mentirait.
+      const perime = m.version != null && m.version !== VERSION_REJEU;
+      const revoyable = !!m.a_replay && !perime;
+      return `<div class="profil-carte">
+          <h3>${titre}</h3>
+          <div class="profil-gros">${esc(gros(m))}</div>
+          <div class="profil-petit">${esc(petit(m))} · ${new Date(m.jouee_le).toLocaleDateString('fr-FR')}</div>
+          ${
+            revoyable
+              ? `<button class="btn-secondary" data-revoir="${esc(m.id)}">▶ Revoir</button>`
+              : m.a_replay
+                ? '<div class="profil-rien">⧖ enregistrée par une version antérieure</div>'
+                : '<div class="profil-rien">Pas d’enregistrement</div>'
+          }
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('[data-revoir]').forEach((b) =>
+      b.addEventListener('click', () => this._lanceRejeu(b.dataset.revoir))
+    );
+  }
+
   async showPilotSelect(onDone = null) {
     this.quitteVitrine();
     this.state = 'pilots';
@@ -1516,6 +1591,7 @@ export class Game {
                <div class="title-menu">
                  <button class="btn-launch" id="pilot-jouer">Jouer</button>
                  <button class="btn-secondary" id="pilot-vaisseau">Mon vaisseau</button>
+                 <button class="btn-secondary" id="pilot-profil">Mes meilleures parties</button>
                  <button class="btn-ghost" id="pilot-changer">Changer de pilote</button>
                </div>`
             : '<div class="pilot-note" id="pilot-etat">Chargement des pilotes…</div>'
@@ -1534,6 +1610,9 @@ export class Game {
     el.querySelector('#pilot-jouer')?.addEventListener('click', done);
     el.querySelector('#pilot-vaisseau')?.addEventListener('click', () =>
       this._formVaisseau(zone, moi, done)
+    );
+    el.querySelector('#pilot-profil')?.addEventListener('click', () =>
+      this.showProfil(null, () => this.showPilotSelect(onDone))
     );
     el.querySelector('#pilot-changer')?.addEventListener('click', () => {
       deconnecte();
@@ -2989,6 +3068,15 @@ export class Game {
             ligne.append(voir);
           }
         }
+        // SES MEILLEURES PARTIES, qu'il soit en ligne ou non — c'est justement ce
+        // qu'on veut regarder quand le copain n'est pas là. Le serveur ne le
+        // laissera voir qu'aux amis, et l'on en est un puisqu'il est dans la liste.
+        const profil = document.createElement('button');
+        profil.className = 'btn-ghost petit';
+        profil.textContent = '★ Ses parties';
+        profil.addEventListener('click', () => this.showProfil(a.nom, () => this.showAmis()));
+        ligne.append(profil);
+
         const retirer = document.createElement('button');
         retirer.className = 'btn-ghost petit';
         retirer.textContent = '✕';

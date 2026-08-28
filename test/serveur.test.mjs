@@ -242,3 +242,62 @@ test('un journal malformé répond sans tuer le serveur', async (t) => {
     assert.equal(await vivant(port), 200, `le serveur est tombé sur « ${corps.slice(0, 20)} »`);
   }
 });
+
+// --- LE PROFIL, ET QUI A LE DROIT DE LE VOIR ----------------------------------
+//
+// Le panthéon est public parce qu'un classement n'a de sens qu'ouvert. Un profil,
+// non : c'est ce qu'on montre à ceux qu'on a acceptés. Ces épreuves défendent la
+// FRONTIÈRE, pas le contenu — c'est elle qui coûte cher si elle cède.
+
+test('un profil ne se voit pas sans jeton', async (t) => {
+  const { port } = await demarre(t);
+  await poste(port, { nom: 'ZOÉ', code: '1234', email: 'z@e.fr' });
+  const r = await fetch(`http://127.0.0.1:${port}/api/profil?nom=ZO%C3%89`, {
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(r.status, 401, 'un profil est sorti sans jeton');
+});
+
+test('on voit son propre profil, et celui d’un inconnu est refusé', async (t) => {
+  const { port } = await demarre(t);
+  const a = await (await poste(port, { nom: 'ZOÉ', code: '1234', email: 'z@e.fr' })).json();
+  await poste(port, { nom: 'MAX', code: '4321', email: 'm@e.fr' });
+
+  const moi = await fetch(`http://127.0.0.1:${port}/api/profil`, {
+    headers: { authorization: `Bearer ${a.jeton}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(moi.status, 200, 'on ne voit pas son propre profil');
+  assert.equal((await moi.json()).nom, 'ZOÉ');
+
+  // MAX n'est pas son ami : rien ne doit sortir.
+  const lui = await fetch(`http://127.0.0.1:${port}/api/profil?nom=MAX`, {
+    headers: { authorization: `Bearer ${a.jeton}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(lui.status, 403, `le profil d’un inconnu est sorti (${lui.status})`);
+});
+
+test('un profil demandé sans nom est le sien, jamais celui d’un autre', async (t) => {
+  // Le repli par défaut est le seul endroit où une erreur donnerait accès à
+  // n'importe qui : il doit être le demandeur, pas le premier venu.
+  const { port } = await demarre(t);
+  const a = await (await poste(port, { nom: 'ZOÉ', code: '1234', email: 'z@e.fr' })).json();
+  const r = await fetch(`http://127.0.0.1:${port}/api/profil?nom=`, {
+    headers: { authorization: `Bearer ${a.jeton}` },
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).nom, 'ZOÉ');
+});
+
+test('la liste des pilotes n’est plus publique', async (t) => {
+  // Elle était ouverte sans jeton : n'importe qui pouvait énumérer les pseudos de
+  // tous les enfants qui jouent.
+  const { port } = await demarre(t);
+  await poste(port, { nom: 'ZOÉ', code: '1234', email: 'z@e.fr' });
+  const r = await fetch(`http://127.0.0.1:${port}/api/pilotes`, {
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(r.status, 401, `la liste des pilotes répond ${r.status} sans jeton`);
+});

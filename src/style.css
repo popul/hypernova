@@ -4307,3 +4307,58 @@ body.touch .btn-call-touch {
 .voix-appel {
   color: var(--gold);
 }
+
+/* ------------------------------------------------------------------ LE PROFIL
+   Deux cartes côte à côte, une par mode, parce que les deux ne se comparent pas :
+   l'arcade se juge au score, la survie à la vague atteinte. Les mettre en colonne
+   sous un même chiffre laisserait croire qu'ils se mesurent. */
+.profil-cartes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  margin: 18px 0 22px;
+}
+
+.profil-carte {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 190px;
+  padding: 18px 20px;
+  border: 1px solid rgba(143, 251, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(10, 18, 34, 0.55);
+}
+
+.profil-carte h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted, #8ea0c0);
+}
+
+.profil-carte.vide {
+  opacity: 0.55;
+}
+
+.profil-gros {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--gold, #ffc857);
+  font-variant-numeric: tabular-nums;
+}
+
+.profil-petit {
+  font-size: 12px;
+  color: var(--muted, #8ea0c0);
+  font-variant-numeric: tabular-nums;
+}
+
+.profil-rien {
+  font-size: 12px;
+  color: var(--muted, #8ea0c0);
+  opacity: 0.8;
+}

@@ -480,6 +480,49 @@ export class Base {
     return id;
   }
 
+  // ---- LE PROFIL D'UN PILOTE ------------------------------------------------
+  //
+  // SA MEILLEURE PARTIE DANS CHAQUE MODE, ET DE QUOI LA REVOIR.
+  //
+  // Le panthéon répond à « qui est le meilleur ». Il ne répond pas à « qu'est-ce
+  // que TU as fait de mieux » — celui qui n'entre pas dans les vingt premiers n'y
+  // trouve jamais sa propre partie, et c'est pourtant la seule qu'il ait envie de
+  // remontrer. Le profil est fait pour ça, et pour qu'un copain puisse la
+  // regarder.
+  //
+  // Chaque mode est classé selon SA question : l'arcade au score, la survie à la
+  // vague atteinte. On emprunte donc `_ordre`, le même que le classement et que
+  // l'élagage — trois endroits qui répondraient différemment finiraient par se
+  // contredire, et l'on montrerait une « meilleure partie » que le tableau ne
+  // reconnaît pas.
+  profil(nom) {
+    const pilote = this.pilote(nom);
+    if (!pilote) return null;
+    const modes = ['arcade', 'survie'];
+    const meilleures = {};
+    for (const m of modes) {
+      meilleures[m] =
+        this.db
+          .prepare(
+            `SELECT id, mode, score, vague, duree, jouee_le, version,
+                    (flux IS NOT NULL) AS a_replay
+             FROM parties WHERE pilote = ? AND mode = ? ORDER BY ${this._ordre(m)} LIMIT 1`
+          )
+          .get(nom, m) || null;
+    }
+    const compte = this.db
+      .prepare('SELECT mode, COUNT(*) AS n FROM parties WHERE pilote = ? GROUP BY mode')
+      .all(nom);
+    return {
+      nom: pilote.nom,
+      livree: pilote.livree,
+      carene: pilote.carene,
+      depuis: pilote.cree_le,
+      meilleures,
+      parties: Object.fromEntries(compte.map((c) => [c.mode, c.n])),
+    };
+  }
+
   // ---- LE JOURNAL DE BORD ---------------------------------------------------
 
   // Combien d'événements on garde. Au-delà, les plus vieux tombent : ce journal

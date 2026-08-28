@@ -768,3 +768,84 @@ test('le résumé compte par type sur les dernières vingt-quatre heures', (t) =
   assert.equal(par.desynchro, 2);
   assert.equal(par.erreur, 1, 'un événement d’il y a deux jours ne compte pas dans les 24 h');
 });
+
+// --- LE PROFIL D'UN PILOTE ----------------------------------------------------
+//
+// Le panthéon répond à « qui est le meilleur ». Il ne répond pas à « qu'as-tu
+// fait de mieux » : celui qui n'entre pas dans les vingt premiers n'y trouve
+// jamais sa propre partie — et c'est pourtant la seule qu'il ait envie de
+// remontrer.
+//
+// Chaque mode est classé selon SA question, et c'est le même ordre que le
+// classement et que l'élagage. Trois endroits qui répondraient différemment
+// finiraient par se contredire : on montrerait une « meilleure partie » que le
+// tableau ne reconnaît pas, ou l'on élaguerait celle qu'on met en avant.
+
+test('le profil montre la meilleure partie de chaque mode, selon la question du mode', (t) => {
+  const base = neuve(t);
+  base.reclame('ZOÉ', '1234', {}, 'z@e.fr');
+  base.ajoutePartie('ZOÉ', { mode: 'arcade', score: 900, vague: 3, flux: 'A' });
+  base.ajoutePartie('ZOÉ', { mode: 'arcade', score: 400, vague: 40, flux: 'B' });
+  base.ajoutePartie('ZOÉ', { mode: 'survie', score: 9000, vague: 5, flux: 'C' });
+  base.ajoutePartie('ZOÉ', { mode: 'survie', score: 100, vague: 60, flux: 'D' });
+
+  const p = base.profil('ZOÉ');
+  assert.equal(p.meilleures.arcade.score, 900, 'l’arcade se juge au score');
+  assert.equal(p.meilleures.survie.vague, 60, 'la survie se juge à la vague atteinte');
+});
+
+test('le profil s’accorde avec le classement, jamais l’inverse', (t) => {
+  const base = neuve(t);
+  base.reclame('ZOÉ', '1234', {}, 'z@e.fr');
+  for (let i = 1; i <= 8; i++) {
+    base.ajoutePartie('ZOÉ', { mode: 'survie', score: 1000 - i * 50, vague: i * 7 });
+  }
+  const p = base.profil('ZOÉ');
+  const tete = base.classement(5, 'survie')[0];
+  assert.equal(p.meilleures.survie.vague, tete.vague);
+  assert.equal(p.meilleures.survie.score, tete.score);
+});
+
+test('un mode jamais joué se dit, il ne s’invente pas', (t) => {
+  const base = neuve(t);
+  base.reclame('ZOÉ', '1234', {}, 'z@e.fr');
+  base.ajoutePartie('ZOÉ', { mode: 'arcade', score: 100, vague: 2 });
+  const p = base.profil('ZOÉ');
+  assert.ok(p.meilleures.arcade);
+  assert.equal(p.meilleures.survie, null, 'la survie devrait être vide, pas inventée');
+});
+
+test('le profil dit si la partie se revoit, et sous quelle version', (t) => {
+  const base = neuve(t);
+  base.reclame('ZOÉ', '1234', {}, 'z@e.fr');
+  base.ajoutePartie('ZOÉ', { mode: 'arcade', score: 100, vague: 2, flux: 'X', version: 9 });
+  const m = base.profil('ZOÉ').meilleures.arcade;
+  assert.equal(m.a_replay, 1);
+  assert.equal(m.version, 9);
+});
+
+test('le profil d’un inconnu est null, pas une coquille vide', (t) => {
+  const base = neuve(t);
+  assert.equal(base.profil('PERSONNE'), null);
+});
+
+test('le profil ne porte NI adresse NI code', (t) => {
+  // Il est montré aux AMIS : tout ce qui n'a pas à en sortir ne doit pas y entrer.
+  // La règle vaut d'autant plus ici que la table `pilotes` contient le sel et
+  // l'empreinte du code — un `SELECT *` bien intentionné les emporterait.
+  const base = neuve(t);
+  base.reclame('ZOÉ', '1234', {}, 'secret@famille.fr');
+  const p = base.profil('ZOÉ');
+  const texte = JSON.stringify(p);
+  for (const interdit of ['secret@famille.fr', 'code_hash', 'jeton_hash']) {
+    assert.ok(!texte.includes(interdit), `le profil laisse fuir « ${interdit} »`);
+  }
+  assert.deepEqual(Object.keys(p).sort(), [
+    'carene',
+    'depuis',
+    'livree',
+    'meilleures',
+    'nom',
+    'parties',
+  ]);
+});

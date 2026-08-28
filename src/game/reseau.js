@@ -145,6 +145,16 @@ export async function moi() {
   };
 }
 
+// Le profil d'un pilote : sa meilleure partie dans chaque mode, et de quoi la
+// revoir. Sans nom, c'est le sien. Le serveur refuse un profil qui n'est ni le
+// nôtre ni celui d'un ami — ce n'est donc pas au client de le garder.
+export async function profilDistant(nom = null) {
+  const r = await appel(`/profil${nom ? `?nom=${encodeURIComponent(nom)}` : ''}`, {
+    avecJeton: true,
+  });
+  return r?.nom ? r : null;
+}
+
 // La liste des pilotes du jeu — donc les copains, y compris ceux qui jouent
 // depuis leur propre téléphone.
 export async function listePilotes(limite = 24) {
