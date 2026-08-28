@@ -1693,6 +1693,19 @@ input {
    qu'on martèle — elles remontent le long du même bord droit, en colonne, assez
    bas pour ne pas gêner les crédits et assez haut pour laisser passer la barre de
    boss qui traverse le tiers supérieur. */
+/* Le micro s'allume quand la ligne est ouverte, et rougit quand on s'est coupé :
+   il faut pouvoir dire d'un coup d'œil, en plein combat, si le copain
+   nous entend. */
+#btn-micro-touch.micro-ouvert {
+  color: #8ffbff;
+  text-shadow: 0 0 10px rgba(143, 251, 255, 0.8);
+}
+
+#btn-micro-touch.micro-muet {
+  color: #ff4d6d;
+  opacity: 0.85;
+}
+
 .hud-touch {
   position: absolute;
   right: calc(max(18px, env(safe-area-inset-right)) + 9px);

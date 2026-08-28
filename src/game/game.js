@@ -401,6 +401,17 @@ export class Game {
       callBtn.addEventListener('mousedown', appel);
     }
 
+    const microBtn = this.hud.root.querySelector('#btn-micro-touch');
+    if (microBtn) {
+      const micro = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._toucheMicro();
+      };
+      microBtn.addEventListener('touchstart', micro, { passive: false });
+      microBtn.addEventListener('mousedown', micro);
+    }
+
     energyBtn.addEventListener('touchstart', press, { passive: false });
     energyBtn.addEventListener('touchend', release, { passive: false });
     energyBtn.addEventListener('mousedown', press);
@@ -2158,7 +2169,14 @@ export class Game {
         // `_restaure` a rappelé `startWave`, qui repose l'état à « playing ».
         return;
       case 'vc':
-        if (this.spectateur?.de === de) this.spectateur.file.push(d);
+        // La file est bornée À LA RÉCEPTION aussi : pendant une pause, la boucle
+        // de jeu ne tourne pas du tout, donc personne n'irait la vider. Elle
+        // grossirait tout le temps que dure la pause, sans limite.
+        if (this.spectateur?.de === de) {
+          const f = this.spectateur.file;
+          if (f.length > Game.RETARD_MAX * 2) f.length = 0;
+          f.push(d);
+        }
         return;
       default:
         return this.voix.recois(de, sujet, d);
@@ -2295,9 +2313,35 @@ export class Game {
   // soixante paquets régulièrement espacés, il en livre trois d'un coup puis
   // rien. Sans réserve, l'image saccaderait au rythme du réseau plutôt qu'à
   // celui du jeu.
+  // Au-delà de ça, on ne rattrape plus : on se resynchronise. Quatre secondes de
+  // retard, c'est déjà une autre partie que celle qu'on croit regarder.
+  static RETARD_MAX = 240;
+
   _updateRegard(dtReel) {
     const sp = this.spectateur;
     if (!sp || !sp.vue) return;
+
+    // ON NE RATTRAPE PAS LE PASSÉ, ON SE REBRANCHE SUR LE PRÉSENT.
+    //
+    // Quand le spectateur met en pause — ou passe son onglet en arrière-plan,
+    // ce qui gèle sa boucle — l'hôte, lui, continue d'émettre. La file grossit
+    // pendant tout ce temps. Au retour, l'ancien code essayait de la rejouer
+    // image par image, plafonné par le rattrapage : le spectateur regardait donc
+    // le passé, de plus en plus loin derrière, et ça se lit exactement comme une
+    // désynchronisation. Signalé par Paul, et surtout « quand le spectateur se
+    // met en pause et reprend ».
+    //
+    // On jette donc le retard et on attend le prochain instantané de vague —
+    // c'est le point de rendez-vous qui existe déjà, celui-là même qui sert à
+    // entrer en spectateur.
+    if (sp.file.length > Game.RETARD_MAX) {
+      sp.file.length = 0;
+      sp.vue = false;
+      sp.amorti = false;
+      this._ditRegard(`Trop de retard — on reprend au prochain tableau`);
+      return;
+    }
+
     let n = this.duo.pas(dtReel);
     while (n-- > 0) {
       if (sp.file.length <= (sp.amorti ? 0 : 6)) {
@@ -3542,6 +3586,52 @@ export class Game {
     if (!def.boss) this.audio.waveStart();
   }
 
+  // ---- LE MICRO, EN PARTIE ---------------------------------------------------
+  //
+  // À QUI PEUT-ON PARLER, LÀ, MAINTENANT ?
+  //
+  // Quatre situations, et une seule réponse : le copain avec qui on partage cette
+  // partie. À deux c'est le coéquipier ; en spectateur c'est celui qu'on regarde ;
+  // quand on est regardé, c'est celui qui regarde. Sinon, personne — et le bouton
+  // n'a pas lieu d'exister.
+  get copainDeJeu() {
+    if (this.voix?.pair) return this.voix.pair;
+    if (this.variante === 'duo' && this.bord2?.nom) return this.bord2.nom;
+    if (this.spectateur?.de) return this.spectateur.de;
+    const premier = this._regardeurs?.values?.().next?.().value;
+    return premier || null;
+  }
+
+  // L'état à montrer sur le bouton. Recalculé à chaque image : la ligne peut
+  // s'ouvrir ou tomber sans qu'on ait touché à rien.
+  _rafraichitMicro() {
+    const copain = this.copainDeJeu;
+    if (!copain || this.state !== 'playing') return this.hud.setMicro?.(null);
+    const e = this.voix?.etat || 'raccroche';
+    if (e === 'enligne') return this.hud.setMicro?.(this.voix.muet ? 'muet' : 'ouvert');
+    if (e === 'appelle' || e === 'sonne') return this.hud.setMicro?.('sonne');
+    this.hud.setMicro?.('appeler');
+  }
+
+  // UN SEUL BOUTON POUR TOUTE LA LIGNE : il appelle, il décroche, il coupe.
+  // Trois boutons auraient demandé de la place qu'un téléphone n'a pas, et de
+  // toute façon un seul de leurs états est utile à la fois.
+  _toucheMicro() {
+    const copain = this.copainDeJeu;
+    if (!copain) return;
+    const e = this.voix?.etat || 'raccroche';
+    if (e === 'enligne') {
+      const muet = this.voix.basculeMuet();
+      this.hud.announce(muet ? 'Micro coupé' : 'Micro ouvert', copain, 1200);
+    } else if (e === 'sonne') {
+      this.voix.decroche();
+    } else if (e === 'raccroche') {
+      this.voix.appelle(copain);
+      this.hud.announce('Appel…', copain, 1600);
+    }
+    this._rafraichitMicro();
+  }
+
   // JE NE PILOTE PAS CETTE PARTIE.
   //
   // Deux situations où ce qui est à l'écran ne m'appartient pas : la relecture
@@ -4395,6 +4485,7 @@ export class Game {
     this._updateCall(dt);
     this._updateReflex(dt);
     this._updateBombFront(dt);
+    this._rafraichitMicro();
 
     this.player.update(dt, this);
     // Le second vaisseau est simulé exactement comme le premier, avec SON poste

@@ -44,6 +44,11 @@ export class Hud {
       <div class="hud-touch">
         <button id="btn-pause-touch" aria-label="Pause">⏸</button>
         <button id="btn-sound-touch" aria-label="Couper le son">♪</button>
+        <!-- LE MICRO N'EXISTAIT QU'AU MENU. On pouvait appeler un copain depuis
+             l'écran des copains, et plus rien ensuite : une fois en partie, ni
+             pour décrocher, ni pour se couper. Or c'est EN JOUANT qu'on se parle.
+             Le bouton n'apparaît que s'il y a quelqu'un à qui parler. -->
+        <button id="btn-micro-touch" class="hidden" aria-label="Micro">🎙</button>
       </div>
       <button class="btn-energy-touch" id="btn-energy-touch" aria-label="Bombe / Overdrive">✦</button>
       <button class="btn-call-touch" id="btn-call-touch" aria-label="Appel des crédits">◉<i></i></button>
@@ -53,6 +58,7 @@ export class Hud {
       [
         'btn-call-touch',
         'boss-nom',
+        'btn-micro-touch',
         'hud-score',
         'hud-hiscore',
         'hud-wave',
@@ -165,6 +171,32 @@ export class Hud {
   // que KORN était le seul boss du jeu. Depuis qu'on affronte des ombres, une
   // barre qui annonce « KORN » au-dessus de l'ombre d'HÉLIOS ment au joueur au
   // pire moment — celui où il essaie de comprendre à quoi il a affaire.
+  // L'ÉTAT DU MICRO, EN UN GLYPHE.
+  //
+  //   null      — personne à qui parler : le bouton n'existe pas
+  //   'appeler' — un copain est là, la ligne est fermée
+  //   'sonne'   — ça sonne, d'un côté ou de l'autre
+  //   'ouvert'  — on s'entend
+  //   'muet'    — on s'entend, mais on a coupé son micro
+  setMicro(etat) {
+    const b = this.el['btn-micro-touch'];
+    if (!b) return;
+    b.classList.toggle('hidden', !etat);
+    if (!etat) return;
+    b.textContent = { appeler: '📞', sonne: '📳', ouvert: '🎙', muet: '🔇' }[etat] || '🎙';
+    b.classList.toggle('micro-ouvert', etat === 'ouvert');
+    b.classList.toggle('micro-muet', etat === 'muet');
+    b.setAttribute(
+      'aria-label',
+      {
+        appeler: 'Appeler le copain',
+        sonne: 'Ça sonne',
+        ouvert: 'Couper le micro',
+        muet: 'Rouvrir le micro',
+      }[etat] || 'Micro'
+    );
+  }
+
   showBossBar(nom = 'KORN', sous = 'Dévoreur de Mondes') {
     this.el['boss-bar'].classList.add('visible');
     if (this.el['boss-nom']) this.el['boss-nom'].textContent = sous ? `${nom} — ${sous}` : nom;
