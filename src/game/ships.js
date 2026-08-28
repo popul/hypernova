@@ -2,7 +2,7 @@
 // Style low-poly flat-shaded ; les accents émissifs sont amplifiés par le bloom.
 
 import * as THREE from 'three';
-import { PLAYER, GRAZE, BOSS } from './constants.js';
+import { PLAYER, GRAZE, BOSS, coqueParId, bossParId } from './constants.js';
 
 function mat(
   color,
@@ -919,6 +919,167 @@ function createBoss() {
 // Phase 1, 2 ou 3 : l'état de la carène du boss. Rien n'est construit ici — tout
 // dort déjà dans le gabarit, éteint — donc deux appels de suite sur la même phase
 // ne peuvent rien empiler, et une bascule ne coûte pas une allocation.
+// ---------------------------------------------------------------- LES OMBRES
+//
+// UNE OMBRE N'EST PAS UN AUTRE VAISSEAU : C'EST LE VÔTRE, EN PLUS GRAND.
+//
+// Elle est donc construite par createPlayerShip, avec la même carène et le même
+// assemblage que la coque jouable. C'est tout l'intérêt : le joueur reconnaît la
+// silhouette avant de lire le nom, et il sait déjà de quoi elle est capable —
+// pour l'avoir pilotée, ou pour l'avoir lue au hangar.
+//
+// Ce qui change tient en trois choses : l'échelle, la matière, et le fait qu'elle
+// ne renvoie aucune lumière. Une ombre n'a pas de peinture ; elle a un contour et
+// un cœur qui brûle. Les matières d'origine sont remplacées par les nôtres — on
+// ne les teinte pas, on les substitue, sinon les reflets de la coque héroïque
+// resteraient visibles et l'ombre aurait l'air d'un vaisseau repeint.
+
+const OMBRE_ETATS = [
+  {
+    // Acte I : le vide. Presque noire, un liseré violet.
+    corps: mat(0x120a1c, {
+      emissive: 0x2a1040,
+      emissiveIntensity: 0.35,
+      roughness: 0.85,
+      metalness: 0.1,
+    }),
+    coeur: glow(0xb060ff),
+  },
+  {
+    // Acte II : ça chauffe dessous. Le cœur passe au magenta.
+    corps: mat(0x1c0a20, {
+      emissive: 0x50104a,
+      emissiveIntensity: 0.55,
+      roughness: 0.75,
+      metalness: 0.15,
+    }),
+    coeur: glow(0xff4df0),
+  },
+  {
+    // Acte III : elle est à vif. La coque elle-même rougeoie.
+    corps: mat(0x2a0a18, {
+      emissive: 0x8a1030,
+      emissiveIntensity: 0.8,
+      roughness: 0.6,
+      metalness: 0.2,
+    }),
+    coeur: glow(0xff3355),
+  },
+];
+
+// Ce qui, dans la carène héroïque, doit brûler plutôt que rester sombre. On se
+// fie à la LUMINOSITÉ de la matière d'origine et non à un nom de maille : les
+// plans nomment peu, mais ils distinguent toujours ce qui éclaire de ce qui
+// porte. Un accent reste un accent, une tuyère reste une tuyère.
+function estUneLumiere(m) {
+  if (!m?.color) return false;
+  return m.emissive ? m.emissive.getHex() !== 0x000000 : true;
+}
+
+export function createOmbre(bossId) {
+  const fiche = bossParId(bossId);
+  const c = coqueParId(fiche.coque);
+  const g = new THREE.Group();
+  // Palier 2 et modules garnis : l'ombre est la version ACCOMPLIE de la coque,
+  // celle qu'on n'a pas encore. Elle en porte donc toutes les pièces visibles.
+  // PAS DE SATELLITES. Le module `missiles` accroche à HÉLIOS des orbes qui
+  // tournent LOIN de la coque : la boîte englobante les avalait, et son ombre
+  // héritait d'un rayon de collision de 8,4 contre 4,1 pour celle d'ORION —
+  // deux fois plus large pour une silhouette à peine plus grande. Elle se
+  // faisait toucher par des balles qui passaient dans le vide.
+  //
+  // Et sur le fond, ces orbes n'ont rien à faire là : l'arsenal d'une ombre est
+  // dans sa table d'actes, pas dans les modules qu'un joueur aurait achetés.
+  const corps = createPlayerShip({
+    carene: c.carene,
+    livree: 'orage',
+    tier: 2,
+    levels: { cannons: 2, missiles: 0, hull: 2, fireRate: 2 },
+  });
+  // Elle fait face au joueur : la coque jouable pointe vers le fond, son ombre
+  // pointe vers nous. Sans ce demi-tour, on affronterait un vaisseau de dos.
+  corps.rotation.y = Math.PI;
+  corps.name = 'ombreCorps';
+  g.add(corps);
+
+  // CE QUI APPARTIENT AU JOUEUR RESTE AU JOUEUR.
+  //
+  // createPlayerShip pose deux repères de PILOTAGE sur la coque : un point blanc
+  // au centre et un anneau au sol, qui montrent au joueur son rayon de collision
+  // exact. Sur une ombre, cet anneau devient un cerceau violet de trois mètres
+  // autour du boss — vu à l'écran, il mangeait la silhouette entière et l'ombre
+  // n'était plus qu'une tache dans un cercle. Ce ne sont pas des décorations, ce
+  // sont des instruments de bord : ils n'ont rien à faire sur un ennemi.
+  for (const nom of ['hitcore', 'hitring']) {
+    const o = corps.getObjectByName(nom);
+    if (o) o.parent.remove(o);
+  }
+
+  const E = OMBRE_ETATS[0];
+  corps.traverse((o) => {
+    if (!o.isMesh) return;
+    const brille = estUneLumiere(o.material);
+    o.material = brille ? E.coeur : E.corps;
+    o.name = brille ? 'ombreCoeur' : 'ombreCorps';
+  });
+
+  // LE CŒUR. Une ombre a un centre qu'on vise, sinon c'est une masse. Il bat, et
+  // il change de couleur à chaque acte — c'est le seul repère de progression que
+  // le joueur ait sans regarder la barre de vie.
+  const coeur = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), E.coeur);
+  coeur.name = 'ombreOeil';
+  coeur.position.z = 0.1;
+  g.add(coeur);
+
+  // ON MESURE, PUIS ON MET À L'ÉCHELLE POUR ATTEINDRE LA TAILLE VOULUE.
+  //
+  // Un facteur fixe donnait trois ombres de tailles très différentes, puisque les
+  // trois carènes n'ont pas la même envergure. On part donc de la demi-largeur
+  // demandée par la fiche et on en déduit le facteur : les trois se tiennent
+  // alors comme trois boss, et le facteur reste toujours bien supérieur à 1 —
+  // une ombre est plus grande que le vaisseau dont elle sort, c'est la demande.
+  g.updateMatrixWorld(true);
+  const brut = new THREE.Vector3();
+  new THREE.Box3().setFromObject(g).getSize(brut);
+  const vise = fiche.demiLargeur || 4.2;
+  g.scale.setScalar(Math.max(1.2, (vise * 2) / Math.max(0.001, brut.x)));
+
+  // LE RAYON DE COLLISION SE MESURE SUR CE QU'ON DESSINE.
+  //
+  // Il était pris dans la fiche de KORN — 5,2 — alors que la silhouette d'une
+  // ombre n'en faisait que 2,9 de demi-largeur. Mesuré à l'écran : on se faisait
+  // toucher à près de deux longueurs de vaisseau du vide, et il n'y avait aucun
+  // moyen de le comprendre en jouant. Une boîte de collision qui ne correspond
+  // pas au dessin n'est pas une difficulté, c'est un mensonge.
+  //
+  // On le calcule donc à la construction, sur la géométrie réelle, à l'échelle
+  // réelle. Ça vaut pour les trois carènes d'aujourd'hui et pour celles qu'on
+  // ajoutera : rien à retoucher, rien à retomber juste par hasard.
+  g.updateMatrixWorld(true);
+  const boite = new THREE.Box3().setFromObject(g);
+  const taille = new THREE.Vector3();
+  boite.getSize(taille);
+  // La demi-largeur, pas la diagonale : c'est de côté qu'on croise un boss, et
+  // c'est la largeur qui décide si l'on passe.
+  g.userData.rayon = Math.max(0.5, taille.x / 2);
+  g.userData.ombre = true;
+  return g;
+}
+
+// Le changement d'acte, côté ombre : la matière du corps et celle du cœur.
+export function setOmbrePhase(group, phase) {
+  const p = Math.min(3, Math.max(1, Math.round(phase) || 1));
+  if (!group.userData.ombre || group.userData.ombrePhase === p) return;
+  group.userData.ombrePhase = p;
+  const E = OMBRE_ETATS[p - 1];
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.name === 'ombreOeil') o.material = E.coeur;
+    else if (o.name === 'ombreCoeur') o.material = E.coeur;
+    else if (o.name === 'ombreCorps') o.material = E.corps;
+  });
+}
+
 export function setBossPhase(group, phase) {
   const p = Math.min(3, Math.max(1, Math.round(phase) || 1));
   if (group.userData.bossPhase === p) return;

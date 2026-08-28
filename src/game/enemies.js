@@ -3,7 +3,7 @@
 // machine à états par ennemi (entering → settling → formation ⇄ diving/returning).
 
 import * as THREE from 'three';
-import { createEnemyShip, createMine } from './ships.js';
+import { createEnemyShip, createMine, createOmbre, setOmbrePhase } from './ships.js';
 import {
   ENEMY_TYPES,
   ENEMY,
@@ -16,6 +16,10 @@ import {
   LANCIER,
   MINE,
   PLAYER,
+  BOSS_RAYON_DEMI,
+  EXTRACTION,
+  TRANSFO,
+  bossParId,
 } from './constants.js';
 import { slotBasePosition, difficulty, pickDiveStyle, pickWeighted } from './waves.js';
 import { alea, entre, ecart } from '../core/rng.js';
@@ -35,8 +39,12 @@ class Enemy {
     this.id = nextEnemyId++;
     this.type = spawn.type;
     this.def = ENEMY_TYPES[spawn.type];
-    if (this.type === 'boss') {
-      this.hp = this.def.hp + waveNumber * BOSS.hpPerWave;
+    if (spawn.type === 'boss') {
+      // Le facteur de la fiche sépare une ombre d'un dévoreur de mondes : on en
+      // affronte sept, on n'affronte KORN qu'une fois, et ça doit se sentir dans
+      // le temps qu'ils mettent à tomber.
+      const f = bossParId(spawn.boss || 'korn');
+      this.hp = Math.round((this.def.hp + waveNumber * BOSS.hpPerWave) * (f.hp || 1));
     } else {
       const scaledWaves = Math.max(0, waveNumber - ENEMY.hpScaleStartWave);
       const every = this.type === 'brute' ? ENEMY.hpEveryWavesBrute : ENEMY.hpEveryWavesSmall;
@@ -58,7 +66,25 @@ class Enemy {
     this.flashTime = 0;
     this.time = alea() * 10;
 
-    this.group = createEnemyShip(this.type);
+    // QUEL BOSS ? L'identité vient de la vague, et elle décide de deux choses :
+    // la carène qu'on construit, et la table d'actes qu'on jouera. KORN garde la
+    // sienne ; les ombres empruntent la silhouette d'un vaisseau jouable.
+    this.bossId = spawn.boss || 'korn';
+    this.fiche = this.type === 'boss' ? bossParId(this.bossId) : null;
+    this.group =
+      this.type === 'boss' && this.fiche.coque
+        ? createOmbre(this.bossId)
+        : createEnemyShip(this.type);
+    // UN BOSS A TOUJOURS SA PROPRE FICHE, ET C'EST CE QUI REND SA TAILLE HONNÊTE.
+    //
+    // Une ombre ne fait pas la taille de KORN : elle porte SON rayon, mesuré sur
+    // sa propre carène. Et comme un boss GRANDIT à chaque transformation, ce
+    // rayon doit pouvoir bouger en cours de combat — `def` étant partagé par tous
+    // les ennemis du même type, on s'en fait une copie plutôt que d'aller le
+    // corrompre pour tout le monde.
+    if (this.type === 'boss') {
+      this.def = { ...this.def, radius: this.group.userData.rayon || this.def.radius };
+    }
     // L'échelle de REPOS, telle que la carène a été construite. Les animations de
     // flash et de télégraphe la faisaient revenir à 1 : un ennemi bâti à une autre
     // taille — l'amiral, deux fois plus gros — rapetissait au premier tir encaissé
@@ -79,6 +105,22 @@ class Enemy {
       this.rayon.material.dispose();
       this.rayon = null;
     }
+    // KORN n'est présent que le temps de l'extraction, et il n'appartient pas au
+    // groupe de l'ombre : sans ça, il resterait planté dans le décor si la vague
+    // change au milieu de la mise en scène.
+    if (this.korn) {
+      this._scene.remove(this.korn);
+      this.korn = null;
+    }
+    // Les colonnes du boss vivent aussi dans le monde. Un boss abattu qui laisse
+    // ses rayons allumés, c'est une arène barrée par un mort.
+    for (const r of this.rayons || []) {
+      if (!r.mesh) continue;
+      this._scene.remove(r.mesh);
+      r.mesh.geometry.dispose();
+      r.mesh.material.dispose();
+    }
+    this.rayons = null;
   }
 }
 
@@ -208,7 +250,7 @@ export class Enemies {
           this.boss = enemy;
           game.audio.bossAlarm();
           game.audio.setMode('boss'); // la musique martèle tant que l'amiral est en vie
-          game.hud.showBossBar();
+          game.hud.showBossBar(enemy.fiche?.nom, enemy.fiche?.sous);
           if (game.mode !== 'survie') game.characters?.onBossIntro();
         }
         this.list.push(enemy);
@@ -299,7 +341,11 @@ export class Enemies {
         const pos = e.curve.getPoint(eased);
         this._faceTravel(e, pos);
         e.group.position.copy(pos);
-        if (t >= 1) e.state = e.type === 'boss' ? 'bossing' : 'settling';
+        if (t >= 1) {
+          // UNE OMBRE NE SE POSE PAS LÀ TOUTE SEULE. Elle sort de KORN, et il
+          // faut le VOIR, sinon ce n'est qu'un boss de plus avec un autre nom.
+          e.state = e.type === 'boss' ? (e.fiche?.coque ? 'extraction' : 'bossing') : 'settling';
+        }
         break;
       }
       case 'settling': {
@@ -368,6 +414,16 @@ export class Enemies {
           );
           this._faceTravel(e, this._tmp);
         }
+        break;
+      }
+      // L'EXTRACTION, en trois temps.
+      //
+      // KORN descend, immense ; l'ombre grandit hors de lui ; il recule et
+      // s'efface. Elle ne fait rien pendant ce temps-là — ni tir, ni acte — et
+      // c'est délibéré : le joueur regarde, et il n'a rien d'autre à faire que
+      // comprendre ce qui vient de se passer.
+      case 'extraction': {
+        this._extraction(e, dt, game);
         break;
       }
       case 'bossing': {
@@ -637,11 +693,16 @@ export class Enemies {
   // Le combat en trois actes. Chaque phase change le VERBE du boss — patrouiller,
   // bondir, traquer — et pas seulement ses nombres.
   _bossPhase(e, dt, game) {
+    // LA TABLE D'ACTES VIENT DU BOSS, PAS DU FICHIER. Chaque ombre a la sienne :
+    // celle d'HÉLIOS balaie, celle de VULCAIN sème, celle d'ORION traque. KORN
+    // garde les trois actes historiques.
+    const actes = e.fiche?.phases || BOSS_PHASES;
     const frac = e.maxHp > 0 ? e.hp / e.maxHp : 0;
-    const voulue = BOSS_PHASES.reduce((n, p, i) => (frac <= p.seuil ? i : n), 0);
+    const voulue = actes.reduce((n, p, i) => (frac <= p.seuil ? i : n), 0);
     if (e.phase === undefined) {
       e.phase = 0;
       e.bascule = 0;
+      setOmbrePhase(e.group, 1);
       game.onBossPhase?.(1);
     }
     // BASCULE. Le boss se cabre, cesse de tirer, et l'on comprend qu'on vient de
@@ -653,23 +714,281 @@ export class Enemies {
       e.fanTimer = BOSS_BASCULE + 0.3;
       e.burstTimer = BOSS_BASCULE + 0.8;
       e.ancre = null;
-      game.onBossPhase?.(e.phase + 1);
+      e.transfo = 0;
+      e.aCrie = false;
+      e.aSouffle = false;
+      // L'échelle d'où l'on part : il se comprime pendant la charge, puis
+      // ressort PLUS GRAND. On la retient une fois pour toutes, sinon chaque
+      // acte se composerait avec le précédent et le troisième serait énorme.
+      e.echelleBase = e.group.scale.x;
+      // Les rayons de l'acte précédent n'ont plus lieu d'être : le prochain acte
+      // en redemandera s'il en veut, et avec son propre compte.
+      this._eteintRayons(e);
     }
-    const ph = BOSS_PHASES[e.phase];
+    const ph = actes[e.phase];
 
     if (e.bascule > 0) {
       e.bascule -= dt;
-      // Le cabrage : il se redresse, recule d'un pas et tremble. Aucun tir.
-      const k = 1 - Math.abs(e.bascule / BOSS_BASCULE - 0.5) * 2;
-      e.group.position.z = -13 - k * 3.5;
-      e.group.rotation.x = -k * 0.45;
-      e.group.position.y = Math.sin(e.time * 34) * 0.22 * k;
+      this._transformation(e, dt, game, actes);
       return;
     }
     e.group.rotation.x = 0;
 
     this._bossMouvement(e, dt, game, ph);
     this._bossTirs(e, dt, game, ph);
+    // LES TROIS ARMES EMPRUNTÉES. Chacune ne s'exécute que si l'acte la demande :
+    // une phase sans `rayons` n'en paie pas le coût, et KORN n'en a aucune.
+    this._bossRayons(e, dt, game, ph);
+    this._bossMines(e, dt, game, ph);
+  }
+
+  // LA TRANSFORMATION. Quatre temps, et le joueur ne fait rien pendant : c'est un
+  // plan, pas une phase de combat. Ce qu'il regarde, c'est un adversaire qui
+  // décide d'aller plus loin.
+  _transformation(e, dt, game, actes) {
+    e.transfo = (e.transfo || 0) + dt;
+    const t = e.transfo;
+    const ph = actes[e.phase];
+    const base = e.echelleBase || 1;
+
+    // -- 1. LA CHARGE. L'énergie vient à lui, et le sol tremble de plus en plus.
+    if (t < TRANSFO.charge) {
+      const k = t / TRANSFO.charge;
+      // Il se ramasse : il rentre les épaules et se comprime, ce qui rend la
+      // détente d'après lisible sans qu'on ait rien à expliquer.
+      e.group.scale.setScalar(base * (1 - k * 0.12));
+      e.group.position.y = Math.sin(e.time * 40) * 0.3 * k;
+      e.group.rotation.x = -k * 0.3;
+      game.fx.addShake?.(0.35 * k * dt * 60 * 0.02);
+      // L'énergie CONVERGE : les étincelles naissent sur un anneau qui se
+      // resserre. C'est le seul moyen de lire « ça vient vers lui » avec des
+      // particules qui, elles, ne savent qu'aller vers l'extérieur.
+      const rayon = 14 * (1 - k) + 2;
+      if (Math.random() < 0.6) {
+        const a = Math.random() * Math.PI * 2;
+        this._tmp.set(
+          e.group.position.x + Math.cos(a) * rayon,
+          0,
+          e.group.position.z + Math.sin(a) * rayon
+        );
+        game.fx.burst?.(this._tmp, ph.rayons ? 0xff6ad5 : 0xb060ff, {
+          count: 3,
+          speed: 2,
+          life: 0.4,
+        });
+      }
+      return;
+    }
+
+    // -- 2. LE CRI. Tout s'arrête, il parle, et la phrase a le temps d'exister.
+    if (t < TRANSFO.charge + TRANSFO.cri) {
+      if (!e.aCrie) {
+        e.aCrie = true;
+        // Le cri tient jusqu'au bout de la déflagration : c'est LUI qu'on doit
+        // avoir sous les yeux quand le monde recule.
+        game.hud.announce?.(e.fiche?.nom || 'KORN', ph.cri || ph.dit || '', 2600, true);
+        game.audio.bossAlarm?.();
+        game.fx.hitStop?.(0.12);
+      }
+      // Il bat, immobile, comme un moteur qui monte en régime.
+      const bat = 1 + Math.sin(t * 70) * 0.05;
+      e.group.scale.setScalar(base * 0.88 * bat);
+      return;
+    }
+
+    // -- 3. LA DÉFLAGRATION. Le monde recule d'un pas.
+    if (t < TRANSFO.charge + TRANSFO.cri + TRANSFO.souffle) {
+      if (!e.aSouffle) {
+        e.aSouffle = true;
+        // ET LES TIRS ENNEMIS SONT BALAYÉS. Ce n'est pas une faveur : le joueur
+        // subit un plan de deux secondes et demie pendant lequel il ne peut ni
+        // esquiver ni riposter. Mourir d'une balle tirée AVANT la transformation
+        // serait une mort qu'il ne pourrait imputer qu'à la mise en scène.
+        game.enemyBullets?.forEachActive?.((b) => game.enemyBullets.kill(b));
+        setOmbrePhase(e.group, e.phase + 1);
+        // LA BOÎTE DE COLLISION GRANDIT AVEC LUI. Sans cette ligne, un boss deux
+        // fois transformé serait dessiné trente pour cent plus large que ce qu'on
+        // peut toucher — et l'on tirerait dans sa coque sans rien lui faire.
+        // C'est le même défaut, dans l'autre sens, que celui du rayon hérité de
+        // KORN : ce qu'on voit et ce qu'on touche doivent rester la même chose.
+        e.def = { ...e.def, radius: e.def.radius * (1 + TRANSFO.grossit) };
+        game.onBossPhase?.(e.phase + 1, { annonce: false });
+        game.fx.shockwave?.(e.group.position, ph.rayons ? 0xff6ad5 : 0xff4757, 26);
+        game.fx.burst?.(e.group.position, 0xffffff, { count: 60, speed: 26, life: 0.7, spread: 3 });
+        game.fx.addShake?.(1.5);
+        game.audio.explosionBig?.();
+      }
+      const k = (t - TRANSFO.charge - TRANSFO.cri) / TRANSFO.souffle;
+      // La détente : il se déplie d'un coup, au-delà de sa taille finale.
+      e.group.scale.setScalar(base * (0.88 + (1 + TRANSFO.grossit + 0.25 * (1 - k) - 0.88) * k));
+      e.group.rotation.x = 0.25 * (1 - k);
+      return;
+    }
+
+    // -- 4. LA REPRISE. Il retombe à sa nouvelle taille, et le combat rouvre.
+    const k = Math.min(
+      1,
+      (t - TRANSFO.charge - TRANSFO.cri - TRANSFO.souffle) / Math.max(0.001, TRANSFO.reprise)
+    );
+    e.group.scale.setScalar(base * (1 + TRANSFO.grossit));
+    e.group.position.y = Math.sin(e.time * 6) * 0.2 * (1 - k);
+    e.group.rotation.x = 0;
+  }
+
+  _extraction(e, dt, game) {
+    const total = EXTRACTION.arrivee + EXTRACTION.sortie + EXTRACTION.depart;
+    if (e.extraction === undefined) {
+      e.extraction = 0;
+      // KORN n'est là que pour ces trois secondes : on le construit, on le
+      // montre, on le retire. Il n'entre jamais dans la liste des ennemis — il
+      // n'a ni points de vie ni collision, ce n'est pas lui qu'on affronte.
+      e.korn = createEnemyShip('boss');
+      e.korn.position.copy(e.group.position);
+      e.korn.position.z -= 6;
+      this.scene.add(e.korn);
+      e.group.visible = false;
+      game.audio.bossAlarm?.();
+    }
+    e.extraction += dt;
+    const t = e.extraction;
+
+    if (t < EXTRACTION.arrivee) {
+      // Il descend vers l'arène, et grandit à mesure qu'il approche.
+      const k = t / EXTRACTION.arrivee;
+      e.korn.position.z = e.group.position.z - 6 * (1 - k);
+      e.korn.scale.setScalar(1 + k * 0.4);
+      e.korn.rotation.y = Math.sin(t * 2.2) * 0.14;
+      return;
+    }
+
+    if (t < EXTRACTION.arrivee + EXTRACTION.sortie) {
+      const k = (t - EXTRACTION.arrivee) / EXTRACTION.sortie;
+      if (!e.dit) {
+        e.dit = true;
+        game.hud.announce?.(e.fiche.nom, e.fiche.replique || '', 2400, true);
+        game.fx.shockwave?.(e.korn.position, 0xb060ff, 11);
+        game.fx.addShake?.(0.5);
+      }
+      // Elle sort de lui : elle grandit depuis rien, à sa place à lui.
+      e.group.visible = true;
+      e.group.scale.setScalar(Math.max(0.001, (e.fiche.echelle || 2.4) * k));
+      e.group.position.z = e.korn.position.z + k * 2.5;
+      e.korn.rotation.y += dt * 1.6;
+      return;
+    }
+
+    // Il s'en va. Il recule vers le fond, et l'ombre reste.
+    const k = Math.min(1, (t - EXTRACTION.arrivee - EXTRACTION.sortie) / EXTRACTION.depart);
+    e.group.scale.setScalar(e.fiche.echelle || 2.4);
+    e.korn.position.z -= dt * 26;
+    e.korn.scale.setScalar(Math.max(0.01, 1.4 * (1 - k)));
+
+    if (t >= total) {
+      this.scene.remove(e.korn);
+      e.korn = null;
+      e.state = 'bossing';
+      game.audio.setMode?.('boss');
+    }
+  }
+
+  // ---- LE RAYON DE L'OMBRE D'HÉLIOS ----------------------------------------
+  //
+  // La coque HÉLIOS demande au joueur de TENIR une position. Son ombre demande
+  // exactement l'inverse : elle pose une colonne de lumière et il faut courir.
+  // C'est la même arme, et c'est la parade opposée — tout le sel est là.
+  //
+  // Deux modes. `suit` colle à votre abscisse avec du retard : on ne le sème
+  // qu'en changeant de sens. `balaye` traverse l'arène de bord à bord, et l'on
+  // choisit de quel côté on le laisse passer.
+  _bossRayons(e, dt, game, ph) {
+    if (!ph.rayons) {
+      this._eteintRayons(e);
+      return;
+    }
+    const n = ph.rayons.n || 1;
+    if (!e.rayons || e.rayons.length !== n) {
+      this._eteintRayons(e);
+      // Deux rayons partent aux deux tiers de l'arène, en sens contraires : ils
+      // se croisent au milieu, et le couloir sûr se déplace tout seul.
+      e.rayons = Array.from({ length: n }, (_, i) => ({
+        x: n === 1 ? 0 : (i === 0 ? -1 : 1) * ARENA.playerXMax * 0.66,
+        sens: i === 0 ? 1 : -1,
+        mesh: null,
+      }));
+    }
+
+    const cibleX = cible(game).position.x;
+    for (const r of e.rayons) {
+      if (ph.rayons.mode === 'balaye') {
+        r.x += r.sens * ph.rayons.vitesse * dt;
+        // Il rebondit sur les bords plutôt que de disparaître : un rayon qui sort
+        // du cadre laisse un temps mort que personne ne comprend.
+        if (r.x > ARENA.playerXMax) {
+          r.x = ARENA.playerXMax;
+          r.sens = -1;
+        } else if (r.x < -ARENA.playerXMax) {
+          r.x = -ARENA.playerXMax;
+          r.sens = 1;
+        }
+      } else {
+        // Il SUIT, avec du retard. Le retard est ce qui laisse une chance : sans
+        // lui, la colonne serait collée au vaisseau et l'esquive n'existerait pas.
+        const pas = ph.rayons.vitesse * dt;
+        r.x += THREE.MathUtils.clamp(cibleX - r.x, -pas, pas);
+      }
+      this._poseColonne(e, r);
+    }
+  }
+
+  // Une colonne appartient au boss et vit dans le repère du monde, comme celle du
+  // lancier — et pour la même raison : elle relie deux points qui bougent chacun
+  // de leur côté.
+  _poseColonne(e, r) {
+    if (!r.mesh) {
+      const geo = new THREE.PlaneGeometry(1, 1);
+      const matiere = new THREE.MeshBasicMaterial({
+        color: 0xff6ad5,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      r.mesh = new THREE.Mesh(geo, matiere);
+      r.mesh.rotation.x = -Math.PI / 2;
+      this.scene.add(r.mesh);
+    }
+    const z0 = e.group.position.z;
+    const z1 = ARENA.playerZ + 2;
+    r.mesh.visible = true;
+    r.mesh.scale.set(BOSS_RAYON_DEMI * 2, Math.max(0.1, z1 - z0), 1);
+    r.mesh.position.set(r.x, 0, (z0 + z1) / 2);
+  }
+
+  _eteintRayons(e) {
+    if (!e.rayons) return;
+    for (const r of e.rayons) {
+      if (r.mesh) {
+        this.scene.remove(r.mesh);
+        r.mesh.geometry.dispose();
+        r.mesh.material.dispose();
+      }
+    }
+    e.rayons = null;
+  }
+
+  // ---- LES MINES DE L'OMBRE DE VULCAIN --------------------------------------
+  //
+  // Elle sème sous vos pieds au lieu de tirer devant. L'arène se referme peu à
+  // peu, et le joueur doit décider ce qu'il dégage — exactement ce que le poseur
+  // demande, mais à une échelle qui compte.
+  _bossMines(e, dt, game, ph) {
+    if (!ph.mines) return;
+    e.semis = (e.semis ?? ph.mines.interval * 0.5) - dt;
+    if (e.semis > 0) return;
+    e.semis = ph.mines.interval;
+    if (this.mines.length >= ph.mines.max) return;
+    this._poseMine(e, game);
   }
 
   // Trois façons d'occuper l'espace. C'est ce que le joueur lit en premier, avant
@@ -750,6 +1069,12 @@ export class Enemies {
     if (e.burstTimer <= 0) {
       e.burstTimer = burstInterval;
       for (const role of ph.roles) this._fireAimed(e, game, role);
+      // LES CHERCHEUSES D'ORION. La coque tire des missiles à tête chercheuse ;
+      // son ombre en tire aussi, et c'est le seul projectile du jeu qui corrige
+      // sa course après le départ. On les envoie avec une anticipation PLEINE —
+      // rôle 1,0 — parce qu'un missile qui vise où vous étiez n'est plus un
+      // missile, c'est une balle lente.
+      for (let i = 0; i < (ph.chercheuses || 0); i++) this._fireAimed(e, game, 1.0);
     }
   }
 
@@ -894,10 +1219,21 @@ export class Enemies {
   // collisions : c'est la seule chose que le reste du jeu a besoin de savoir.
   rayonTouche(pos) {
     for (const e of this.list) {
-      if (!e.alive || e.type !== 'lancier' || !(e.tir > 0)) continue;
-      if (Math.abs(pos.x - e.group.position.x) > LANCIER.demi + PLAYER.radius) continue;
+      if (!e.alive) continue;
       if (pos.z < e.group.position.z) continue; // derrière l'émetteur : rien
-      return true;
+
+      // Le rayon du lancier : il ne brûle qu'un tiers de seconde, à la fin de son
+      // compte à rebours.
+      if (e.type === 'lancier' && e.tir > 0) {
+        if (Math.abs(pos.x - e.group.position.x) <= LANCIER.demi + PLAYER.radius) return true;
+      }
+
+      // Les colonnes du boss : elles brûlent EN PERMANENCE. C'est ce qui change
+      // la nature du combat — on ne guette pas un instant, on gère un espace.
+      for (const r of e.rayons || []) {
+        if (!r.mesh?.visible) continue;
+        if (Math.abs(pos.x - r.x) <= BOSS_RAYON_DEMI + PLAYER.radius) return true;
+      }
     }
     return false;
   }

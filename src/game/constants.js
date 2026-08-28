@@ -313,6 +313,10 @@ export const BOSS_PHASES = [
   {
     nom: 'MEUTE',
     dit: 'Il ne patrouille plus — il bondit',
+    // KORN NE PARLE JAMAIS AU JOUEUR. Il s'adresse à la coque, aux modules, au
+    // métal — voir characters.js. Ses cris ne font pas exception : c'est son
+    // calme qui inquiète, pas ses menaces.
+    cri: 'Ce métal a déjà cédé une fois.',
     seuil: 0.66,
     style: 'bonds',
     vitesse: 1.35,
@@ -325,6 +329,7 @@ export const BOSS_PHASES = [
   {
     nom: 'GUEULE',
     dit: 'Il descend sur vous',
+    cri: 'Rends-moi ce que tu portes.',
     seuil: 0.33,
     style: 'traque',
     vitesse: 1.7,
@@ -339,10 +344,312 @@ export const BOSS_PHASES = [
   },
 ];
 
+// ---------------------------------------------------------------- LES BOSS
+//
+// KORN N'EST PLUS LE SEUL, ET IL N'EST PLUS LE PREMIER.
+//
+// Il ouvrait chaque combat de boss du voyage, ce qui coûtait deux choses. La
+// première est évidente : on l'affrontait sept fois, et un dévoreur de mondes
+// qu'on plie toutes les quatre vagues cesse d'être un dévoreur de mondes. La
+// seconde l'est moins — le voyage n'avait pas de fin. On traversait neuf secteurs
+// pour arriver nulle part.
+//
+// Il attend donc au dernier secteur, et l'atteindre gagne la campagne.
+//
+// Entre-temps, ce sont LES OMBRES. Korn arrive, extrait de lui-même la silhouette
+// d'un des trois vaisseaux jouables, et s'en va — l'ombre reste, et c'est elle
+// qu'on affronte. Elle est plus grande que l'original et se bat avec SON arme :
+// l'ombre d'HÉLIOS balaie un rayon, celle de VULCAIN sème des mines, celle
+// d'ORION tire droit et lance des chercheuses. Le joueur reconnaît donc ce qui le
+// tue, et sait déjà comment ça marche — ce qui est exactement le sel de la
+// chose : il connaît la parade, il l'a juste toujours utilisée dans l'autre sens.
+//
+// Elles se succèdent dans l'ordre, en boucle : ORION, HÉLIOS, VULCAIN. Quelle que
+// soit la coque pilotée, une partie les montre toutes les trois.
+
+// Ce qu'une phase peut demander en plus des nappes et des rafales :
+//   rayons      { n, mode: 'suit' | 'balaye', vitesse } — colonnes de lumière
+//   mines       { interval, max }                       — semées, destructibles
+//   chercheuses n                                       — missiles qui corrigent
+export const BOSSES = {
+  'ombre-orion': {
+    // Ce que KORN dit en l'extrayant. Il ne parle jamais AU joueur — il parle de
+    // la coque, au passé, comme d'une chose déjà finie. C'est son seul registre.
+    replique: 'Celle-ci croyait viser juste.',
+    nom: "OMBRE D'ORION",
+    sous: 'Elle frappe où elle regarde',
+    coque: 'orion',
+    // ON VISE UNE TAILLE, ON NE FIXE PAS UN FACTEUR.
+    //
+    // `echelle` était un multiplicateur, et les trois carènes n'ont pas du tout
+    // la même envergure : à facteur égal, l'ombre d'HÉLIOS — le faucon, tout en
+    // ailes — mesurait 8,4 unités de demi-largeur contre 4,1 pour celle d'ORION.
+    // Elle couvrait cinquante-huit pour cent de l'arène et se faisait toucher
+    // par des balles qui passaient à côté d'elle.
+    //
+    // On donne donc la demi-largeur VOULUE, et la construction en déduit le
+    // facteur. Les trois ombres se tiennent alors comme trois boss, et la seule
+    // chose qui les distingue est leur silhouette — ce qui est le propos.
+    // KORN, lui, garde ses 5,2 : il reste le plus gros de tous.
+    demiLargeur: 4.2,
+    hp: 0.72, // multiplie les points de vie du boss : une ombre n'est pas KORN
+    phases: [
+      {
+        nom: 'ALIGNEMENT',
+        dit: 'Elle se met dans votre axe',
+        seuil: 1,
+        style: 'patrouille',
+        vitesse: 1.05,
+        fanMul: 1,
+        burstMul: 0.95,
+        nappes: 1,
+        ecartMul: 1,
+        roles: [1.0, 0.6, 0.2],
+      },
+      {
+        nom: 'CHERCHEUSES',
+        dit: 'Ses missiles vous suivent',
+        seuil: 0.66,
+        cri: 'Tu vises bien. Moi, je ne rate pas.',
+        style: 'bonds',
+        vitesse: 1.3,
+        fanMul: 0.85,
+        burstMul: 0.7,
+        nappes: 1,
+        ecartMul: 1.05,
+        roles: [1.0, 0.75, 0.45],
+        chercheuses: 2,
+      },
+      {
+        nom: 'MISE À MORT',
+        dit: 'Elle ne regarde plus que vous',
+        seuil: 0.33,
+        cri: 'Regarde-moi bien.',
+        style: 'traque',
+        vitesse: 1.6,
+        fanMul: 0.7,
+        burstMul: 0.55,
+        nappes: 2,
+        ecartMul: 0.85,
+        portee: 0.75,
+        roles: [1.0, 0.8, 0.55, 0.3],
+        chercheuses: 3,
+      },
+    ],
+  },
+
+  'ombre-helios': {
+    // Ce que KORN dit en l'extrayant. Il ne parle jamais AU joueur — il parle de
+    // la coque, au passé, comme d'une chose déjà finie. C'est son seul registre.
+    replique: 'Celle-ci croyait tenir sa lumière.',
+    nom: "OMBRE D'HÉLIOS",
+    sous: 'Le soleil qui traverse',
+    coque: 'helios',
+    demiLargeur: 4.2,
+    hp: 0.78,
+    phases: [
+      {
+        // Un projecteur qui vous suit : il ne faut plus se placer, il faut
+        // COURIR. C'est l'inverse exact de ce que la coque demande au joueur.
+        nom: 'PROJECTEUR',
+        dit: 'Ne restez pas dessous',
+        seuil: 1,
+        style: 'patrouille',
+        vitesse: 0.9,
+        fanMul: 1.35,
+        burstMul: 1.4,
+        nappes: 1,
+        ecartMul: 1.1,
+        roles: [1.0, 0.5],
+        rayons: { n: 1, mode: 'suit', vitesse: 2.6 },
+      },
+      {
+        // Le balayage : le rayon traverse l'arène d'un bord à l'autre, et l'on
+        // choisit de quel côté on le laisse passer.
+        nom: 'BALAYAGE',
+        dit: "Il traverse l'arène",
+        seuil: 0.66,
+        cri: 'Tu voulais de la lumière ?',
+        style: 'bonds',
+        vitesse: 1.15,
+        fanMul: 1.2,
+        burstMul: 1.3,
+        nappes: 1,
+        ecartMul: 1.15,
+        roles: [1.0, 0.6],
+        rayons: { n: 1, mode: 'balaye', vitesse: 5.2 },
+      },
+      {
+        // Deux rayons en sens contraires : ils se croisent, et le couloir sûr se
+        // déplace tout seul. On ne l'esquive pas, on l'anticipe.
+        nom: 'DEUX SOLEILS',
+        dit: 'Ils se croisent',
+        seuil: 0.33,
+        cri: 'BRÛLE.',
+        style: 'patrouille',
+        vitesse: 1.25,
+        fanMul: 1.5,
+        burstMul: 1.5,
+        nappes: 1,
+        ecartMul: 1.2,
+        roles: [1.0],
+        rayons: { n: 2, mode: 'balaye', vitesse: 4.4 },
+      },
+    ],
+  },
+
+  'ombre-vulcain': {
+    // Ce que KORN dit en l'extrayant. Il ne parle jamais AU joueur — il parle de
+    // la coque, au passé, comme d'une chose déjà finie. C'est son seul registre.
+    replique: 'Celle-ci a forgé mon métal. Elle me le doit.',
+    nom: 'OMBRE DE VULCAIN',
+    sous: 'La forge sous le volcan',
+    coque: 'vulcain',
+    demiLargeur: 4.6, // l'enclume est la plus lourde : son ombre pèse un peu plus
+    hp: 0.85,
+    phases: [
+      {
+        nom: 'SEMAILLES',
+        dit: 'Elle sème sous vos pieds',
+        seuil: 1,
+        style: 'patrouille',
+        vitesse: 0.85,
+        fanMul: 1.25,
+        burstMul: 1.2,
+        nappes: 1,
+        ecartMul: 1.1,
+        roles: [1.0, 0.5],
+        mines: { interval: 2.6, max: 4 },
+      },
+      {
+        nom: 'LA FORGE',
+        dit: 'Elle frappe et elle sème',
+        seuil: 0.66,
+        cri: "J'ai forgé ce métal. Je sais où il casse.",
+        style: 'bonds',
+        vitesse: 1.1,
+        fanMul: 0.9,
+        burstMul: 0.85,
+        nappes: 2,
+        ecartMul: 1,
+        roles: [1.0, 0.7, 0.4],
+        mines: { interval: 2.1, max: 5 },
+      },
+      {
+        nom: 'ÉRUPTION',
+        dit: 'Le sol lui-même vous refuse',
+        seuil: 0.33,
+        cri: 'Le sol lui-même te refuse.',
+        style: 'traque',
+        vitesse: 1.4,
+        fanMul: 0.8,
+        burstMul: 0.75,
+        nappes: 2,
+        ecartMul: 0.9,
+        portee: 0.8,
+        roles: [1.0, 0.75, 0.5, 0.25],
+        mines: { interval: 1.5, max: 7 },
+      },
+    ],
+  },
+
+  // KORN garde ses trois actes, tels qu'ils étaient. Ils sont bons, et ils sont
+  // désormais à leur place : au bout du voyage, une seule fois.
+  korn: {
+    nom: 'KORN',
+    sous: 'Dévoreur de Mondes',
+    coque: null, // il a sa propre carène, il n'est l'ombre de personne
+    demiLargeur: null, // et sa taille est celle de sa fiche d'ennemi
+    hp: 1.35, // un boss de fin, et le seul qu'on affronte une fois
+    phases: null, // renseigné plus bas depuis BOSS_PHASES
+  },
+};
+
+// L'ORDRE DES OMBRES. Elles tournent, quelle que soit la coque pilotée : une
+// partie menée jusqu'au bout les montre toutes les trois.
+export const ORDRE_OMBRES = ['ombre-orion', 'ombre-helios', 'ombre-vulcain'];
+
 // Le temps que dure la bascule d'une phase à l'autre : le boss se cabre, ne tire
 // pas, et le décor bascule. C'est la respiration qui rend le passage lisible — et
 // la récompense d'avoir entamé un tiers de sa coque.
-export const BOSS_BASCULE = 1.35;
+// La demi-largeur d'une colonne de boss. Plus large que celle du lancier — c'est
+// un boss, et il occupe l'espace — mais pas au point qu'une arène à deux rayons
+// devienne infranchissable : deux colonnes de 1,3 laissent toujours au moins six
+// unités de passage sur les vingt-neuf de l'arène.
+export const BOSS_RAYON_DEMI = 1.3;
+
+// L'EXTRACTION. Korn arrive, sort l'ombre de lui-même, et s'en va. Trois temps
+// pour une seule idée : ce qu'on va affronter SORT de lui, ce n'est pas un autre
+// ennemi qui passait par là.
+export const EXTRACTION = {
+  arrivee: 0.9, // il descend, immense, et l'ombre n'existe pas encore
+  sortie: 1.0, // elle grandit hors de lui
+  depart: 0.9, // il recule vers le fond et s'efface
+};
+
+// LA TRANSFORMATION, ET POURQUOI ELLE DURE SI LONGTEMPS.
+//
+// Le passage d'un acte à l'autre durait 1,35 seconde : le boss se cabrait, ne
+// tirait pas, et l'on comprenait qu'il venait de changer. C'était lisible, et
+// c'était tout — un temps mort propre.
+//
+// Ce qu'on veut à la place, c'est le moment que tout le monde connaît : celui où
+// l'adversaire s'arrête, se penche, et où l'énergie vient à LUI. Le sol tremble.
+// Il dit une phrase. Puis le monde se fait souffler.
+//
+// Quatre temps, et chacun fait un travail précis :
+//   charge   — l'énergie converge, le tremblement monte. On ne peut rien faire,
+//              et c'est justement ce qui rend la suite inévitable.
+//   cri      — il parle. Tout se fige une demi-seconde : c'est la respiration
+//              qui donne son poids à la phrase.
+//   souffle  — la déflagration. Elle BALAIE les tirs ennemis à l'écran, ce qui
+//              n'est pas une gentillesse mais une nécessité : le joueur ne doit
+//              pas mourir pendant un plan qu'il subit.
+//   reprise  — il se redresse, plus grand, dans ses nouvelles couleurs.
+export const TRANSFO = {
+  charge: 1.15,
+  cri: 0.4,
+  souffle: 0.55,
+  reprise: 0.7,
+  grossit: 0.14, // ce qu'il gagne en taille à chaque acte
+};
+
+export const BOSS_BASCULE = TRANSFO.charge + TRANSFO.cri + TRANSFO.souffle + TRANSFO.reprise;
+
+// KORN emprunte les trois actes historiques. On les recopie ici plutôt que de les
+// dupliquer : la table BOSS_PHASES reste la référence, et tout ce qui la lisait
+// encore continue de fonctionner.
+BOSSES.korn.phases = BOSS_PHASES;
+
+// Le boss d'une rencontre donnée. Deux règles, et rien d'autre :
+//
+//   · au DERNIER secteur, c'est KORN — c'est la ligne d'arrivée du voyage ;
+//   · partout ailleurs, les ombres tournent dans l'ordre.
+//
+// ON COMPTE LES RENCONTRES, PAS LES VAGUES, et c'est tout le sujet de cette
+// fonction. Les combats de boss ne tombent PAS tous les quatre numéros de vague :
+// ils tombent quand la DIFFICULTÉ est un multiple de quatre, et la difficulté est
+// étalée par la pente. Les vagues de boss réelles sont donc 5, 11, 16, 22… Un
+// rang calculé sur le numéro de vague sautait une ombre sur deux — vérifié : la
+// cinquième donnait ORION et la onzième VULCAIN, HÉLIOS n'apparaissait jamais.
+//
+// `rang` est le numéro de la rencontre : 1 pour la première, 2 pour la deuxième.
+// L'appelant l'obtient en divisant la difficulté par l'intervalle, ce qui est
+// exactement la condition qui a déclenché le combat.
+//
+// `dernierSecteur` est passé par l'appelant plutôt que déduit ici : c'est
+// biomes.js qui sait combien de secteurs existent et combien de vagues chacun
+// dure, et dupliquer ce calcul dans les constantes le ferait mentir le jour où
+// l'on ajoutera un secteur.
+export function bossPourVague({ rang = 1, dernierSecteur = false } = {}) {
+  if (dernierSecteur) return 'korn';
+  const r = Math.max(1, Math.round(rang));
+  return ORDRE_OMBRES[(r - 1) % ORDRE_OMBRES.length];
+}
+
+export function bossParId(id) {
+  return BOSSES[id] || BOSSES.korn;
+}
 
 export const BOSS = {
   // Facteur appliqué à la carène. Le rayon de collision ci-dessus suit le même

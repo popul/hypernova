@@ -218,6 +218,14 @@ export function stageForWave(wave) {
   return STAGES[Math.min(i, STAGES.length - 1)];
 }
 
+// EST-ON AU BOUT DU VOYAGE ? C'est cette question, et elle seule, qui décide si
+// l'on affronte KORN ou une ombre. Elle se répond ici parce que c'est ce fichier
+// qui sait combien de secteurs existent et combien de vagues chacun dure — la
+// poser ailleurs, c'est la voir mentir le jour où l'on ajoutera un secteur.
+export function estDernierSecteur(wave) {
+  return stageForWave(wave) === STAGES[STAGES.length - 1];
+}
+
 // L'arrivée de KORN assombrit le LIEU, quel qu'il soit — un secteur du voyage
 // comme une escale. C'est lui qui arrive, ce n'est pas le décor qui se remplace,
 // et il ne doit pas faire perdre au joueur l'endroit où il se bat.

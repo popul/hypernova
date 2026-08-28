@@ -27,6 +27,8 @@ import {
   GRAZE,
   OVERDRIVE,
   MINE,
+  WAVES,
+  bossPourVague,
   PICKUPS,
   PLAYER,
   PRECISION,
@@ -35,7 +37,13 @@ import {
   STORAGE_KEYS,
 } from './constants.js';
 import { Jump } from './jump.js';
-import { biomeForWave, durcisPourBoss, stageForWave, STAGES } from './space/biomes.js';
+import {
+  biomeForWave,
+  durcisPourBoss,
+  stageForWave,
+  estDernierSecteur,
+  STAGES,
+} from './space/biomes.js';
 import { A_UNE_ESCALE, escalePourSecteur } from './space/escales.js';
 import { SoutienAerien } from './soutien.js';
 import { ArriveeEscale } from './escale-arrivee.js';
@@ -3389,8 +3397,20 @@ export class Game {
       // vague, à l'ennemi près. On rejouait donc quatre vagues en double sur les
       // quatorze premières, ce qui est exactement ce que la pente cherchait à
       // éviter.
+      // QUI ATTEND AU BOUT DE CETTE VAGUE.
+      //
+      // On passe le VRAI numéro de vague, pas la difficulté aplatie : c'est le
+      // voyage qui décide, et le voyage se compte en vagues. En survie, KORN
+      // garde la toute dernière — c'est la seule ligne d'arrivée du mode.
+      const fin = survie ? n >= SURVIE.vagues : estDernierSecteur(n);
+      // Le RANG de la rencontre, pas le numéro de vague : en arcade, c'est la
+      // difficulté qui déclenche le combat, donc c'est elle qui les numérote.
+      const rang = survie
+        ? Math.round(n / SURVIE.bossTousLes)
+        : Math.round(nDiff / WAVES.bossEvery);
       def = makeWave(nDiff, {
         seed: graine,
+        boss: bossPourVague({ rang, dernierSecteur: fin }),
         forceBoss: boss === true ? true : undefined,
         noBoss: boss === false ? true : undefined,
       });
@@ -3877,14 +3897,22 @@ export class Game {
   // Le boss change d'acte. Tout ce qui se VOIT part d'ici : la coque qui se
   // dégrade, le secteur qui se durcit, la barre qui change de tronçon. Le combat
   // n'a que trois moments à raconter, ils doivent s'entendre et se voir.
-  onBossPhase(phase) {
+  onBossPhase(phase, { annonce = true } = {}) {
     this.hud.setBossPhase?.(phase);
     this.stage?.space?.setBossPhase?.(phase);
     const boss = this.enemies.boss;
     if (boss) Ships.setBossPhase?.(boss.group, phase);
     if (phase <= 1) return;
-    const ph = BOSS_PHASES[phase - 1];
-    this.hud.announce(ph?.nom || '', ph?.dit || '', 2200, true);
+    // LA TABLE D'ACTES DU BOSS QUI EST LÀ, pas celle de KORN.
+    //
+    // Elle lisait BOSS_PHASES en dur : au deuxième acte de l'ombre d'ORION, le
+    // jeu annonçait « MEUTE — Il ne patrouille plus, il bondit », c'est-à-dire le
+    // nom et la phrase d'un boss qui n'était pas à l'écran. Vérifié en jouant.
+    const ph = (boss?.fiche?.phases || BOSS_PHASES)[phase - 1];
+    // Pendant une transformation, la phrase a déjà été dite — c'est le CRI, et il
+    // doit rester à l'écran pendant la déflagration. Le nom de l'acte, lui, est
+    // sur la barre de vie : le répéter par-dessus effacerait le cri.
+    if (annonce) this.hud.announce(ph?.nom || '', ph?.dit || '', 2200, true);
     this.audio.bossAlarm();
     this.fx.shockwave(boss ? boss.group.position : this.player.position, 0xff4757, 9);
     this.fx.addShake(0.6);

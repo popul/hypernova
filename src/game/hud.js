@@ -36,7 +36,7 @@ export class Hud {
         <div class="energy-label" id="energy-label">X</div>
       </div>
       <div class="boss-bar" id="boss-bar">
-        <div class="boss-label">KORN — Dévoreur de Mondes<span class="boss-acte" id="boss-acte"></span></div>
+        <div class="boss-label"><span id="boss-nom">KORN — Dévoreur de Mondes</span><span class="boss-acte" id="boss-acte"></span></div>
         <div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div>
       </div>
       <div class="announce" id="announce"></div>
@@ -52,6 +52,7 @@ export class Hud {
     this.el = Object.fromEntries(
       [
         'btn-call-touch',
+        'boss-nom',
         'hud-score',
         'hud-hiscore',
         'hud-wave',
@@ -160,8 +161,13 @@ export class Hud {
     this.root.classList.toggle('overdrive', active);
   }
 
-  showBossBar() {
+  // LE NOM N'EST PLUS ÉCRIT DANS LE GABARIT. Il l'était, et c'était juste tant
+  // que KORN était le seul boss du jeu. Depuis qu'on affronte des ombres, une
+  // barre qui annonce « KORN » au-dessus de l'ombre d'HÉLIOS ment au joueur au
+  // pire moment — celui où il essaie de comprendre à quoi il a affaire.
+  showBossBar(nom = 'KORN', sous = 'Dévoreur de Mondes') {
     this.el['boss-bar'].classList.add('visible');
+    if (this.el['boss-nom']) this.el['boss-nom'].textContent = sous ? `${nom} — ${sous}` : nom;
     this.setBossHp(1);
     this.setBossPhase(1);
   }

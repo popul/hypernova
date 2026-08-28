@@ -166,6 +166,10 @@ export function makeWave(n, opts = {}) {
   if (isBossWave) {
     spawns.push({
       type: 'boss',
+      // QUI ARRIVE. L'appelant le sait — lui seul connaît le secteur traversé et
+      // donc si c'est la fin du voyage. À défaut, KORN, ce qui garde le
+      // comportement d'avant pour tout ce qui appelle makeWave sans le dire.
+      boss: opts.boss || 'korn',
       row: -1,
       col: 0,
       cols,
