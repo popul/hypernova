@@ -649,7 +649,12 @@ export class Game {
   // maximum sortent du tirage. La montée en puissance s'arrête donc d'elle-même
   // quand il n'y a plus rien à gagner — aucun compteur n'a besoin de le décider.
   _tireModule() {
-    const dispo = UPGRADES.filter((u) => (this.levels[u.id] || 0) < u.maxLevel);
+    // Même filtre qu'en boutique : un module qui ne sert pas à la coque pilotée ne
+    // doit pas non plus TOMBER en survie, où il n'y a pas de boutique pour le
+    // refuser — le joueur le ramasserait sans pouvoir dire non.
+    const dispo = UPGRADES.filter(
+      (u) => (this.levels[u.id] || 0) < u.maxLevel && (!u.coques || u.coques.includes(this.coque))
+    );
     // Plus rien à améliorer : place aux surcharges, tant qu'il en reste à prendre.
     if (!dispo.length) return this.surcharge < SURVIE.surchargeMax ? 'surcharge' : null;
     let total = 0;
@@ -3866,7 +3871,15 @@ export class Game {
   }
 
   _shopState() {
-    return { credits: this.credits, levels: this.levels, wave: this.wave + 1, lives: this.lives };
+    return {
+      credits: this.credits,
+      levels: this.levels,
+      wave: this.wave + 1,
+      lives: this.lives,
+      // La coque pilotée : c'est elle qui décide si un module propre à une coque
+      // a le droit d'être proposé.
+      coque: this.coque,
+    };
   }
 
   buy(id) {

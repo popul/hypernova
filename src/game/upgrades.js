@@ -100,6 +100,23 @@ export const UPGRADES = [
     desc: 'Pendant l’Overdrive seulement : vos tirs frappent plus fort, et changent de couleur à chaque niveau. Vaut pour les trois coques.',
   },
   {
+    id: 'cone',
+    name: 'Lentille divergente',
+    icon: '◁',
+    // PROPRE À HÉLIOS, et c'est le premier module du jeu à l'être.
+    //
+    // Les autres valent pour les trois coques, quitte à s'y traduire
+    // différemment — trois canons ne font pas trois rayons, ils font un rayon
+    // large. Celui-ci ne se traduit pas : ORION et VULCAIN n'ont pas de rayon à
+    // évaser. Le proposer partout, ce serait vendre une décoration à deux coques
+    // sur trois, et un joueur ne découvre ce genre de chose qu'après avoir payé.
+    coques: ['helios'],
+    maxLevel: 3,
+    basePrice: 130,
+    priceMul: 1.75,
+    desc: 'HÉLIOS : le rayon s’ouvre en cône et couvre plus loin qu’il n’est large. En échange, il monte en puissance plus lentement.',
+  },
+  {
     id: 'hull',
     name: 'Coque renforcée',
     icon: '♥',

@@ -46,6 +46,26 @@ const MONTEE_DUREE = [2.0, 2.6, 3.2];
 // CHAUFFE, qui remplit la jauge et ouvre l'Overdrive.
 const MONTEE_MAX = 1.8; // ×1 au contact, ×1,8 une fois chargé
 
+// LA LENTILLE DIVERGENTE — le rayon s'ouvre en cône.
+//
+// L'ÉVASEMENT EST ABSOLU, PAS PROPORTIONNEL, et c'est ce qui le garde honnête.
+// Multiplier la demi-largeur aurait composé avec les canons : à canons pleins, le
+// niveau 3 aurait sextuplé la couverture et la coque serait devenue la meilleure
+// partout, ce qui est exactement la chose qu'on ne veut pas. On AJOUTE donc un
+// nombre d'unités au loin, le même pour tout le monde.
+//
+// Et l'évasement ne se gagne qu'au LOIN. Au ras du nez, le rayon garde sa
+// largeur : le cône ne sert donc à rien contre un plongeur qui arrive dessus, et
+// tout contre une formation qui tient sa ligne. C'est une arme de COUVERTURE, pas
+// de puissance — la distinction est le cœur du réglage.
+const CONE_EVASEMENT = [0, 0.45, 0.9, 1.35];
+
+// Ce qu'il coûte : la montée ralentit, exactement comme un rayon large paie déjà
+// sa largeur (voir MONTEE_DUREE). Sans ce prix, élargir n'aurait aucun
+// inconvénient et le choix disparaîtrait — c'est le même raisonnement, appliqué
+// au même endroit.
+const CONE_LENTEUR = [1, 1.14, 1.28, 1.42];
+
 // LA SURCHAUFFE. Une arme dont la jauge s'appelle « chauffe » doit pouvoir trop
 // chauffer, sans quoi le mot ne veut rien dire — et la mesure a montré qu'il ne
 // voulait rien dire : sur une cible qui ne se dérobe pas, le rayon tenait 10,8
@@ -173,7 +193,26 @@ export class ArmeHelios {
     // trois opacités décroissantes font le dégradé qu'une texture aurait fait.
     // L'unité est en Y pour un cylindre : chaque tube est couché sur Z une fois
     // pour toutes, et c'est l'échelle qui donne rayon et longueur.
-    const tube = new THREE.CylinderGeometry(1, 1, 1, 16, 1, true);
+    // UN TRONC DE CÔNE PAR COMBINAISON CANONS × LENTILLE, bâti une fois pour
+    // toutes — douze géométries, et plus une seule allocation ensuite.
+    //
+    // Le cylindre était déjà là : lui donner deux rayons différents suffit à en
+    // faire un cône. L'axe du cylindre est Y et le tube est couché sur Z, donc +Y
+    // devient le NEZ (près du vaisseau) et -Y le LOIN : c'est le rayon du bas qui
+    // s'ouvre.
+    //
+    // POURQUOI DOUZE ET PAS QUATRE. L'évasement est absolu — un nombre d'unités
+    // ajoutées au loin — tandis que la géométrie ne connaît qu'un RAPPORT. Le
+    // rapport dépend donc de la largeur de base, c'est-à-dire des canons. Bâtir
+    // quatre cônes fixes aurait fait mentir le dessin sur la portée réelle du
+    // rayon : on aurait brûlé des ennemis en dehors du trait, ou l'inverse. Ce
+    // qu'on voit et ce qu'on touche doivent rester la même chose.
+    this.tubes = DEMI_LARGEUR.map((base) =>
+      CONE_EVASEMENT.map(
+        (evase) => new THREE.CylinderGeometry(1, (base + evase) / base, 1, 16, 1, true)
+      )
+    );
+    const tube = this.tubes[0][0];
     const coucher = (m) => {
       m.rotation.x = Math.PI / 2;
       return m;
@@ -325,7 +364,11 @@ export class ArmeHelios {
     const stats = game.stats || {};
     const niveauCanons = Math.max(0, Math.min(DEMI_LARGEUR.length - 1, levels.cannons | 0));
     const demi = DEMI_LARGEUR[niveauCanons];
-    const duree = MONTEE_DUREE[niveauCanons];
+    const niveauCone = Math.max(0, Math.min(CONE_EVASEMENT.length - 1, levels.cone | 0));
+    const evase = CONE_EVASEMENT[niveauCone];
+    // Le cône se paie sur la montée : un rayon qui couvre plus met plus de temps
+    // à saturer. C'est le seul prix, et il suffit à en faire un choix.
+    const duree = MONTEE_DUREE[niveauCanons] * CONE_LENTEUR[niveauCone];
 
     // Le rayon suit la commande de tir — automatique par défaut, donc allumé en
     // permanence comme la fiche l'exige. Celui qui coupe l'auto-tir garde malgré
@@ -355,7 +398,7 @@ export class ArmeHelios {
       const orbes = 1 + 0.16 * (levels.missiles | 0);
       const fureur = game.odTimer > 0 ? 1 + 0.5 * (FUREUR.degats[game.levels?.fureur | 0] || 0) : 1;
       const dps = DPS_BASE * this._ratioCadence(stats) * this._montee(duree) * orbes * fureur;
-      this._brule(dt, game, p.x, nezZ, demi, dps);
+      this._brule(dt, game, p.x, nezZ, demi, dps, evase);
       // La cible tenue est celle qui est la PLUS PROCHE du vaisseau : celle qu'on
       // va tuer, donc celle dont la mort remettra tout à zéro. Le piège de la
       // coque est là, et il doit être exactement là.
@@ -431,7 +474,9 @@ export class ArmeHelios {
 
     this._satellites(dt, game, p, levels, stats);
     this._eclats(dt, game);
-    this._rendu(dt, game, p, nezZ, demi, duree, actif);
+    // Le cône du moment. C'est la seule géométrie qui change en cours de partie,
+    // et elle ne change qu'à l'achat d'un module — donc jamais pendant une vague.
+    this._rendu(dt, game, p, nezZ, demi, duree, actif, this.tubes[niveauCanons][niveauCone], evase);
     this._son(dt, game, p, actif, duree);
   }
 
@@ -460,7 +505,20 @@ export class ArmeHelios {
 
   // Applique les dégâts à tout ce qui traverse la colonne, et retient au passage
   // la cible la plus avancée — celle dont dépend la montée en puissance.
-  _brule(dt, game, bx, nezZ, demi, dps) {
+  // LA DEMI-LARGEUR À UNE PROFONDEUR DONNÉE.
+  //
+  // Sans lentille, c'est une constante et le rayon est une colonne. Avec, elle
+  // croît linéairement du nez jusqu'à la portée : le cône ne gagne sa largeur
+  // qu'au loin, donc il ne protège de rien à bout portant. C'est la seule
+  // fonction qui décide qui est touché — et c'est aussi elle qui décide de ce
+  // qu'on DESSINE, pour que les deux ne puissent pas diverger.
+  _demiA(z, nezZ, demi, evase) {
+    if (!evase) return demi;
+    const u = Math.max(0, Math.min(1, (nezZ - z) / Math.max(0.001, nezZ - PORTEE_Z)));
+    return demi + evase * u;
+  }
+
+  _brule(dt, game, bx, nezZ, demi, dps, evase = 0) {
     const enemies = game.enemies.list;
     let n = 0;
     let meilleure = null;
@@ -471,7 +529,7 @@ export class ArmeHelios {
       const pos = e.group.position;
       if (pos.z > nezZ || pos.z < PORTEE_Z) continue;
       const r = e.def.radius;
-      if (Math.abs(this._ecartX(pos.x, bx)) > demi + r) continue;
+      if (Math.abs(this._ecartX(pos.x, bx)) > this._demiA(pos.z, nezZ, demi, evase) + r) continue;
       // Les ennemis flottent à quelques dixièmes du plan : la tranche est large
       // pour que ce test n'écarte jamais personne par accident. Mais il existe —
       // le jour où quelque chose volera plus haut, le rayon le laissera passer.
@@ -616,7 +674,7 @@ export class ArmeHelios {
 
   // --- Rendu ---
 
-  _rendu(dt, game, p, nezZ, demi, duree, actif) {
+  _rendu(dt, game, p, nezZ, demi, duree, actif, tube, evase = 0) {
     if (!actif) {
       this.trait.groupe.visible = false;
       this.couture.groupe.visible = false;
@@ -661,7 +719,7 @@ export class ArmeHelios {
     if (ARENA.wrap && ARENA.playerXMax - Math.abs(p.x) < ARENA.wrapGhostZone) {
       const span = ARENA.playerXMax * 2;
       const x = p.x > 0 ? p.x - span : p.x + span;
-      this._poseTrait(this.couture, x, milieu, largeur, longueur, charge, bat);
+      this._poseTrait(this.couture, x, milieu, largeur, longueur, charge, bat, tube);
       this.couture.groupe.visible = true;
     } else {
       this.couture.groupe.visible = false;
@@ -743,7 +801,7 @@ export class ArmeHelios {
     this.nezCouronne.scale.set(ouvre * (1.2 + charge * 0.5), ouvre * (1.2 + charge * 0.5), ouvre);
     this.matNez.opacity = 0.6 + charge * 0.3;
 
-    this._impacts(dt, game, p.x, nezZ, demi, charge);
+    this._impacts(dt, game, p.x, nezZ, demi, charge, evase);
 
     // Un tremblement continu, proportionnel à la charge. Il ne doit jamais gêner
     // la lecture : c'est un ronronnement, pas un impact.
@@ -753,8 +811,15 @@ export class ArmeHelios {
   // Les tubes sont couchés : leur Y local est la LONGUEUR, leur X et leur Z les
   // deux demi-axes de la section. Elle est volontairement aplatie — le jeu se voit
   // de haut, un rayon rond y perdrait toute sa largeur.
-  _poseTrait(trait, x, milieu, largeur, longueur, charge, bat) {
+  _poseTrait(trait, x, milieu, largeur, longueur, charge, bat, tube) {
     trait.groupe.position.set(x, 0, milieu);
+    // Les trois couches partagent le même tronc de cône : elles doivent s'évaser
+    // ensemble, sinon le halo déborde du cœur d'un côté et pas de l'autre.
+    if (tube && trait.coeur.geometry !== tube) {
+      trait.coeur.geometry = tube;
+      trait.halo.geometry = tube;
+      trait.aura.geometry = tube;
+    }
     const k = largeur / 2;
     trait.coeur.scale.set(k * 0.3 * (1 + bat * 0.12), longueur, 0.18 + charge * 0.1);
     trait.halo.scale.set(k * 0.85 * (1 + bat * 0.05), longueur, 0.4 + charge * 0.25);
@@ -767,7 +832,7 @@ export class ArmeHelios {
     this.matCoeur.opacity = 0.75 + charge * 0.25;
   }
 
-  _impacts(dt, game, bx, nezZ, demi, charge) {
+  _impacts(dt, game, bx, nezZ, demi, charge, evase = 0) {
     const enemies = game.enemies.list;
     let n = 0;
     for (const e of enemies) {
@@ -776,7 +841,10 @@ export class ArmeHelios {
       const pos = e.group.position;
       if (pos.z > nezZ || pos.z < PORTEE_Z) continue;
       const r = e.def.radius;
-      if (Math.abs(this._ecartX(pos.x, bx)) > demi + r) continue;
+      // MÊME TEST QUE LA BRÛLURE, sans quoi les marqueurs d'impact s'arrêteraient
+      // au bord de la colonne pendant que le cône continuerait de brûler plus
+      // loin. Le joueur croirait alors rater ce qu'il touche.
+      if (Math.abs(this._ecartX(pos.x, bx)) > this._demiA(pos.z, nezZ, demi, evase) + r) continue;
       if (Math.abs(pos.y) > 1.4 + r) continue;
       const g = this.impacts[n++];
       g.visible = true;
