@@ -208,6 +208,92 @@ function basVisible(camera) {
   return (1 - _coin.y) / 2 < 1 - MARGE_BAS;
 }
 
+// ------------------------------------------------ LE DÉCENTREMENT DU PORTRAIT
+//
+// L'AIRE DE JEU ÉTAIT TROP HAUTE, ET C'EST LA MÊME MESURE QUE LE VIDE EN BAS.
+//
+// Mesuré sur un iPhone tenu droit (430 × 932) : les quatorze unités de profondeur
+// jouable tenaient dans douze centièmes de la hauteur d'écran, contre trente-six
+// en paysage. Trois fois moins. Le vaisseau se retrouvait à soixante-trois pour
+// cent de la hauteur, et les trente-six pour cent en dessous ne montraient RIEN :
+// le bas du cadre ne rencontre le plan de jeu qu'à z = 35,4, alors que la balle
+// la plus lente est effacée à 26, les modules à 19, les gemmes à 18.
+//
+// DEUX CORRECTIONS ÉVIDENTES SONT MORTES AVANT D'ÊTRE ÉCRITES. Baisser le
+// plafond de champ : la boucle ci-dessous recule d'exactement ce que le champ a
+// repris, et la bande reste à douze centièmes (mesuré de 50° à 76° : 11,7 % à
+// 12,3 %). Baisser le plafond de recul : idem, 11,8 % à 12,1 % entre 1,0 et 3,0.
+// La raison est unique — dès que `bordGauche` est la contrainte active, elle
+// ÉPINGLE la largeur de monde vue au plan du joueur à trente-deux unités, donc le
+// champ vertical par le rapport d'image, donc la bande. Champ et distance sont
+// deux commandes qui s'annulent.
+//
+// Ce qui reste est ce que fait un objectif à décentrement : ON NE BASCULE PAS
+// L'OBJECTIF, ON LE MONTE. L'œil glisse dans le PLAN DE L'IMAGE, perpendiculaire
+// à son propre regard. Rien de ce qui décide d'un cadrage ne bouge : ni le champ,
+// ni la direction de visée, ni la profondeur vue d'un seul point du monde. Il
+// s'ensuit que l'abscisse à l'écran de tout objet est conservée AU BIT PRÈS — donc
+// `bordGauche` aussi, donc la couture reste atteignable — et que la brume, la
+// taille des particules et les tables de niveau de détail, qui se lisent toutes
+// sur la profondeur de vue, ne s'aperçoivent de rien. Seule l'ordonnée change, et
+// d'autant plus vite que le point est proche : l'aire de jeu redescend dans le
+// cadre EN SE DILATANT. Mesuré : la profondeur, écrasée à 0,73 fois l'échelle
+// latérale, remonte à 0,90 — le paysage est à 0,89.
+//
+// OÙ S'ARRÊTER : LES CIBLES TACTILES, ET ELLES SE COMPTENT EN PIXELS. Le bas de
+// l'écran d'un téléphone n'est pas libre. Le bouton ◉ appel est posé à
+// `max(20px, safe-area-bottom) + 76` et fait 62 de haut (style.css:2704-2709), et
+// `input.js:76` refuse de piloter quand le doigt se pose sur un `button` :
+// descendre l'aire de jeu dessus, ce serait la rendre injouable au pouce. Ce
+// butoir ne se dit pas en pourcentage, parce qu'il ne change pas de taille avec
+// l'écran — une consigne en centièmes donne deux fois plus de garde sur un grand
+// téléphone que sur un petit, pour un bouton qui réclame le même compte partout.
+//
+// CE QUE LA RÉSERVE NE COUVRE PAS, ET IL FAUT LE DIRE. Elle borne les CIBLES
+// TACTILES, pas la colonne visible. La jauge ✦ énergie monte bien plus haut :
+// ancrée à `+150 px` avec une piste de 112 (style.css:232 et 245), son sommet est
+// vers 298 px. L'aire de jeu descend donc désormais derrière elle. C'est assumé et
+// non subi : la réserve qui la couvrirait vraiment vaudrait 298, et à 298 la bande
+// jouable retombe à 12,3 % et le vaisseau à 64,5 % — c'est-à-dire exactement
+// l'état d'avant correction. Le recouvrement se règle du côté de l'interface, en
+// allégeant ou en déplaçant la jauge, jamais en remontant ce nombre. Le doigt, lui,
+// passe au travers : `#hud` est en `pointer-events: none` (style.css:77) et la
+// jauge ne réactive pas le pointeur — elle ne vole pas le pilotage.
+//
+// Et ce qu'on descend jusque-là, c'est ce que le paysage montre déjà tout en bas
+// de son écran : la coque ENTIÈRE du vaisseau à sa position la plus reculée,
+// z = playerZMax + playerZMargin, cette marge étant documentée « longueur de
+// coque + confort ». Le portrait finit par montrer la même chose que le paysage,
+// simplement posé au-dessus de l'interface au lieu du bord de l'écran.
+// Sommet du bouton ◉ appel : max(20, safe-area-bottom) + 76 + 62, soit 158 px sur
+// un écran sans encoche et 172 px sur un iPhone qui en a une. On pose la réserve
+// ENTRE les deux plutôt que sur le pire cas : à 172 on paierait quatorze pixels de
+// bande sur tous les téléphones pour un chevauchement de coque de quatre pixels sur
+// certains. C'est un arbitrage, pas une dérivation — d'où le nombre écrit en clair.
+const COLONNE_ACTION = 168;
+const _axe = new THREE.Vector3();
+
+// De combien l'œil doit-il monter dans le plan de l'image ? La relation est
+// EXACTE — pas de boucle, pas de quantum : un point vu à la profondeur d descend
+// de m / (2·d·tan(champ/2)) de hauteur d'écran quand l'œil monte de m.
+//
+// Zéro dès que le rapport d'image atteint 0,8 — le seuil que `fitCamera` emploie
+// déjà pour son serrage de départ. Le paysage n'est donc pas « peu touché » : pas
+// une opération n'est exécutée pour lui. Zéro aussi si la coque tombe déjà assez
+// bas, pour qu'un écran déjà généreux ne soit jamais RETASSÉ pour rentrer dans la
+// consigne.
+export function monteePortrait(camera, aspect, hauteurEcran) {
+  if (aspect >= 0.8) return 0;
+  const voulu = 1 - COLONNE_ACTION / hauteurEcran;
+  const zCoque = ARENA.playerZMax + ARENA.playerZMargin;
+  _coin.set(0, 0, zCoque).project(camera);
+  const bas = (1 - _coin.y) / 2;
+  if (bas >= voulu) return 0;
+  camera.getWorldDirection(_axe);
+  const d = _coin.set(0, 0, zCoque).sub(camera.position).dot(_axe);
+  return 2 * (voulu - bas) * d * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+}
+
 export function ajusteCadrage(camera, pose, serrageDepart = 1) {
   let serrage = serrageDepart;
   pose(serrage);

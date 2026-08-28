@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Input, isTouchDevice } from './core/input.js';
 import { AudioEngine } from './core/audio.js';
 import { Space } from './game/space/index.js';
-import { ArenaEdges, ajusteCadrage } from './game/arena.js';
+import { ArenaEdges, ajusteCadrage, monteePortrait } from './game/arena.js';
 import { ecoute as ecouteJournal } from './core/journal.js';
 import { Fx } from './game/fx.js';
 import { Game } from './game/game.js';
@@ -42,6 +42,21 @@ const camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerH
 const CAMERA_HOME = new THREE.Vector3(0, 21, 27);
 const CAMERA_TARGET = new THREE.Vector3(0, 0, -3);
 const CAMERA_BASE = CAMERA_HOME.clone();
+// LE DÉCENTREMENT DU PORTRAIT (voir arena.js). Trois choses, et pas une de plus.
+//
+// `MONTEE` est ce dont l'œil monte DANS LE PLAN DE L'IMAGE. On l'applique en
+// dernier, APRÈS le `lookAt` du suivi latéral, et jamais en déplaçant
+// CAMERA_BASE : celui-ci reste le pivot du lacet, et c'est ce qui garantit que
+// l'abscisse des bords d'arène ne bouge pas d'un bit quand on colle à la couture.
+// L'ordre inverse — monter la base puis lacer autour d'elle — coûtait six
+// millièmes d'écran sur le bord OPPOSÉ, celui où le fantôme de bouclage ressort.
+//
+// CAMERA_POSE et CAMERA_LOOK sont la pose de repos RÉELLEMENT tenue, décentrement
+// compris. Ce sont elles qu'on donne à la cinématique : son raccord final plie
+// dessus, et plier sur la pose non décentrée ferait sauter l'image à la coupe.
+let MONTEE = 0;
+const CAMERA_POSE = CAMERA_HOME.clone();
+const CAMERA_LOOK = CAMERA_TARGET.clone();
 
 // En portrait (mobile), l'aire de jeu (±14.5 en x) sortirait du champ : on élargit le FOV
 // et on recule la caméra le long de son axe pour garder toute la formation visible.
@@ -74,6 +89,14 @@ function fitCamera() {
   // là où les bords de l'arène cessent d'être visibles — et c'est cette borne-là
   // qui, en portrait, oblige à relâcher le serrage. Voir ajusteCadrage.
   ajusteCadrage(camera, pose, aspect < 0.8 ? 0.75 : 1);
+  // ON NE BASCULE PAS L'OBJECTIF, ON LE MONTE. Le cadrage que la boucle vient
+  // d'arrêter — champ, recul, bord d'arène — est conservé au bit près ; seule
+  // l'aire de jeu redescend dans le cadre en se dilatant. Voir arena.js.
+  MONTEE = monteePortrait(camera, aspect, window.innerHeight);
+  camera.translateY(MONTEE); // l'axe LOCAL de la caméra : perpendiculaire au regard
+  camera.updateMatrixWorld(true);
+  CAMERA_POSE.copy(camera.position);
+  CAMERA_LOOK.copy(CAMERA_TARGET).add(CAMERA_POSE).sub(CAMERA_BASE);
   arenaEdges?.setZone();
   // Le décor lointain se recalibre sur le champ HORIZONTAL réel : c'est lui, et
   // pas le champ vertical, qui décide de la taille apparente d'une planète.
@@ -140,8 +163,8 @@ const game = new Game({
     setQuality: setCinematicQuality,
     space, // le ciel : le jeu lui demande de changer de secteur à chaque saut
     fitCamera,
-    cameraHome: CAMERA_BASE,
-    cameraTarget: CAMERA_TARGET,
+    cameraHome: CAMERA_POSE,
+    cameraTarget: CAMERA_LOOK,
   },
   hudRoot: document.getElementById('hud'),
   overlayRoot: document.getElementById('overlay'),
@@ -247,6 +270,7 @@ function frame() {
       CAMERA_BASE.z + fx.shakeOffset.z
     );
     camera.lookAt(CAMERA_TARGET.x + followX * 0.5, CAMERA_TARGET.y, CAMERA_TARGET.z);
+    camera.translateY(MONTEE); // le décentrement du portrait, APRÈS le lacet du suivi
   }
 
   composer.render();
