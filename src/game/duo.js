@@ -59,6 +59,9 @@ export class Duo {
     // efface qu'après les avoir consommées : un paquet en avance doit pouvoir
     // attendre son tour.
     this.recues = new Map();
+    // Le pair d'un pas verrouillé SANS salon : renseigné quand un copain qui
+    // regardait se met à jouer. Voir `publie`.
+    this.direct = null;
     this.frame = 0;
     this.reste = 0;
     this.attentes = 0; // images passées à attendre l'autre, pour le diagnostic
@@ -250,14 +253,53 @@ export class Duo {
   // premières images vides, des deux côtés : c'est le seul instant du protocole
   // où l'on envoie quelque chose qu'on n'a pas joué.
   amorce(neutre) {
-    for (let f = 0; f < DELAI; f++) this._envoie({ t: 'c', f, d: neutre });
+    // L'AMORÇAGE EMPRUNTE LE MÊME TUYAU QUE LE RESTE, et il faut y penser : il
+    // partait toujours par le salon. En pas verrouillé DIRECT il n'y a pas de
+    // salon, donc les quatre premières images ne sont jamais arrivées — chacun
+    // attendait de l'autre une commande pour l'image zéro, et les deux
+    // s'arrêtaient là. Mesuré sur le banc : cent soixante-dix-neuf attentes de
+    // chaque côté, image zéro, plus rien qui avance.
+    for (let f = 0; f < DELAI; f++) {
+      if (this.direct) this.signale(this.direct, 'c', { f, d: neutre });
+      else this._envoie({ t: 'c', f, d: neutre });
+    }
   }
 
   // Ce qu'on envoie pour l'image `frame + DELAI`. `encode` transforme la commande
   // du jeu en tableau de nombres — c'est le seul endroit qui sait à quoi elle
   // ressemble, et le serveur, lui, ne le sait pas du tout.
   publie(donnees) {
+    // DEUX TRANSPORTS POUR LE MÊME PAS VERROUILLÉ.
+    //
+    // Une partie à deux montée depuis le hall passe par un SALON : le serveur
+    // relaie les commandes entre les deux membres. Mais on peut aussi devenir
+    // deux en cours de route — un copain qui regardait demande à jouer — et il
+    // n'y a alors pas de salon, seulement le canal des amis, déjà ouvert et déjà
+    // en train de porter la partie image par image.
+    //
+    // Plutôt que d'ouvrir un salon au milieu d'une vague, on fait passer les
+    // commandes par ce canal-là. Toute la discipline du pas verrouillé — le
+    // délai, l'attente, le rattrapage — ne change pas d'une ligne : seul le
+    // tuyau change.
+    if (this.direct) return this.signale(this.direct, 'c', { f: this.frame + DELAI, d: donnees });
     this._envoie({ t: 'c', f: this.frame + DELAI, d: donnees });
+  }
+
+  // Bascule en pas verrouillé DIRECT avec un ami, sans salon. `moi` vaut 0 pour
+  // celui qui hébergeait la partie, 1 pour celui qui arrive.
+  ouvreDirect(nom, moi) {
+    this.direct = nom;
+    this.moi = moi;
+    this.etat = 'partie';
+    this.frame = 0;
+    this.reste = 0;
+    this.attentes = 0;
+    this.recues.clear();
+  }
+
+  fermeDirect() {
+    this.direct = null;
+    if (this.etat === 'partie' && !this.salonId) this.etat = 'hall';
   }
 
   // Y a-t-il de quoi calculer l'image courante ? En solo il n'y a rien à

@@ -2158,6 +2158,18 @@ export class Game {
       case 'regard-fin':
         this._regardeurs?.delete(de);
         return;
+      // ---- REJOINDRE UNE PARTIE EN COURS ----
+      case 'rejoindre':
+        return this._demandeDeRejoindre(de);
+      case 'rejoindre-oui':
+        return this._rejoindreAccepte(de);
+      case 'rejoindre-non':
+        this._ditRegard(`${de} préfère finir seul.`);
+        return this.hud.announce('Refusé', `${de} préfère finir sa partie seul`, 2400);
+      // Les commandes du pas verrouillé, quand on joue à deux SANS salon.
+      case 'c':
+        if (this.duo.direct === de) this.duo.recues.set(d.f, d.d);
+        return;
       case 'vue':
         if (this.spectateur?.de !== de) return;
         this._restaure(d);
@@ -2167,6 +2179,9 @@ export class Game {
         // La vague commence : on cesse d'annoncer une attente.
         this._ditRegard(`👁 Vous regardez ${de}`);
         // `_restaure` a rappelé `startWave`, qui repose l'état à « playing ».
+        // Et si l'on avait demandé à JOUER, c'est le moment : l'état qu'on vient
+        // de restaurer est exactement celui de l'hôte.
+        if (this._duoEnVol?.moi === 1) this._basculeEnDuo();
         return;
       case 'vc':
         // La file est bornée À LA RÉCEPTION aussi : pendant une pause, la boucle
@@ -2206,6 +2221,111 @@ export class Game {
   _ditAmis(texte) {
     const el = this.overlayRoot.querySelector('#amis-sous');
     if (el) el.textContent = texte;
+  }
+
+  // ---- REJOINDRE UNE PARTIE EN COURS -----------------------------------------
+  //
+  // LA BASCULE SE FAIT À LA FRONTIÈRE D'UNE VAGUE, ET NULLE PART AILLEURS.
+  //
+  // Passer une partie solo à deux au milieu d'un combat demanderait de transférer
+  // l'état en vol — la position de chaque ennemi, chaque balle, chaque gemme —
+  // c'est-à-dire le genre de chose qui casse en silence. Or il existe déjà un
+  // point de rendez-vous, éprouvé, où l'hôte envoie son état complet et où le
+  // spectateur le restaure : le début de chaque vague. C'est celui-là qu'on
+  // emprunte. Le copain attend donc au plus une vague, et la bascule ne coûte
+  // aucun code de transfert.
+  //
+  // Le pas verrouillé, lui, ne change pas d'une ligne : seul son tuyau change —
+  // le canal des amis au lieu d'un salon. Voir `duo.publie`.
+
+  // Chez celui qui regarde : on demande à jouer.
+  demandeARejoindre() {
+    const qui = this.spectateur?.de;
+    if (!qui) return;
+    this.duo.signale(qui, 'rejoindre', null);
+    this._ditRegard(`Demande envoyée à ${qui}…`);
+    this.hud.announce('Demande envoyée', `${qui} doit accepter`, 2200);
+  }
+
+  // Chez l'hôte : un spectateur veut prendre les commandes du second vaisseau.
+  // On ne l'accepte JAMAIS d'office — la partie est la sienne, et jouer à deux
+  // change tout : les ennemis durcissent, et le score ne va plus au même tableau.
+  _demandeDeRejoindre(qui) {
+    if (this.variante === 'duo') return this.duo.signale(qui, 'rejoindre-non', null);
+    const barre = document.createElement('div');
+    barre.className = 'voix-barre';
+    barre.innerHTML = `<span class="voix-nom">${esc(qui)} veut JOUER avec vous</span>`;
+    const b = (texte, classe, action) => {
+      const bt = document.createElement('button');
+      bt.className = classe;
+      bt.textContent = texte;
+      bt.addEventListener('click', () => {
+        barre.remove();
+        action();
+      });
+      barre.append(bt);
+      return bt;
+    };
+    b('Accepter', 'btn-ghost petit voix-oui', () => this._accepteRejoindre(qui));
+    b('Refuser', 'btn-ghost petit', () => this.duo.signale(qui, 'rejoindre-non', null));
+    this.overlayRoot.append(barre);
+    this.audio.bossAlarm?.();
+  }
+
+  _accepteRejoindre(qui) {
+    this.duo.signale(qui, 'rejoindre-oui', null);
+    // On note l'intention ; la bascule attend la prochaine vague.
+    this._duoEnVol = { qui, moi: 0 };
+    this.hud.announce('Renfort en approche', `${qui} entre au prochain tableau`, 2600);
+  }
+
+  // Chez celui qui regarde : c'est accepté. Même attente, même rendez-vous.
+  _rejoindreAccepte(qui) {
+    if (this.spectateur?.de !== qui) return;
+    this._duoEnVol = { qui, moi: 1 };
+    this._ditRegard(`${qui} a accepté — vous entrez au prochain tableau`);
+    this.hud.announce('Accepté', `Vous entrez au prochain tableau`, 2600);
+  }
+
+  // LE RENDEZ-VOUS. Appelé des deux côtés au début d'une vague, une fois l'état
+  // posé : à partir d'ici, les deux machines simulent la même chose et
+  // s'échangent leurs commandes.
+  _basculeEnDuo() {
+    const v = this._duoEnVol;
+    if (!v) return;
+    this._duoEnVol = null;
+
+    const moiNom = activePilot()?.name || 'MOI';
+    this.variante = 'duo';
+    this.duo.ouvreDirect(v.qui, v.moi);
+
+    if (v.moi === 1) {
+      // CELUI QUI ARRIVE hérite de l'état de l'hôte : le vaisseau qu'il vient de
+      // restaurer est celui de l'HÔTE, pas le sien. On le déplace donc au second
+      // bord, et l'on s'en fabrique un neuf.
+      this.spectateur = null;
+      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: this.coque });
+      this.joueur2.group.position.copy(this.player.position);
+      this.bord2.score = this.score;
+      this.bord2.lives = this.lives;
+      this.bord2.levels = { ...this.levels };
+      this.bord2.stats = computeStats(this.bord2.levels, this.surcharge);
+      // Le nouveau venu arrive nu, avec ses propres vies : il n'a rien acheté.
+      this.player.reset();
+      this.levels = emptyLevels();
+      this.stats = computeStats(this.levels, 0);
+      this.lives = PLAYER.baseLives;
+      this.score = 0;
+      this.player.rebuild(this._fiche());
+    } else {
+      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: this.coque });
+    }
+    this.duoMoi = v.moi;
+    // On ne regarde plus : on joue. Le bandeau du spectateur n'a plus lieu d'être.
+    document.getElementById('regard-barre')?.remove();
+    this.duo.amorce(commandeVersTableau(commandeVide()));
+    this.hud.announce('À DEUX', `${moiNom} & ${v.qui}`, 2600);
+    this.audio.comboUp?.(4);
   }
 
   // Chez l'hôte : quelqu'un veut regarder. On ne l'accepte JAMAIS d'office —
@@ -2288,6 +2408,19 @@ export class Game {
     barre.id = 'regard-barre';
     barre.className = 'voix-barre';
     barre.innerHTML = `<span class="voix-nom" id="regard-texte">👁 ${esc(qui)} — en attente de sa prochaine vague…</span>`;
+    // REGARDER DONNE ENVIE DE JOUER, et c'est le geste suivant le plus naturel :
+    // on regarde son copain se battre, et on veut y aller. Le bouton est donc là,
+    // à côté du nom, et pas caché dans un menu qu'il faudrait quitter la partie
+    // pour atteindre.
+    const rejoindre = document.createElement('button');
+    rejoindre.className = 'btn-ghost petit voix-oui';
+    rejoindre.id = 'regard-rejoindre';
+    rejoindre.textContent = 'Jouer avec lui';
+    rejoindre.addEventListener('click', () => {
+      rejoindre.disabled = true;
+      this.demandeARejoindre();
+    });
+    barre.append(rejoindre);
     const stop = document.createElement('button');
     stop.className = 'btn-ghost petit';
     stop.textContent = 'Arrêter';
@@ -3486,6 +3619,11 @@ export class Game {
       for (const qui of this._regardeurs) this.duo.signale(qui, 'vue', vue);
     }
     this.state = 'playing';
+    // LE RENDEZ-VOUS. L'instantané vient de partir : les deux machines ont
+    // exactement le même état, c'est donc ICI, et seulement ici, qu'une partie
+    // solo peut devenir une partie à deux. Chez l'hôte comme chez celui qui
+    // arrive, la bascule se fait juste après la pose de l'état.
+    if (this._duoEnVol?.moi === 0) this._basculeEnDuo();
     this.audio.setMode('play');
     this.waveEndTimer = 0;
     // Les premières secondes d'une vague : les ennemis entrent encore en formation,
@@ -4432,9 +4570,14 @@ export class Game {
     // l'image, quelques octets. Le spectateur possède déjà l'instantané de la
     // vague et la même graine ; il rejoue donc la partie chez lui, exactement
     // comme le fait le mode replay depuis des mois. C'est le même code.
+    // Celui qui a rejoint ne REGARDE plus : il joue, et il reçoit désormais les
+    // commandes par le pas verrouillé. Continuer à lui envoyer le flux du
+    // spectateur ferait avancer sa simulation deux fois.
     if (this._regardeurs?.size && !this.rejeu && !this.spectateur) {
       const c = commandeVersTableau(this.cmd);
-      for (const qui of this._regardeurs) this.duo.signale(qui, 'vc', c);
+      for (const qui of this._regardeurs) {
+        if (qui !== this.duo.direct) this.duo.signale(qui, 'vc', c);
+      }
     }
     if (this.cmd.ev) this._executeEvenement(this.cmd.ev);
 
