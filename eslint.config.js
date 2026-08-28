@@ -53,6 +53,20 @@ export default [
       eqeqeq: ['error', 'smart'],
       'prefer-const': 'error',
       'no-var': 'error',
+      // UNE VARIABLE QUI MASQUE LA FONCTION QU'ELLE APPELLE.
+      //
+      // `const cible = clamp(cible(game).position.x, …)` : la déclaration masque
+      // la fonction `cible()` dans tout le bloc, y compris dans sa propre
+      // initialisation, ce que JavaScript refuse à l'exécution. Ça a figé le jeu
+      // au troisième acte du boss pendant deux versions, sur une ligne que
+      // personne ne relit parce qu'elle a l'air juste. La règle est ici pour que
+      // ça ne se rejoue pas — c'est le genre d'erreur qu'une machine voit
+      // toujours et qu'un œil ne voit jamais.
+      // `no-use-before-define` attraperait aussi le cas, mais il signale sept
+      // fermetures parfaitement saines — une `const` déclarée deux lignes plus
+      // bas et appelée seulement au clavier. C'est le MASQUAGE qui est en cause,
+      // et c'est lui qu'on interdit.
+      'no-shadow': 'error',
     },
   },
   // La configuration de Vite tourne sous Node, pas dans le navigateur.

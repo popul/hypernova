@@ -1241,7 +1241,7 @@ export function createModule(id) {
 // chaque balle frôlée pour enseigner la mécanique sans un mot.
 export function createGrazeAura() {
   const geo = new THREE.RingGeometry(GRAZE.radius - 0.12, GRAZE.radius + 0.06, 40);
-  const mat = new THREE.MeshBasicMaterial({
+  const matiere = new THREE.MeshBasicMaterial({
     color: 0x8ffbff,
     transparent: true,
     opacity: 0.1,
@@ -1249,7 +1249,7 @@ export function createGrazeAura() {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
-  const ring = new THREE.Mesh(geo, mat);
+  const ring = new THREE.Mesh(geo, matiere);
   ring.name = 'grazeAura';
   ring.rotation.x = -Math.PI / 2;
   return ring;

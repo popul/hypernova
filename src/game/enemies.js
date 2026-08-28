@@ -649,11 +649,18 @@ export class Enemies {
 
     // TRAQUE. Il descend et suit le joueur en x, sans jamais l'atteindre tout à
     // fait — le retard est ce qui laisse une chance de le semer.
-    const cible = THREE.MathUtils.clamp(cible(game).position.x, -8.5, 8.5);
-    p.x += (cible - p.x) * Math.min(1, 1.35 * ph.vitesse * dt);
+    //
+    // LA VARIABLE NE PEUT PAS S'APPELER `cible`. Elle s'appelait ainsi, et elle
+    // masquait la FONCTION `cible()` d'en haut dans tout le bloc — y compris dans
+    // sa propre initialisation, ce que JavaScript refuse. Résultat : une
+    // ReferenceError à la première image de l'acte III, et le jeu figé pile là,
+    // sur « IL DESCEND SUR VOUS ». Les deux premiers actes n'y passent jamais,
+    // donc rien ne le laissait voir avant d'y arriver.
+    const viseeX = THREE.MathUtils.clamp(cible(game).position.x, -8.5, 8.5);
+    p.x += (viseeX - p.x) * Math.min(1, 1.35 * ph.vitesse * dt);
     p.z += (-8.5 - p.z) * Math.min(1, 0.9 * dt);
     p.y = Math.sin(e.time * 3.1) * 0.25;
-    e.group.rotation.y = THREE.MathUtils.clamp((cible - p.x) * 0.05, -0.4, 0.4);
+    e.group.rotation.y = THREE.MathUtils.clamp((viseeX - p.x) * 0.05, -0.4, 0.4);
   }
 
   _bossTirs(e, dt, game, ph) {

@@ -59,14 +59,14 @@ async function api(chemin, options = {}) {
 
 // --- Journal ----------------------------------------------------------------
 
-function note(texte, ok = true) {
+function note(message, ok = true) {
   const j = document.getElementById('journal');
   if (!j) return;
   const p = document.createElement('p');
   p.className = ok ? 'ok' : 'mal';
   const t = document.createElement('time');
   t.textContent = new Date().toLocaleTimeString('fr-FR');
-  p.append(t, document.createTextNode(texte));
+  p.append(t, document.createTextNode(message));
   j.append(p);
 }
 
