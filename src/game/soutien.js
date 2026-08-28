@@ -75,6 +75,23 @@ const T_TOTAL = 4.9;
 // passer après lui.
 const T_APPEL = 0.1;
 
+// L'APPEL BREF — celui de la bombe ordinaire.
+//
+// La séquence complète dure 4,9 secondes et rend le vaisseau invulnérable tout du
+// long. C'est le prix d'un moment, et il se paie très bien une fois de temps en
+// temps : elle est la récompense de l'Overdrive.
+//
+// Mais la bombe se recharge en six secondes. La déclencher telle quelle à chaque
+// bombe mettrait le joueur en plan quatre-vingts pour cent du temps, invulnérable
+// presque en permanence — ce ne serait plus une arme, ce serait un abri.
+//
+// Un appel bref, donc : UN seul ailier, la même chorégraphie jouée plus vite, et
+// surtout AUCUNE élévation — donc aucune invulnérabilité. Le joueur continue de
+// piloter pendant que son copain passe. La fiction est la même à chaque bombe ;
+// c'est son ampleur qui se gagne.
+const T_BREF = 1.9;
+const VITESSE_BREF = T_TOTAL / T_BREF;
+
 // L'accélération du tapis. Le k-ième largage part à `u^EXPO` de la fenêtre, avec
 // u linéaire : un exposant sous 1 resserre les intervalles à mesure qu'on avance.
 // À 0,8, ORION passe de 355 ms entre deux bombes à 184 ms — assez pour qu'on
@@ -512,10 +529,15 @@ export class SoutienAerien {
   // Rend false si la séquence ne peut pas démarrer. Un seul motif de refus qui
   // vaille : elle est déjà en cours. Refuser silencieusement serait pire que tout —
   // l'appelant a déjà prélevé la jauge quand il arrive ici.
-  start({ game, coqueJoueur, onImpact, onDone } = {}) {
+  start({ game, coqueJoueur, onImpact, onDone, bref = false } = {}) {
     if (this._enCours) return false;
     if (!game?.player?.group) return false;
 
+    // Un appel bref rejoue la MÊME partition, plus vite et à un seul ailier. On ne
+    // récrit pas de chorégraphie : elle est réglée, et deux versions qui
+    // divergeraient finiraient par se contredire.
+    this.bref = !!bref;
+    this._vitesse = bref ? VITESSE_BREF : 1;
     this._game = game;
     this._onImpact = onImpact || null;
     this._onDone = onDone || null;
@@ -534,7 +556,10 @@ export class SoutienAerien {
     // Gauche puis droite dans l'ordre de COQUES : deux parties identiques doivent
     // montrer la même escadrille au même endroit, sinon le rejeu ment à l'image.
     this._ailiers.length = 0;
-    for (let i = 0; i < autres.length; i++) {
+    // Un seul copain pour un appel bref : c'est ce qui distingue les deux à
+    // l'écran, avant même qu'on ait mesuré une durée.
+    const combien = bref ? 1 : autres.length;
+    for (let i = 0; i < combien; i++) {
       const a = this.coques[autres[i].id];
       a.cote = i === 0 ? -1 : 1;
       a.bandeX = a.cote * BANDE;
@@ -579,7 +604,7 @@ export class SoutienAerien {
     if (!this._enCours) return;
     const jeu = game || this._game;
     const avant = this._temps;
-    this._temps += dt;
+    this._temps += dt * (this._vitesse || 1);
     const t = this._temps;
 
     // Sur petit écran, une réplique lancée en plein combat est mise de côté et dite
@@ -641,6 +666,10 @@ export class SoutienAerien {
   _eleve(jeu, t) {
     const groupe = jeu?.player?.group;
     if (!groupe) return;
+    // AUCUNE ÉLÉVATION EN APPEL BREF, et c'est tout l'équilibre de la chose. La
+    // hauteur est ce qui rend l'invulnérabilité lisible ; ne pas s'élever, c'est
+    // rester dans le jeu — le copain passe, mais on continue d'esquiver.
+    if (this.bref) return;
     let y = this._yInitial;
     if (t < T_MONTEE) {
       y += ALTITUDE * easeOut(t / T_MONTEE);

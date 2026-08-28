@@ -720,11 +720,20 @@ export class Game {
     this.hud.setEnergy(this.energy / OVERDRIVE.max);
     this.bombCooldown = OVERDRIVE.bombCooldown;
 
-    // EN PLEINE FURIE, LA BOMBE APPELLE LES AUTRES. Les deux coques qu'on n'a pas
-    // choisies arrivent, bombardent avec nous, et repartent. Le vaisseau s'élève
-    // pendant ce temps — c'est ce qui rend son invulnérabilité lisible sans qu'on
-    // ait à l'écrire nulle part.
-    if (this.odTimer > 0 && this._lanceSoutien()) return;
+    // LA BOMBE EST UN APPEL, TOUJOURS. Ce n'est plus une explosion qu'on déclenche,
+    // c'est un copain qu'on siffle.
+    //
+    // En pleine furie, les DEUX coques qu'on n'a pas choisies arrivent, bombardent
+    // avec nous et repartent — quatre secondes pendant lesquelles le vaisseau
+    // s'élève, ce qui rend son invulnérabilité lisible sans qu'on ait à l'écrire.
+    //
+    // Le reste du temps, l'appel est BREF : un seul ailier, la même chorégraphie
+    // jouée deux fois et demie plus vite, et surtout aucune élévation — donc aucune
+    // invulnérabilité. La bombe se recharge en six secondes : y coller la séquence
+    // complète mettrait le joueur en plan quatre-vingts pour cent du temps et
+    // invulnérable presque en permanence. Ce ne serait plus une arme, ce serait un
+    // abri. La fiction est la même à chaque bombe ; c'est son AMPLEUR qui se gagne.
+    if (this._lanceSoutien({ bref: this.odTimer <= 0 })) return;
 
     // N'efface que les tirs PROCHES : la menace lointaine reste à gérer.
     const rr = OVERDRIVE.bombRadius * OVERDRIVE.bombRadius;
@@ -809,10 +818,11 @@ export class Game {
 
   // Le soutien aérien. Les dégâts restent ICI, jamais dans le module d'animation :
   // une seule simulation à un seul endroit, sinon le rejeu n'est plus vérifiable.
-  _lanceSoutien() {
+  _lanceSoutien({ bref = false } = {}) {
     const deja = new Set();
     const ok = this.soutien.start({
       game: this,
+      bref,
       coqueJoueur: this.coque,
       onImpact: (pos, rayon) => {
         // UN ENNEMI NE PREND QU'UNE FOIS. Les vingt-deux impacts se recouvrent —
@@ -4349,11 +4359,18 @@ export class Game {
     this._updateColosse(dt);
     if (this.soutien.actif) {
       this.soutien.update(dt, this);
-      // L'invulnérabilité est reposée à chaque image plutôt que fixée une fois :
-      // un coup encaissé juste avant l'appel pourrait sinon la faire expirer au
-      // milieu du bombardement, pendant que le vaisseau est en l'air et que le
-      // joueur n'a plus la main.
-      this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.4);
+      // MAIS L'APPEL BREF NE PROTÈGE PAS. La séquence se déroule dans les deux
+      // cas — sans quoi elle ne s'achèverait jamais — seule l'invulnérabilité est
+      // réservée à l'appel complet. Le vaisseau reste dans le jeu et continue
+      // d'esquiver pendant que le copain passe : sans cette distinction, une bombe
+      // toutes les six secondes donnerait deux secondes d'invulnérabilité gratuite
+      // à chaque fois, et la bombe cesserait d'être une arme pour devenir un abri.
+      //
+      // L'invulnérabilité de l'appel complet est reposée à chaque image plutôt que
+      // fixée une fois : un coup encaissé juste avant pourrait sinon la faire
+      // expirer au milieu du bombardement, pendant que le vaisseau est en l'air et
+      // que le joueur n'a plus la main.
+      if (!this.soutien.bref) this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.4);
     }
     const arme = this.armes[this.coque];
     if (arme) {
