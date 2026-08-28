@@ -281,13 +281,19 @@ async function route(req, res, chemin) {
     return void n;
   }
 
-  // GET /pilotes — qui vole en ce moment, pour l'écran « Qui pilote ? ».
+  // GET /pilotes — RÉSERVÉ AUX PILOTES IDENTIFIÉS.
   //
-  // Public et sans jeton, parce que cet écran s'affiche AVANT qu'on sache qui est
-  // devant la machine : sur la tablette partagée d'une fratrie, c'est lui qui sert à
-  // choisir. Donc rien de personnel n'en sort — voir base.pilotes(), qui nomme ses
-  // colonnes une par une pour que ça reste vrai après la prochaine migration.
+  // Elle était publique et sans jeton : n'importe qui pouvait énumérer les pseudos
+  // de tous les enfants qui jouent. Elle servait à l'écran « Qui pilote ? », qui
+  // affichait la liste entière du jeu — ce qui ne tenait pas au-delà de quelques
+  // pilotes, et n'était de toute façon pas le bon geste : ce qu'on veut, c'est
+  // revenir sur SON pseudo, pas parcourir un annuaire. Cet écran lit désormais une
+  // liste locale à l'appareil, et plus personne n'appelle cette route.
+  //
+  // On la garde le temps qu'un client d'avant la mise à jour finisse sa partie,
+  // mais fermée : sans jeton, on ne dit plus qui joue.
   if (req.method === 'GET' && chemin === '/pilotes') {
+    if (!base.parJeton(jetonDe(req))) return repond(res, 401, { erreur: 'jeton' });
     const url = new URL(req.url, 'http://x');
     // Le paramètre absent est écarté AVANT entier() : Number(null) vaut zéro, et un
     // zéro traverse ses garde-fous sans rien déclencher. Sans ce test, une requête

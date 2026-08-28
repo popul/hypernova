@@ -2330,7 +2330,36 @@ body.touch .key-hint {
   max-width: min(720px, 92vw);
 }
 
+/* Le ✕ qui retire un pilote de CET APPAREIL. Discret par défaut — ce n'est pas
+   le geste courant — et il ne doit jamais se déclencher par mégarde en visant la
+   carte : d'où une cible propre, dans le coin, avec sa propre zone de clic. */
+.pilot-oublie {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted, #8ea0c0);
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.pilot-oublie:hover,
+.pilot-oublie:focus-visible {
+  opacity: 1;
+  color: #ff4d6d;
+  background: rgba(255, 77, 109, 0.14);
+}
+
 .pilot-card {
+  /* Repère du ✕ « retirer de cet appareil », qui se pose dans le coin. Sans lui,
+     l'absolu remonterait au premier ancêtre positionné et sortirait de la carte. */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;

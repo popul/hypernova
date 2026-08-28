@@ -93,7 +93,8 @@ import * as reseau from './reseau.js';
 import { mesAmis, gesteAmi, monLien, ouvreLien, jeton } from './reseau.js';
 
 import {
-  listPilots,
+  pilotesConnus,
+  oubliePilote,
   activePilot,
   connecte,
   deconnecte,
@@ -1540,16 +1541,20 @@ export class Game {
     });
     if (moi) return;
 
-    // La liste arrive du réseau : l'écran s'affiche AVANT, et se remplit ensuite.
-    // Attendre le serveur pour dessiner quoi que ce soit donnerait un écran noir
-    // sur une connexion lente.
-    const pilotes = await listPilots();
-    if (!el.isConnected) return;
+    // CEUX QUI SE SONT DÉJÀ CONNECTÉS ICI, ET PERSONNE D'AUTRE.
+    //
+    // L'écran demandait au serveur la liste de TOUS les pilotes du jeu. Ça marche
+    // à trois et plus du tout ensuite : la grille devient un annuaire où l'on
+    // cherche son propre nom. La liste est donc locale à l'appareil — sur la
+    // tablette du salon, les deux frères ; sur un téléphone, son propriétaire.
+    // Elle est courte par construction, elle ne demande rien au réseau, et elle
+    // répond au vrai geste : « je reviens sur mon pseudo », pas « qui existe ? ».
+    const pilotes = pilotesConnus();
     const etat = el.querySelector('#pilot-etat');
     if (etat) {
       etat.textContent = pilotes.length
-        ? 'Choisis ton nom, ou crée-toi un pilote'
-        : 'Personne encore. Crée le premier pilote !';
+        ? 'Choisis ton nom, ou entre un autre pseudo'
+        : 'Crée-toi un pilote, ou entre un pseudo que tu as déjà.';
     }
     grille.innerHTML = `
       ${pilotes
@@ -1558,14 +1563,30 @@ export class Game {
         <button class="pilot-card" data-pilot="${i}">
           <span class="pilot-avatar big">${esc(p.name[0] || '?')}</span>
           <span class="pilot-card-name">${esc(p.name)}</span>
-          <span class="pilot-card-stat">${p.meilleur ? `${p.meilleur} pts` : 'jamais joué'}</span>
+          <span class="pilot-oublie" data-oublie="${i}" role="button" tabindex="0"
+                title="Retirer de cet appareil">✕</span>
         </button>`
         )
         .join('')}
+      <button class="pilot-card new" id="pilot-autre">
+        <span class="pilot-avatar big">↩</span>
+        <span class="pilot-card-name">Un autre pseudo</span>
+      </button>
       <button class="pilot-card new" id="pilot-new">
         <span class="pilot-avatar big">+</span>
         <span class="pilot-card-name">Nouveau pilote</span>
       </button>`;
+
+    // Retirer quelqu'un de CET APPAREIL ne touche pas à son compte : il existe
+    // toujours, il ne s'affiche simplement plus ici. Sur une tablette partagée,
+    // c'est le seul moyen que la grille ne finisse pas en annuaire à son tour.
+    grille.querySelectorAll('[data-oublie]').forEach((x) =>
+      x.addEventListener('click', (e) => {
+        e.stopPropagation();
+        oubliePilote(pilotes[Number(x.dataset.oublie)].name);
+        this.showPilotSelect(onDone);
+      })
+    );
 
     grille.querySelectorAll('.pilot-card[data-pilot]').forEach((card) =>
       card.addEventListener('click', () => {
@@ -1602,6 +1623,49 @@ export class Game {
         });
       })
     );
+
+    // « UN AUTRE PSEUDO » — celui qui joue depuis un appareil qu'il n'a jamais
+    // utilisé. Sans lui, la liste locale serait une prison : on ne pourrait
+    // revenir que sur les pilotes déjà passés par là, et un enfant chez un copain
+    // n'aurait plus aucun moyen de retrouver son propre pseudo.
+    grille.querySelector('#pilot-autre').addEventListener('click', () => {
+      zone.innerHTML = `
+        <form class="lb-form" id="autre-form">
+          <input id="autre-nom" type="text" maxlength="10" placeholder="TON PSEUDO"
+                 autocomplete="off" aria-label="Pseudo" />
+          <input id="autre-pin" type="password" inputmode="numeric" maxlength="4"
+                 placeholder="Ton code à 4 chiffres" autocomplete="off" aria-label="Code secret" />
+          <button class="btn-launch" type="submit">C'est moi</button>
+          <div class="pilot-note">
+            Ton pseudo existe déjà quelque part : il te suit d'un écran à l'autre.
+          </div>
+          <div class="pilot-error" id="pilot-error"></div>
+        </form>`;
+      const nom = zone.querySelector('#autre-nom');
+      nom.focus();
+      zone.querySelector('#autre-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const erreur = zone.querySelector('#pilot-error');
+        const propre = sanitizeName(nom.value);
+        if (!propre) {
+          erreur.textContent = 'Écris ton pseudo.';
+          return;
+        }
+        erreur.textContent = 'Connexion…';
+        const r = await connecte(propre, zone.querySelector('#autre-pin').value, null);
+        if (r.ok) return done();
+        // « email-requis » veut dire que le pseudo est LIBRE : ce n'est pas un
+        // échec, c'est une création qui commence. On le dit dans ces mots-là.
+        erreur.textContent =
+          r.error === 'code'
+            ? 'Mauvais code…'
+            : r.error === 'email-requis'
+              ? 'Ce pseudo est libre — passe par « Nouveau pilote » pour le prendre.'
+              : r.error === 'trop-d-essais'
+                ? 'Trop d’essais. Réessaie dans un moment.'
+                : 'Pas de réseau : réessaie plus tard.';
+      });
+    });
 
     grille.querySelector('#pilot-new').addEventListener('click', () => {
       // On choisit son nom ET son vaisseau du même geste. Faire le tour du hangar
