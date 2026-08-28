@@ -265,6 +265,22 @@ async function route(req, res, chemin) {
     });
   }
 
+  // POST /journal — ce que les parties racontent quand elles déraillent.
+  //
+  // PUBLIQUE ET SANS JETON, délibérément. Le défaut le plus utile à recevoir est
+  // précisément celui qui casse la partie avant qu'on ait pu s'identifier, et un
+  // journal qui n'accepte que les joueurs connectés ne verrait jamais les erreurs
+  // du démarrage. Ce qui protège ici, c'est la taille et le débit, pas le jeton :
+  // la limite générale s'applique déjà, et le corps est borné comme partout.
+  if (req.method === 'POST' && chemin === '/journal') {
+    const corps = await lisCorps(req);
+    const n = base.ajouteAuJournal(corps?.evenements);
+    // 204 : le client ne fait rien de la réponse, et n'a aucune raison d'attendre
+    // qu'on lui réponde quelque chose. `sendBeacon` ne la lit même pas.
+    res.writeHead(204).end();
+    return void n;
+  }
+
   // GET /pilotes — qui vole en ce moment, pour l'écran « Qui pilote ? ».
   //
   // Public et sans jeton, parce que cet écran s'affiche AVANT qu'on sache qui est

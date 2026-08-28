@@ -258,8 +258,9 @@ async function montreRegie() {
       se défait : la sauvegarde est en bas, et elle se prend avant, pas après.
     </p>
   `;
-  el.append(titre, sectionEtat(etat), sectionPilotes(pilotes), sectionParties(etat));
+  el.append(titre, sectionEtat(etat), sectionBord(), sectionPilotes(pilotes), sectionParties(etat));
   el.append(sectionReplays(etat), sectionJournal());
+  chargeBord().catch(() => {});
   note(`Régie ouverte — ${etat.pilotes} pilotes, ${etat.parties} parties.`);
 }
 
@@ -275,16 +276,7 @@ function sectionEtat(etat) {
     ['Appareils connectés', etat.sessions],
     ['Base', octets(etat.octets)],
   ];
-  for (const [nom, valeur] of cases) {
-    const d = document.createElement('div');
-    d.className = 'chiffre';
-    const b = document.createElement('b');
-    b.textContent = valeur;
-    const sp = document.createElement('span');
-    sp.textContent = nom;
-    d.append(b, sp);
-    grille.append(d);
-  }
+  for (const [nom, valeur] of cases) grille.append(chiffre(nom, valeur));
   s.append(grille);
   return s;
 }
@@ -587,6 +579,121 @@ async function telechargeSauvegarde() {
   } catch (e) {
     note(`Sauvegarde : ${e.message}`, false);
   }
+}
+
+// LE JOURNAL DE BORD — ce que les parties racontent quand elles déraillent.
+//
+// C'est l'écran qu'on ouvre quand quelqu'un dit « ça a déraillé ». Un défaut de
+// synchronisation ne laisse aucune trace : les deux machines continuent de
+// tourner, chacune persuadée d'avoir raison. Ici on voit ce qui a divergé, entre
+// qui, à quelle vague et de combien.
+// Une tuile de chiffre, la même que celle de l'état : deux endroits qui les
+// dessinaient différemment se seraient mis à diverger au premier réglage de style.
+function chiffre(nom, valeur) {
+  const d = document.createElement('div');
+  d.className = 'chiffre';
+  const b = document.createElement('b');
+  b.textContent = valeur;
+  const sp = document.createElement('span');
+  sp.textContent = nom;
+  d.append(b, sp);
+  return d;
+}
+
+function sectionBord() {
+  const s = document.createElement('section');
+  s.innerHTML = `
+    <h2>Journal de bord</h2>
+    <p class="aide">
+      Ce que les parties signalent d'elles-mêmes : désynchronisations mesurées,
+      erreurs non rattrapées, et le contexte de chacune. Rien de personnel n'y
+      figure — un pseudo, une version, la forme de l'écran.
+    </p>
+    <div class="chiffres" id="bord-resume"></div>
+    <div class="rangee" id="bord-filtres"></div>
+    <div id="bord-liste">Chargement…</div>`;
+  return s;
+}
+
+const TYPES = [
+  ['', 'Tout'],
+  ['desynchro', 'Désynchros'],
+  ['erreur', 'Erreurs'],
+  ['promesse', 'Rejets'],
+  ['partie', 'Parties'],
+];
+
+async function chargeBord(type = '') {
+  const liste = document.getElementById('bord-liste');
+  const filtres = document.getElementById('bord-filtres');
+  if (!liste) return;
+
+  if (filtres && !filtres.children.length) {
+    for (const [valeur, nom] of TYPES) {
+      const b = document.createElement('button');
+      b.className = 'btn-ghost petit';
+      b.textContent = nom;
+      b.addEventListener('click', () => chargeBord(valeur));
+      filtres.append(b);
+    }
+    const r = document.createElement('button');
+    r.className = 'btn-ghost petit';
+    r.textContent = '⟳';
+    r.addEventListener('click', () => chargeBord(type));
+    filtres.append(r);
+  }
+
+  const d = await api(`/journal?limite=150${type ? `&type=${encodeURIComponent(type)}` : ''}`);
+  const resume = document.getElementById('bord-resume');
+  if (resume) {
+    resume.innerHTML = '';
+    if (!d.resume.length) resume.append(chiffre('Rien en 24 h', '—'));
+    for (const r of d.resume) resume.append(chiffre(r.type, r.n));
+  }
+
+  liste.innerHTML = '';
+  if (!d.evenements.length) {
+    liste.textContent = 'Rien à signaler.';
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'table';
+  table.innerHTML =
+    '<thead><tr><th>Quand</th><th>Type</th><th>Pilote</th><th>Version</th><th>Écran</th><th>Ce qui s’est passé</th></tr></thead>';
+  const corps = document.createElement('tbody');
+  for (const e of d.evenements) {
+    const tr = document.createElement('tr');
+    if (e.type === 'desynchro' || e.type === 'erreur') tr.className = 'mal';
+    tr.append(
+      cellule(new Date(e.quand).toLocaleString('fr-FR')),
+      cellule(e.type),
+      cellule(e.pilote || '—'),
+      cellule(e.version || '—'),
+      cellule(e.ecran || '—'),
+      cellule(raconte(e))
+    );
+    corps.append(tr);
+  }
+  table.append(corps);
+  liste.append(table);
+}
+
+// Une ligne de journal, dite en français plutôt qu'en JSON. C'est ce qui décide
+// si l'écran sert à quelque chose : une table de JSON brut ne se lit pas.
+function raconte(e) {
+  const d = e.detail || {};
+  if (e.type === 'desynchro') {
+    const parts = Object.entries(d.ecarts || {}).map(
+      ([cle, v]) => `${cle} ${v.moi} au lieu de ${v.lui}`
+    );
+    return `avec ${d.avec || '?'} · ${d.ou || ''} · ${parts.join(', ') || d.quoi || ''}`;
+  }
+  if (e.type === 'erreur' || e.type === 'promesse') {
+    return `${d.quoi || ''}${d.ou ? ` (${d.ou})` : ''}`;
+  }
+  if (e.type === 'partie')
+    return `${d.mode || ''} ${d.variante || ''} ${d.coque || ''} · ${d.ou || ''}`;
+  return JSON.stringify(d).slice(0, 160);
 }
 
 function sectionJournal() {

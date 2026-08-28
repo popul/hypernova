@@ -9,6 +9,7 @@ import { Input, isTouchDevice } from './core/input.js';
 import { AudioEngine } from './core/audio.js';
 import { Space } from './game/space/index.js';
 import { ArenaEdges, ajusteCadrage } from './game/arena.js';
+import { ecoute as ecouteJournal } from './core/journal.js';
 import { Fx } from './game/fx.js';
 import { Game } from './game/game.js';
 import './style.css';
@@ -150,6 +151,10 @@ game.arenaEdges = arenaEdges; // le vaisseau allume la couture qu'il franchit
 // `import.meta.env.DEV` est remplacé par `false` à la construction, donc ces deux
 // lignes disparaissent du bundle livré — le jeu publié n'expose rien.
 if (import.meta.env.DEV) window.jeu = game;
+// LES ERREURS QU'ON NE RATTRAPE NULLE PART. Ce sont celles qui coupent une
+// partie chez le joueur, donc exactement celles qu'on ne voit jamais depuis un
+// écran de développement. Branché ici, au plus haut, une seule fois.
+ecouteJournal();
 
 if (isTouchDevice()) document.body.classList.add('touch');
 

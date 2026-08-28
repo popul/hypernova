@@ -80,6 +80,19 @@ export async function routeAdmin(req, res, chemin, base, aide) {
   }
 
   // GET /admin/pilotes — la liste complète, adresse comprise.
+  // GET /admin/journal — le journal de bord, éventuellement filtré par type.
+  // C'est l'écran qu'on ouvre quand quelqu'un dit « ça a déraillé ».
+  if (req.method === 'GET' && reste === '/journal') {
+    const url = new URL(req.url, 'http://x');
+    return repond(res, 200, {
+      resume: base.resumeJournal(),
+      evenements: base.journal({
+        type: url.searchParams.get('type'),
+        limite: url.searchParams.get('limite'),
+      }),
+    });
+  }
+
   if (req.method === 'GET' && reste === '/pilotes') {
     repond(res, 200, { pilotes: base.pilotesAdmin() });
     return true;

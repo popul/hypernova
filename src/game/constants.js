@@ -400,19 +400,27 @@ export const BOSSES = {
     // chose qui les distingue est leur silhouette — ce qui est le propos.
     // KORN, lui, garde ses 5,2 : il reste le plus gros de tous.
     demiLargeur: 4.2,
-    hp: 0.72, // multiplie les points de vie du boss : une ombre n'est pas KORN
+    // MESURÉ, PUIS CORRIGÉ. À 0,72 elle tombait avec 73 points de vie à sa
+    // première rencontre, contre 120 pour celle d'HÉLIOS et 175 pour celle de
+    // VULCAIN : « vraiment trop faible », et c'était vrai. Elle reste la plus
+    // abordable des trois — c'est le premier boss du voyage — mais l'écart est
+    // désormais une pente, pas une marche.
+    hp: 1.05,
     phases: [
       {
         nom: 'ALIGNEMENT',
         dit: 'Elle se met dans votre axe',
         seuil: 1,
         style: 'patrouille',
-        vitesse: 1.05,
-        fanMul: 1,
-        burstMul: 0.95,
+        vitesse: 1.15,
+        // Le premier acte du premier boss reste le plus lisible du jeu, mais il
+        // tirait MOINS souvent qu'une simple nappe de base — c'est-à-dire moins
+        // qu'un ennemi ordinaire.
+        fanMul: 0.88,
+        burstMul: 0.82,
         nappes: 1,
         ecartMul: 1,
-        roles: [1.0, 0.6, 0.2],
+        roles: [1.0, 0.7, 0.4, 0.1],
       },
       {
         nom: 'CHERCHEUSES',
@@ -420,10 +428,10 @@ export const BOSSES = {
         seuil: 0.66,
         cri: 'Tu vises bien. Moi, je ne rate pas.',
         style: 'bonds',
-        vitesse: 1.3,
-        fanMul: 0.85,
-        burstMul: 0.7,
-        nappes: 1,
+        vitesse: 1.4,
+        fanMul: 0.78,
+        burstMul: 0.62,
+        nappes: 2,
         ecartMul: 1.05,
         roles: [1.0, 0.75, 0.45],
         chercheuses: 2,

@@ -197,3 +197,48 @@ test('un pseudo libre s’attrape sans que la garde s’en mêle', async (t) => 
     assert.equal(r.status, 201, `le pilote ${i} n’a pas pu s’inscrire`);
   }
 });
+
+// --- LE JOURNAL DE BORD, DE BOUT EN BOUT --------------------------------------
+
+test('le journal accepte un lot sans jeton, et le rend à la régie', async (t) => {
+  const { port } = await demarre(t);
+
+  const envoi = await fetch(`http://127.0.0.1:${port}/api/journal`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      evenements: [
+        {
+          type: 'desynchro',
+          pilote: 'ZOÉ',
+          version: '1.17.0',
+          ecran: '430x932',
+          detail: { avec: 'MAX', ou: 'vague 4', ecarts: { score: { lui: 1200, moi: 1175 } } },
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(3000),
+  });
+  // 204 : le client ne lit pas la réponse — `sendBeacon` ne la lit même pas.
+  assert.equal(envoi.status, 204, 'le journal a refusé un lot bien formé');
+
+  // La régie est fermée sans ADMIN_TOKEN : c'est le comportement par défaut, et
+  // il vaut mieux le vérifier que le supposer.
+  const regie = await fetch(`http://127.0.0.1:${port}/api/admin/journal`, {
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.ok(regie.status === 401 || regie.status === 404, `la régie répond ${regie.status}`);
+});
+
+test('un journal malformé répond sans tuer le serveur', async (t) => {
+  const { port } = await demarre(t);
+  for (const corps of ['{"evenements":"pas un tableau"}', '{}', '[]', 'pas du json']) {
+    await fetch(`http://127.0.0.1:${port}/api/journal`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: corps,
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+    assert.equal(await vivant(port), 200, `le serveur est tombé sur « ${corps.slice(0, 20)} »`);
+  }
+});

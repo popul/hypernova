@@ -125,6 +125,27 @@ export class Base {
       -- groupe de la classe, et chacun le touche quand il veut. C'est un choix,
       -- pas un oubli — quiconque a le lien devient ami. En échange il se
       -- régénère d'un geste, ce qui invalide l'ancien.
+      -- LE JOURNAL DE BORD. Ce que les parties racontent quand elles déraillent.
+      --
+      -- Un défaut de synchronisation ne laisse aucune trace : les deux machines
+      -- continuent de tourner, chacune persuadée d'avoir raison. Sans cette
+      -- table, tout ce qu'on peut en dire est « ça a déraillé » — ce qui est vrai
+      -- et intenable à corriger.
+      --
+      -- Elle ne garde RIEN de personnel : un pseudo, une version, la forme de
+      -- l'écran. Ce qu'on cherche, ce sont des défauts, pas des joueurs.
+      CREATE TABLE IF NOT EXISTS journal (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        quand   TEXT NOT NULL,
+        type    TEXT NOT NULL,
+        pilote  TEXT,
+        version TEXT,
+        ecran   TEXT,
+        detail  TEXT
+      );
+      CREATE INDEX IF NOT EXISTS journal_quand ON journal(quand DESC);
+      CREATE INDEX IF NOT EXISTS journal_type ON journal(type, quand DESC);
+
       CREATE TABLE IF NOT EXISTS invitations (
         code    TEXT PRIMARY KEY,
         pilote  TEXT NOT NULL UNIQUE REFERENCES pilotes(nom) ON DELETE CASCADE,
@@ -457,6 +478,87 @@ export class Base {
       );
     this._elague(pilote, modePropre(p.mode));
     return id;
+  }
+
+  // ---- LE JOURNAL DE BORD ---------------------------------------------------
+
+  // Combien d'événements on garde. Au-delà, les plus vieux tombent : ce journal
+  // sert à comprendre ce qui vient de se passer, pas à tenir des archives.
+  static JOURNAL_MAX = 4000;
+
+  ajouteAuJournal(evenements) {
+    if (!Array.isArray(evenements) || !evenements.length) return 0;
+    const ins = this.db.prepare(
+      `INSERT INTO journal (quand, type, pilote, version, ecran, detail)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    let n = 0;
+    // Une transaction : cinquante insertions une par une coûteraient cinquante
+    // synchronisations disque pour quelques centaines d'octets.
+    this.db.exec('BEGIN');
+    try {
+      for (const e of evenements.slice(0, 40)) {
+        const type = String(e?.type || '').slice(0, 32);
+        if (!type) continue;
+        ins.run(
+          String(e.quand || new Date().toISOString()).slice(0, 32),
+          type,
+          e.pilote ? String(e.pilote).slice(0, 16) : null,
+          e.version ? String(e.version).slice(0, 24) : null,
+          e.ecran ? String(e.ecran).slice(0, 16) : null,
+          // Borné à deux kilo-octets : une pile d'appels suffit largement, et un
+          // client qui enverrait un mégaoctet ne doit pas remplir la base.
+          e.detail ? JSON.stringify(e.detail).slice(0, 2048) : null
+        );
+        n++;
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    this._elagueJournal();
+    return n;
+  }
+
+  _elagueJournal() {
+    this.db
+      .prepare(
+        `DELETE FROM journal WHERE id NOT IN (
+           SELECT id FROM journal ORDER BY id DESC LIMIT ?
+         )`
+      )
+      .run(Base.JOURNAL_MAX);
+  }
+
+  journal({ type = null, limite = 120 } = {}) {
+    const n = Math.max(1, Math.min(500, Number(limite) || 120));
+    const lignes = type
+      ? this.db
+          .prepare(
+            `SELECT id, quand, type, pilote, version, ecran, detail FROM journal
+             WHERE type = ? ORDER BY id DESC LIMIT ?`
+          )
+          .all(String(type).slice(0, 32), n)
+      : this.db
+          .prepare(
+            `SELECT id, quand, type, pilote, version, ecran, detail FROM journal
+             ORDER BY id DESC LIMIT ?`
+          )
+          .all(n);
+    return lignes.map((l) => ({ ...l, detail: l.detail ? JSON.parse(l.detail) : null }));
+  }
+
+  // Ce que le journal dit en un coup d'œil : combien de quoi, sur les dernières
+  // vingt-quatre heures. C'est cette ligne-là qu'on regarde en premier.
+  resumeJournal() {
+    const depuis = new Date(Date.now() - 24 * 3600_000).toISOString();
+    return this.db
+      .prepare(
+        `SELECT type, COUNT(*) AS n FROM journal WHERE quand >= ?
+         GROUP BY type ORDER BY n DESC`
+      )
+      .all(depuis);
   }
 
   // On ne supprime pas les scores, on relâche les enregistrements : une partie

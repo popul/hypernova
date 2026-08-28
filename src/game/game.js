@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { Player } from './player.js';
+import { note, poseContexte } from '../core/journal.js';
 import { Enemies } from './enemies.js';
 import { PlayerBullets, EnemyBullets, Missiles } from './bullets.js';
 import { Pickups, Modules } from './pickups.js';
@@ -2085,6 +2086,9 @@ export class Game {
   // copain arrive. Sans pilote, il n'y a personne à annoncer et rien à ouvrir.
   ouvreCanalAmis() {
     if (!jeton()) return;
+    // Le journal apprend QUI joue et sur QUELLE version : sans ça, un défaut
+    // remonté ne se rattache à rien.
+    poseContexte({ pilote: activePilot()?.name || null, version: __VERSION__ });
     this.duo.r = {
       ...this.duo.r,
       onPresence: (l) => this._surPresence(l),
@@ -2172,6 +2176,9 @@ export class Game {
         return;
       case 'vue':
         if (this.spectateur?.de !== de) return;
+        // AVANT de restaurer : est-ce qu'on avait raison ? C'est le seul moment
+        // du jeu où l'on connaît la vérité de l'autre machine.
+        if (this.spectateur.vue) this._verifieSynchro(d, de);
         this._restaure(d);
         this.spectateur.vue = true;
         this.spectateur.file.length = 0;
@@ -2221,6 +2228,63 @@ export class Game {
   _ditAmis(texte) {
     const el = this.overlayRoot.querySelector('#amis-sous');
     if (el) el.textContent = texte;
+  }
+
+  // ---- LA DÉTECTION DE DÉSYNCHRONISATION -------------------------------------
+  //
+  // UN DÉFAUT DE SYNCHRONISATION NE LAISSE AUCUNE TRACE, et c'est ce qui le rend
+  // si pénible : les deux machines continuent de tourner, chacune persuadée
+  // d'avoir raison, et le joueur ne peut dire que « ça a déraillé ». Pour le
+  // corriger il faut savoir QUAND, ENTRE QUI, et DE COMBIEN.
+  //
+  // Or il existe un endroit où l'on connaît la vérité sans rien ajouter au
+  // réseau : le début de chaque vague. L'hôte y envoie son état complet, et le
+  // spectateur le restaure. Avant de le restaurer, on peut donc comparer ce
+  // qu'on avait simulé de son côté avec ce que l'hôte dit réellement. Toute
+  // différence est une désynchronisation, mesurée, datée, chiffrée — et corrigée
+  // dans la foulée puisqu'on restaure juste après.
+  //
+  // C'est gratuit : aucun octet de plus ne circule.
+
+  // Ce qu'on compare. Pas l'état entier — il contient des tableaux entiers de
+  // positions — mais les quelques nombres dont un écart trahit tout le reste.
+  _empreinte(e) {
+    if (!e) return null;
+    return {
+      vague: e.w,
+      score: e.score,
+      vies: e.vies,
+      credits: e.credits,
+      // La position du vaisseau au centième : en dessous, on signalerait le bruit
+      // de la virgule flottante plutôt que de vraies divergences.
+      x: Math.round((e.vaisseau?.[0] ?? 0) * 100) / 100,
+      z: Math.round((e.vaisseau?.[2] ?? 0) * 100) / 100,
+    };
+  }
+
+  // Compare ce que j'avais simulé avec ce que l'hôte affirme, et le dit si ça
+  // diffère. Appelée juste AVANT la restauration, donc l'écart est corrigé
+  // aussitôt — on le note pour le comprendre, pas pour le subir.
+  _verifieSynchro(vue, de) {
+    const sien = this._empreinte(vue);
+    const mien = this._empreinte(this._instantane());
+    if (!sien || !mien) return;
+    const ecarts = {};
+    for (const cle of Object.keys(sien)) {
+      if (sien[cle] !== mien[cle]) ecarts[cle] = { lui: sien[cle], moi: mien[cle] };
+    }
+    // La vague, elle, diffère légitimement : on peut arriver en cours de route,
+    // ou avoir été resynchronisé après un retard. Seule elle ne prouve rien.
+    const cles = Object.keys(ecarts).filter((c) => c !== 'vague');
+    if (!cles.length) return;
+    note('desynchro', {
+      ou: `vague ${vue.w}`,
+      quoi: cles.join(','),
+      avec: de,
+      mode: this.mode,
+      variante: this.variante,
+      ecarts,
+    });
   }
 
   // ---- REJOINDRE UNE PARTIE EN COURS -----------------------------------------
@@ -3583,6 +3647,22 @@ export class Game {
     this.startWave(Math.max(1, options?.vague || 1));
     // Nos amis peuvent maintenant proposer de regarder.
     this.duo?.annonceJeu(true);
+    // Ce qui tournait au moment d'un défaut : le mode, la coque, la vague. Trois
+    // nombres qui replacent n'importe quel signalement dans son contexte.
+    if (this.wave === 1 || this.variante === 'duo') {
+      note('partie', {
+        ou: `vague ${this.wave}`,
+        mode: this.mode,
+        variante: this.variante,
+        coque: this.coque,
+      });
+    }
+    // LE CANAL DOIT SAVOIR CE QU'ON JOUE. Il gardait le mode qu'il avait à la
+    // connexion — « arcade » — même quand la partie en cours était une Survie.
+    // Le relais des demandes n'en dépend pas, mais la liste des parties, elle,
+    // est filtrée par mode : un copain cherchant une partie de survie ne voyait
+    // pas celle qu'on était en train de jouer.
+    if (this.duo && this.duo.mode !== this.mode) this.duo.changeMode(this.mode);
     // LA RÉPLIQUE D'OUVERTURE ARRIVE AU PREMIER HANGAR, PAS SUR LA VAGUE 1.
     //
     // Il n'existe aucun moment calme entre le choix de la coque et le premier

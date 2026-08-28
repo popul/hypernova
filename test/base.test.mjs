@@ -661,3 +661,110 @@ test('ouvrir le lien de quelqu’un rend amis tout de suite', (t) => {
   assert.deepEqual(base.parLien('MAX', 'jamais-vu'), { ok: false, erreur: 'lien-inconnu' });
   assert.deepEqual(base.parLien('MAX', null), { ok: false, erreur: 'lien-inconnu' });
 });
+
+// --- LE JOURNAL DE BORD -------------------------------------------------------
+//
+// Un défaut de synchronisation ne laisse AUCUNE trace : les deux machines
+// continuent de tourner, chacune persuadée d'avoir raison, et le joueur ne peut
+// dire que « ça a déraillé ». Cette table est ce qui transforme cette phrase en
+// mesure — quand, entre qui, de combien.
+//
+// Elle est nourrie par une route PUBLIQUE, sans jeton : le défaut le plus utile à
+// recevoir est précisément celui qui casse la partie avant qu'on ait pu
+// s'identifier. Ce qui la protège n'est donc pas l'authentification mais ses
+// BORNES, et ce sont elles que ces épreuves défendent.
+
+test('le journal garde ce qu’on lui donne, et le rend le plus récent d’abord', (t) => {
+  const base = neuve(t);
+  const n = base.ajouteAuJournal([
+    {
+      quand: '2026-01-01T10:00:00.000Z',
+      type: 'partie',
+      pilote: 'ZOÉ',
+      detail: { mode: 'survie' },
+    },
+    {
+      quand: '2026-01-01T10:00:01.000Z',
+      type: 'desynchro',
+      pilote: 'ZOÉ',
+      detail: { avec: 'MAX' },
+    },
+  ]);
+  assert.equal(n, 2);
+  const l = base.journal();
+  assert.equal(l.length, 2);
+  assert.equal(l[0].type, 'desynchro', 'le plus récent doit venir en premier');
+  assert.deepEqual(l[0].detail, { avec: 'MAX' }, 'le détail doit revenir en objet, pas en texte');
+});
+
+test('le journal se filtre par type', (t) => {
+  const base = neuve(t);
+  base.ajouteAuJournal([
+    { type: 'partie', detail: {} },
+    { type: 'desynchro', detail: {} },
+    { type: 'desynchro', detail: {} },
+  ]);
+  assert.equal(base.journal({ type: 'desynchro' }).length, 2);
+  assert.equal(base.journal({ type: 'partie' }).length, 1);
+});
+
+test('un événement sans type est refusé, pas enregistré à moitié', (t) => {
+  const base = neuve(t);
+  assert.equal(base.ajouteAuJournal([{ detail: { quoi: 'rien' } }]), 0);
+  assert.equal(base.journal().length, 0);
+});
+
+test('un lot énorme est tronqué, pas avalé', (t) => {
+  // La route est publique : n'importe qui peut poster. Un lot de mille
+  // événements ne doit pas devenir mille lignes.
+  const base = neuve(t);
+  const lot = Array.from({ length: 1000 }, (_, i) => ({ type: 'erreur', detail: { i } }));
+  const n = base.ajouteAuJournal(lot);
+  assert.ok(n <= 40, `${n} événements acceptés d’un coup`);
+});
+
+test('un détail démesuré est coupé, pas stocké entier', (t) => {
+  const base = neuve(t);
+  base.ajouteAuJournal([{ type: 'erreur', detail: { pile: 'x'.repeat(50_000) } }]);
+  const brut = base.db.prepare('SELECT detail FROM journal').get().detail;
+  assert.ok(brut.length <= 2048, `${brut.length} octets stockés pour un seul événement`);
+});
+
+test('le journal ne grossit pas indéfiniment', (t) => {
+  // Il sert à comprendre ce qui vient de se passer, pas à tenir des archives :
+  // sans plafond, une boucle d'erreurs remplirait la base d'un pilote.
+  const base = neuve(t);
+  for (let i = 0; i < 120; i++) {
+    base.ajouteAuJournal(Array.from({ length: 40 }, () => ({ type: 'erreur', detail: {} })));
+  }
+  const total = base.db.prepare('SELECT COUNT(*) AS n FROM journal').get().n;
+  assert.ok(total <= 4000, `${total} lignes gardées`);
+  assert.ok(total > 100, 'le plafond a tout effacé au lieu de garder les récents');
+});
+
+test('des données malformées ne font pas tomber le serveur', (t) => {
+  const base = neuve(t);
+  for (const mauvais of [null, undefined, 'texte', 42, {}, []]) {
+    assert.doesNotThrow(
+      () => base.ajouteAuJournal(mauvais),
+      `refusé sur ${JSON.stringify(mauvais)}`
+    );
+  }
+  assert.equal(base.journal().length, 0);
+});
+
+test('le résumé compte par type sur les dernières vingt-quatre heures', (t) => {
+  const base = neuve(t);
+  const maintenant = new Date().toISOString();
+  const vieux = new Date(Date.now() - 48 * 3600_000).toISOString();
+  base.ajouteAuJournal([
+    { quand: maintenant, type: 'desynchro', detail: {} },
+    { quand: maintenant, type: 'desynchro', detail: {} },
+    { quand: maintenant, type: 'erreur', detail: {} },
+    { quand: vieux, type: 'erreur', detail: {} },
+  ]);
+  const r = base.resumeJournal();
+  const par = Object.fromEntries(r.map((x) => [x.type, x.n]));
+  assert.equal(par.desynchro, 2);
+  assert.equal(par.erreur, 1, 'un événement d’il y a deux jours ne compte pas dans les 24 h');
+});

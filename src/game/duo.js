@@ -174,6 +174,14 @@ export class Duo {
     this._envoie({ t: 'coque', coque });
   }
 
+  // Dire au serveur ce qu'on joue maintenant. La connexion ne se rouvre pas :
+  // elle sert aussi de canal de présence, et la fermer couperait les amis.
+  changeMode(mode) {
+    if (!mode || mode === this.mode) return;
+    this.mode = mode;
+    this._envoie({ t: 'mode', mode });
+  }
+
   lister() {
     this._envoie({ t: 'lister' });
   }

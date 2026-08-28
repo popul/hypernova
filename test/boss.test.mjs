@@ -34,6 +34,8 @@ import {
   ARENA,
   bossPourVague,
   bossParId,
+  ENEMY_TYPES,
+  BOSS,
 } from '../src/game/constants.js';
 
 // Le strict nécessaire pour que le boss ait quelqu'un à viser et quelque part où
@@ -354,4 +356,67 @@ test('la transformation dure assez pour se vivre, pas assez pour agacer', () => 
   assert.equal(BOSS_BASCULE, total, 'la durée annoncée ne vaut pas la somme des temps');
   assert.ok(total > 2, `${total.toFixed(2)} s : trop court pour un moment`);
   assert.ok(total < 4, `${total.toFixed(2)} s sans rien faire, c’est trop long`);
+});
+
+// --- LA PENTE DES BOSS --------------------------------------------------------
+//
+// Les points de vie réels d'un boss ne se lisent PAS dans sa fiche : ils sortent
+// de la difficulté de la vague où on le rencontre, multipliée par son facteur.
+// Deux nombres écrits à deux endroits différents, dont seul le produit compte —
+// c'est exactement le genre de réglage qui dérape sans qu'on s'en aperçoive.
+//
+// Il a dérapé : l'ombre d'ORION tombait avec 73 points de vie quand celle
+// d'HÉLIOS en avait 120 et celle de VULCAIN 175. « Vraiment trop faible », et
+// c'était vrai — le premier boss du voyage doit être le plus abordable, pas
+// inexistant.
+
+// Ce que le joueur affronte VRAIMENT, à la vague où il le rencontre.
+function pvReels(vague, id) {
+  const d = paramsVague(vague).diff;
+  return Math.round((ENEMY_TYPES.boss.hp + d * BOSS.hpPerWave) * BOSSES[id].hp);
+}
+
+// Les vraies vagues de boss de l'arcade, celles que la pente produit.
+const RENCONTRES = [
+  [5, 'ombre-orion'],
+  [11, 'ombre-helios'],
+  [16, 'ombre-vulcain'],
+];
+
+test('chaque ombre est plus coriace que la précédente', () => {
+  let avant = 0;
+  for (const [vague, id] of RENCONTRES) {
+    const pv = pvReels(vague, id);
+    assert.ok(pv > avant, `${id} (${pv} PV) n’est pas plus dur que le boss d’avant (${avant})`);
+    avant = pv;
+  }
+});
+
+test('le premier boss se sent, sans être un mur', () => {
+  const pv = pvReels(5, 'ombre-orion');
+  // Sous cent points de vie, il tombe avant d'avoir montré son deuxième acte —
+  // et un boss en trois actes dont on ne voit qu'un n'est pas un boss.
+  assert.ok(pv >= 100, `l’ombre d’ORION n’a que ${pv} PV : elle tombe trop vite`);
+  // Au-delà du double du suivant, ce ne serait plus une introduction.
+  assert.ok(pv < pvReels(11, 'ombre-helios') * 1.2, `l’ombre d’ORION à ${pv} PV : trop dure`);
+});
+
+test('l’écart entre deux ombres reste une pente, pas une marche', () => {
+  // C'était une marche : 73 puis 120, soit soixante-cinq pour cent d'un coup.
+  for (let i = 1; i < RENCONTRES.length; i++) {
+    const bas = pvReels(...RENCONTRES[i - 1]);
+    const haut = pvReels(...RENCONTRES[i]);
+    assert.ok(
+      haut / bas < 1.6,
+      `${RENCONTRES[i][1]} fait ×${(haut / bas).toFixed(2)} le boss précédent`
+    );
+  }
+});
+
+test('KORN reste de loin le plus coriace', () => {
+  // C'est le bout du voyage : il doit écraser tout ce qui précède.
+  const korn = pvReels(27, 'korn');
+  for (const [vague, id] of RENCONTRES) {
+    assert.ok(korn > pvReels(vague, id) * 1.8, `KORN (${korn} PV) ne domine pas ${id}`);
+  }
 });
