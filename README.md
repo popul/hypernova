@@ -161,7 +161,15 @@ qu'on détruit. Et chaque action répond par un nombre — « 47 parties effacé
 ## PWA
 
 Le jeu est installable (manifest + service worker, icônes générées par
-`node scripts/make-icons.mjs`) et jouable hors-ligne après la première visite. Les alertes de
+`node scripts/make-icons.mjs`) et jouable hors-ligne après la première visite.
+
+L'écran d'accueil **propose** de le poser sur l'écran d'accueil du téléphone, et la façon dont
+il le propose dépend du système — parce qu'il n'y a pas le choix. Android donne un vrai
+crochet (`beforeinstallprompt`) : on le met de côté et on ouvre la **fenêtre native** au moment
+voulu, c'est le système qui parle. Safari ne l'a jamais implémenté et n'expose aucun moyen de
+déclencher l'ajout depuis une page : il reste _Partager → Sur l'écran d'accueil_. On ne peut
+donc pas proposer sur iPhone, seulement **expliquer** — et le dire franchement vaut mieux qu'un
+bouton qui ne ferait rien. L'invitation se ferme pour de bon si on la refuse. Les alertes de
 nouvelle campagne utilisent **Periodic Background Sync** quand il est disponible
 (Chrome/Android, PWA installée) ; ailleurs, la vérification a lieu à chaque ouverture du jeu.
 

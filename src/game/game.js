@@ -42,6 +42,7 @@ import { Aura } from './aura.js';
 import { PiloteAuto } from './pilote-auto.js';
 import { Colosse } from './asteroide.js';
 import { Duo, PAS as PAS_DUO } from './duo.js';
+import { Installation } from './installation.js';
 import { DemoArme } from './demo-arme.js';
 
 // Combien de temps la carène tourne sur elle-même avant que l'arme ne parle.
@@ -182,6 +183,10 @@ export class Game {
     // ne pas les payer au démarrage d'une partie qui n'y passera peut-être pas.
     this.demoArme = null;
     this._poseCoque = null;
+    // L'invitation à poser le jeu sur l'écran d'accueil. Elle écoute dès le
+    // départ, parce que le navigateur envoie son crochet quand il l'a décidé —
+    // souvent avant qu'on ait affiché quoi que ce soit.
+    this.installation = new Installation();
     this.demo = false;
     this.hud = new Hud(hudRoot);
     this.overlayRoot = overlayRoot;
@@ -1275,6 +1280,7 @@ export class Game {
         </div>
         <button class="btn-ghost" id="btn-story">◈ Histoire</button>
         <div class="title-version">v${__VERSION__}</div>
+        <div class="title-install" id="title-install" hidden></div>
         ${
           scores.length
             ? `<div class="title-lb">
@@ -1312,6 +1318,7 @@ export class Game {
     // s'attarde dessus.
     this._veilleMenu(el);
 
+    this._brancheInstallation(el);
     el.querySelector('#btn-story').addEventListener('click', () => this.playCinematic());
     el.querySelector('#btn-pilot').addEventListener('click', () => this.showPilotSelect());
   }
@@ -1851,6 +1858,80 @@ export class Game {
   //
   // La touche Espace continue de lancer une partie classique en solo : c'est le
   // chemin le plus fréquent, et il ne doit pas coûter un clic de plus qu'avant.
+  // L'INVITATION À INSTALLER, sur l'écran d'accueil et nulle part ailleurs.
+  //
+  // Discrète, en bas, à côté du numéro de version : ce n'est pas une bannière
+  // qui recouvre le jeu, c'est une ligne qu'on remarque quand on cherche quoi
+  // faire. Et elle se ferme pour de bon — une invitation qui revient est une
+  // invitation qu'on apprend à ignorer.
+  _brancheInstallation(el) {
+    const zone = el.querySelector('#title-install');
+    if (!zone) return;
+    const peint = () => {
+      if (!zone.isConnected) return;
+      const forme = this.installation.forme;
+      zone.hidden = !forme;
+      if (!forme) return;
+      zone.innerHTML = '';
+      const b = document.createElement('button');
+      b.className = 'btn-ghost install-oui';
+      b.textContent = '⤓ Installer sur l’écran d’accueil';
+      b.addEventListener('click', async () => {
+        this.audio.uiTick?.();
+        if (forme === 'native') {
+          const issue = await this.installation.propose();
+          // Un refus au niveau du système est une réponse : on n'insiste pas.
+          if (issue !== 'accepted') this.installation.refuse();
+          peint();
+        } else {
+          this._montreInstallPomme();
+        }
+      });
+      const non = document.createElement('button');
+      non.className = 'btn-ghost install-non';
+      non.textContent = '✕';
+      non.title = 'Ne plus proposer';
+      non.addEventListener('click', () => {
+        this.installation.refuse();
+        peint();
+      });
+      zone.append(b, non);
+    };
+    // Le crochet du navigateur peut arriver après l'affichage de l'écran.
+    this.installation.onChangement = peint;
+    peint();
+  }
+
+  // LE CAS D'APPLE. Safari n'a jamais implémenté le crochet d'installation et
+  // n'expose aucun moyen de déclencher l'ajout depuis une page : il reste
+  // Partager puis « Sur l'écran d'accueil ». On ne peut pas proposer, on ne peut
+  // qu'expliquer — et le dire franchement vaut mieux qu'un bouton qui ne ferait
+  // rien.
+  _montreInstallPomme() {
+    const boite = document.createElement('div');
+    boite.className = 'install-pomme';
+    boite.innerHTML = `
+      <div class="install-carte">
+        <h3>Poser HYPERNOVA sur l’écran d’accueil</h3>
+        <p>Sur iPhone et iPad, c’est Safari qui s’en charge — le jeu ne peut pas
+        le faire à votre place.</p>
+        <ol>
+          <li>Touchez <b>Partager</b> <span class="install-ico">⤴</span> en bas de l’écran.</li>
+          <li>Faites défiler jusqu’à <b>Sur l’écran d’accueil</b>.</li>
+          <li>Touchez <b>Ajouter</b>.</li>
+        </ol>
+        <p class="install-note">Le jeu s’ouvrira alors en plein écran, sans barre
+        d’adresse, et fonctionnera même sans réseau.</p>
+        <button class="btn-primary" id="install-ok">J’ai compris</button>
+      </div>`;
+    this.overlayRoot.append(boite);
+    const ferme = () => boite.remove();
+    boite.querySelector('#install-ok').addEventListener('click', ferme);
+    boite.addEventListener('click', (e) => {
+      if (e.target === boite) ferme();
+    });
+  }
+
   showVariante(mode) {
     this.quitteVitrine();
     this.state = 'variante';

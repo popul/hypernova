@@ -3859,3 +3859,95 @@ body.touch .btn-call-touch {
 .screen.salons .entr-coques {
   width: 100%;
 }
+
+/* ---- L'invitation à installer sur l'écran d'accueil ---------------------- */
+
+/* En bas, à côté du numéro de version : ce n'est pas une bannière qui recouvre
+   le jeu, c'est une ligne qu'on remarque quand on cherche quoi faire. */
+.title-install {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.install-oui {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.install-non {
+  font-size: 12px;
+  padding: 6px 9px;
+  opacity: 0.5;
+}
+
+.install-non:hover {
+  opacity: 1;
+}
+
+/* La marche à suivre pour iOS. Une fiche, pas une alerte : il y a trois gestes à
+   retenir et on doit pouvoir les relire en tenant le téléphone. */
+.install-pomme {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 4, 15, 0.78);
+  padding: 20px;
+  z-index: 40;
+}
+
+.install-carte {
+  width: min(420px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--cyan-dim);
+  border-radius: 12px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.install-carte h3 {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--gold);
+  text-wrap: balance;
+}
+
+.install-carte p {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.install-carte ol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.install-carte b {
+  color: var(--cyan);
+}
+
+.install-ico {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--cyan-dim);
+  border-radius: 4px;
+  color: var(--cyan);
+}
+
+.install-note {
+  font-size: 12px;
+}
