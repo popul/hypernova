@@ -53,6 +53,66 @@ function tropBavard(ip) {
   return n > LIMITE;
 }
 
+// D'où vient la requête. Derrière le routeur d'entrée, `remoteAddress` est celle
+// du routeur : c'est l'en-tête transmis qui porte le joueur.
+function adresseDe(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || '?';
+}
+
+// --- Les essais de code ------------------------------------------------------
+//
+// UN CODE À QUATRE CHIFFRES, C'EST DIX MILLE POSSIBILITÉS.
+//
+// La limite générale au-dessus laisse passer quatre-vingt-dix requêtes par
+// minute : cinq mille quatre cents à l'heure, soit les dix mille codes essayés
+// en moins de deux heures depuis une seule adresse. Elle protège le service
+// contre la charge, pas les comptes contre la patience — et sur ce tableau, un
+// compte pris, c'est un enfant dont un autre publie les scores sous son nom.
+//
+// On compte donc les essais RATÉS séparément, et on les compte sur le pseudo
+// VISÉ, pas seulement sur l'adresse : changer d'adresse est le premier réflexe,
+// changer de cible ne sert à rien à qui veut CE pseudo. Un essai réussi efface
+// l'ardoise, pour que celui qui se trompe deux fois puis se souvient ne soit
+// jamais gêné.
+//
+// C'est volontairement grossier et ça s'oublie au redémarrage, comme le seau
+// au-dessus : dix mille codes à trente essais par heure demandent plus de treize
+// jours d'acharnement, et un redémarrage n'y change rien à cette échelle.
+const essais = new Map();
+const ESSAIS_ADRESSE = 5; // par pseudo et par adresse, sur la fenêtre
+const ESSAIS_PSEUDO = 30; // toutes adresses confondues, sur la fenêtre
+const FENETRE_ESSAIS = 3600_000;
+
+function compteur(cle) {
+  const e = essais.get(cle);
+  if (!e || Date.now() - e.depuis > FENETRE_ESSAIS) {
+    const neuf = { n: 0, depuis: Date.now() };
+    essais.set(cle, neuf);
+    return neuf;
+  }
+  return e;
+}
+
+// Trop d'essais ratés sur ce pseudo ? On refuse AVANT de comparer quoi que ce
+// soit, pour que le refus ne coûte pas non plus un hachage.
+function tropDEssais(nom, ip) {
+  if (essais.size > 5000) {
+    const vieux = Date.now() - FENETRE_ESSAIS;
+    for (const [k, e] of essais) if (e.depuis < vieux) essais.delete(k);
+  }
+  return compteur(`${nom}|${ip}`).n >= ESSAIS_ADRESSE || compteur(`${nom}`).n >= ESSAIS_PSEUDO;
+}
+
+function essaiRate(nom, ip) {
+  compteur(`${nom}|${ip}`).n++;
+  compteur(`${nom}`).n++;
+}
+
+function essaiReussi(nom, ip) {
+  essais.delete(`${nom}|${ip}`);
+  essais.delete(`${nom}`);
+}
+
 // --- Utilitaires ------------------------------------------------------------
 
 function repond(res, code, corps) {
@@ -177,6 +237,11 @@ async function route(req, res, chemin) {
     if (!code) return repond(res, 400, { erreur: 'code-format' });
 
     const connu = base.pilote(nom);
+    // La garde ne vaut que pour un pseudo DÉJÀ pris : sur un pseudo libre, il n'y
+    // a pas de code à deviner, et compter les essais empêcherait seulement de
+    // s'inscrire.
+    const ip = adresseDe(req);
+    if (connu && tropDEssais(nom, ip)) return repond(res, 429, { erreur: 'trop-d-essais' });
     // À la création seulement : sans adresse, un code oublié rendrait le pseudo
     // définitivement inaccessible — et sur ce tableau, un pseudo perdu est un
     // enfant qui ne peut plus publier ses scores.
@@ -184,7 +249,11 @@ async function route(req, res, chemin) {
 
     const apparence = { livree: livreePropre(corps.livree), carene: carenePropre(corps.carene) };
     const r = base.reclame(nom, code, apparence, email);
-    if (!r.ok) return repond(res, 403, { erreur: r.erreur });
+    if (!r.ok) {
+      if (connu) essaiRate(nom, ip);
+      return repond(res, 403, { erreur: r.erreur });
+    }
+    essaiReussi(nom, ip);
     // L'apparence part avec le jeton : c'est la seule occasion où le client apprend
     // à quoi ressemble son vaisseau sans avoir encore de quoi appeler /moi. Sur un
     // appareil qu'il n'a jamais utilisé, il n'a rien d'autre pour le redessiner.
@@ -408,17 +477,21 @@ function accepteDuo(url) {
 }
 
 const serveur = createServer(async (req, res) => {
-  const ip =
-    req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || '?';
-  if (tropBavard(ip)) return repond(res, 429, { erreur: 'trop-de-requetes' });
+  if (tropBavard(adresseDe(req))) return repond(res, 429, { erreur: 'trop-de-requetes' });
 
   // Le préfixe /api peut être retiré par le routeur d'entrée ou non, selon la
   // façon dont on branche la route. On accepte les deux plutôt que de dépendre
   // d'un réglage d'infrastructure qui se change ailleurs que dans ce fichier.
-  let chemin = new URL(req.url, 'http://x').pathname.replace(/\/+$/, '') || '/';
-  if (chemin.startsWith('/api')) chemin = chemin.slice(4) || '/';
-
+  //
+  // L'ANALYSE DE L'ADRESSE EST DANS LE `try`, ET CE N'EST PAS UN DÉTAIL. Elle
+  // était juste au-dessus, hors de sa protection : `new URL` jette sur une cible
+  // de requête malformée, l'exception remontait en `uncaughtException` et
+  // emportait le processus. Un simple « GET //[ » depuis n'importe où coupait la
+  // partie de tout le monde.
+  let chemin;
   try {
+    chemin = new URL(req.url, 'http://x').pathname.replace(/\/+$/, '') || '/';
+    if (chemin.startsWith('/api')) chemin = chemin.slice(4) || '/';
     await route(req, res, chemin);
   } catch (e) {
     const m = String(e?.message || e);
@@ -427,6 +500,7 @@ const serveur = createServer(async (req, res) => {
       return repond(res, 413, { erreur: 'trop-gros' });
     }
     if (m === 'json') return repond(res, 400, { erreur: 'json' });
+    if (e?.code === 'ERR_INVALID_URL') return repond(res, 400, { erreur: 'adresse' });
     console.error('[api]', m);
     if (!res.headersSent) repond(res, 500, { erreur: 'interne' });
   }

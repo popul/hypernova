@@ -21,6 +21,7 @@
 // faire hésiter, ce qui était pourtant sa seule raison d'être.
 
 import { UPGRADES, priceOf } from './upgrades.js';
+import { PLAYER } from './constants.js';
 import { alea } from '../core/rng.js';
 
 // Le prix de la relance est MULTIPLIÉ par 1,5 à chaque clic dans la même visite,
@@ -54,7 +55,11 @@ export class Shop {
     return UPGRADES.filter((u) => {
       const lvl = state.levels[u.id];
       if (lvl >= u.maxLevel) return false;
-      if (u.id === 'hull' && state.lives >= 5) return false;
+      // LE MÊME PLAFOND QUE buy(), NOMMÉ PAREIL. Le 5 était écrit en dur ici et
+      // lu dans PLAYER.maxLives là-bas : identiques aujourd'hui, donc muets.
+      // Le jour où le plafond bouge, la boutique proposerait une Coque que
+      // l'achat refuserait — une carte qui répond « non » quand on clique.
+      if (u.id === 'hull' && state.lives >= PLAYER.maxLives) return false;
       return true;
     }).map((u) => ({
       id: u.id,

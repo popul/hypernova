@@ -26,9 +26,10 @@ import {
   ecritFrame,
   litFrame,
   empaquete,
+  depaquete,
   VERSION,
 } from '../src/game/rejeu/format.js';
-import { Enregistreur, ouvreReplay } from '../src/game/rejeu/index.js';
+import { Enregistreur, ouvreReplay, LecteurReplay } from '../src/game/rejeu/index.js';
 import {
   commandeVide,
   quantifieDt,
@@ -443,3 +444,41 @@ async function enregistreUnePartie() {
   }
   return e.termine({ score: 4200 });
 }
+
+// --- Un enregistrement abîmé se refuse, il ne casse pas ----------------------
+//
+// Le flux vient de la base, et la base a été écrite par un navigateur, transportée
+// par un réseau, migrée par une colonne. Il ne faut pas beaucoup d'imagination
+// pour qu'un jour il arrive tordu : une ligne tronquée, un transfert coupé. Ce
+// jour-là, l'écran de rejeu doit dire « illisible », pas se figer.
+
+test('un flux illisible rend null au lieu de jeter', async () => {
+  for (const abime of ['zpas-du-base64!!', 'z', 'zQUJD', '@@@@', 'zAAAAAAAAAAAA']) {
+    const r = await depaquete(abime);
+    assert.equal(r, null, `« ${abime} » aurait dû être refusé proprement`);
+  }
+});
+
+test('un flux valide se dépaquette toujours', async () => {
+  // La garde ne doit pas avaler le cas normal.
+  const octets = new Uint8Array([1, 2, 3, 4, 5]);
+  assert.deepEqual([...(await depaquete(await empaquete(octets)))], [...octets]);
+});
+
+test('un nombre de vagues aberrant ne fige pas la lecture', () => {
+  // Quatre octets qui annoncent deux milliards de vagues, et rien derrière. La
+  // boucle tournait dessus, empilait des vagues vides et bloquait l'onglet.
+  const w = new Ecrivain();
+  w.entier(2_000_000_000);
+  const lecteur = new LecteurReplay({ etats: [], controles: [] }, w.fini());
+  assert.ok(lecteur.vagues.length < 10, `${lecteur.vagues.length} vagues sorties de quatre octets`);
+});
+
+test('une taille de vague qui déborde arrête la lecture', () => {
+  const w = new Ecrivain();
+  w.entier(3); // trois vagues annoncées
+  w.entier(60); // la première : soixante frames…
+  w.entier(999_999); // …et un million d'octets qui ne sont pas là
+  const lecteur = new LecteurReplay({ etats: [{}], controles: [[]] }, w.fini());
+  assert.equal(lecteur.vagues.length, 0, 'on a lu au-delà du tampon');
+});

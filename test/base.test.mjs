@@ -281,6 +281,53 @@ test('douze enregistrements par mode, les meilleurs, sans toucher aux scores', (
   );
 });
 
+// EN SURVIE, C'EST LA VAGUE QUI COMPTE — Y COMPRIS POUR CE QU'ON GARDE.
+//
+// L'élagage triait au score dans les deux modes, alors que le tableau de la
+// survie se classe à la VAGUE. Les deux ne disent pas la même chose : en survie
+// on peut aller très loin en marquant peu, et on peut marquer beaucoup en
+// mourant tôt. La partie en TÊTE du tableau était donc élaguée comme si elle
+// était mauvaise. Le meilleur run disparaissait du classement, et son
+// enregistrement avec — c'est-à-dire précisément celui qu'on avait envie de
+// revoir.
+
+test('la survie garde les parties allées le plus LOIN, pas les mieux notées', (t) => {
+  const base = neuve(t);
+  base.reclame('ZOÉ', '1234', {}, 'z@e.fr');
+
+  // Le run de la vie : très loin, en marquant peu. Au tableau de la survie, il
+  // est premier ; à un tri au score, il est bon dernier.
+  base.ajoutePartie('ZOÉ', { mode: 'survie', score: 1, vague: 999, flux: 'RECORD' });
+  // Cent-cinq parties courtes mais bien notées, de quoi passer les deux plafonds.
+  for (let i = 1; i <= 105; i++) {
+    base.ajoutePartie('ZOÉ', { mode: 'survie', score: 10_000 + i, vague: 2, flux: `C${i}` });
+  }
+
+  const record = base.db
+    .prepare("SELECT vague, flux FROM parties WHERE pilote = 'ZOÉ' AND vague = 999")
+    .get();
+  assert.ok(record, 'la meilleure partie de survie du pilote a été SUPPRIMÉE');
+  assert.equal(record.flux, 'RECORD', 'elle est restée au tableau, mais on ne peut plus la revoir');
+
+  // Et elle est bien en tête de ce que le joueur voit : c'est la même question.
+  const tete = base.classement(5, 'survie')[0];
+  assert.equal(tete.vague, 999, 'le tableau et l’élagage ne répondent pas pareil');
+});
+
+test('l’arcade continue de garder les mieux notées', (t) => {
+  // La correction ne devait changer que la survie.
+  const base = neuve(t);
+  base.reclame('ZOÉ', '1234', {}, 'z@e.fr');
+  base.ajoutePartie('ZOÉ', { mode: 'arcade', score: 1, vague: 999, flux: 'LOIN' });
+  for (let i = 1; i <= 20; i++) {
+    base.ajoutePartie('ZOÉ', { mode: 'arcade', score: 10_000 + i, vague: 2, flux: `C${i}` });
+  }
+  const loin = base.db
+    .prepare("SELECT flux FROM parties WHERE pilote = 'ZOÉ' AND vague = 999")
+    .get();
+  assert.equal(loin.flux, null, 'l’arcade se classe au SCORE : une vague haute ne protège rien');
+});
+
 // --- Les quatre tableaux -----------------------------------------------------
 
 test('l’arcade se classe au score, la survie à la vague — à deux comme en solo', (t) => {

@@ -204,6 +204,17 @@ epreuve('la liste ne montre que les tables du même mode', (salle) => {
   // Un mode inconnu retombe sur l'arcade plutôt que de filtrer sur du vide.
   arcadien.dis({ t: 'mode', mode: 'triche' });
   assert.equal(arcadien.c.mode, 'arcade', 'un mode inconnu doit retomber sur arcade');
+
+  // Le mode d'arrivée vient d'un paramètre d'URL, donc du client : il mérite la
+  // même méfiance. Un mode fantaisiste ne filtrerait plus rien du tout.
+  for (const invente of ['triche', '', undefined, 'SURVIE']) {
+    assert.equal(
+      salle.arrive('ZOE', { mode: invente }).c.mode,
+      'arcade',
+      `le mode ${JSON.stringify(invente)} est entré tel quel`
+    );
+  }
+  assert.equal(salle.arrive('ZOE', { mode: 'survie' }).c.mode, 'survie', 'la survie est refusée');
 });
 
 epreuve('la liste part de la plus ancienne invitation', (salle) => {
@@ -525,6 +536,7 @@ epreuve('une déconnexion vaut un départ', (salle) => {
 
 epreuve('le balayage oublie la table dont l’hôte a disparu', (salle, h) => {
   const { hote, invite, id } = salle.table();
+  const avant = hote.des('salons');
   // Le téléphone sort du réseau : rien ne se ferme, la socket est simplement
   // muette. Sans balayage, la table resterait là jusqu'au prochain message.
   hote.meurt();
@@ -537,6 +549,9 @@ epreuve('le balayage oublie la table dont l’hôte a disparu', (salle, h) => {
     "l'invité attend un hôte qui ne reviendra pas"
   );
   assert.equal(invite.c.salon, null);
+  // Et on n'écrit pas la liste dans une socket morte : c'est justement celle
+  // qu'on vient de constater muette.
+  assert.deepEqual(hote.des('salons'), avant, 'la liste est poussée dans une socket fermée');
 });
 
 epreuve('le balayage oublie l’invitation trop vieille, jamais la table occupée', (salle, h) => {
@@ -596,7 +611,7 @@ epreuve('la présence dit qui est à table, et qui joue', (salle, h) => {
   assert.deepEqual(
     salle.duo.enLigne().ALICE,
     { salon: true, partie: false },
-    "l'hôte d'une table qui n'a pas décollé est donné en partie"
+    "l'hôte d'une table qui n'a pas encore décollé est mal décrit à ses amis"
   );
 
   // « En partie » vaut aussi pour une partie SOLO : c'est justement celle qu'un
@@ -744,4 +759,53 @@ epreuve('un message mal formé ou inconnu ne fait rien', (salle) => {
   }
   assert.equal(alice.recus.length, avant, 'un message incompréhensible provoque une réponse');
   assert.equal(salle.duo.chiffres().salons, 0);
+});
+
+// --- Ce que l'autre joueur apprend, et quand ---------------------------------
+
+epreuve('changer de coque dans la salle d’attente prévient l’autre joueur', (salle) => {
+  const { hote, invite } = salle.table();
+  const avant = invite.des('pair').length;
+
+  hote.dis({ t: 'coque', coque: 'vulcain' });
+
+  // La ligne fautive passait `c.salon` — l'IDENTIFIANT — à une méthode qui attend
+  // le SALON. `s.hote` valait alors undefined, la garde d'entrée renvoyait sans
+  // rien faire, et l'invité gardait sous les yeux le vaisseau d'avant jusqu'au
+  // décompte. Aucune erreur nulle part : juste un message qui ne partait pas.
+  assert.ok(invite.des('pair').length > avant, 'le changement de coque n’a prévenu personne');
+  assert.equal(invite.dernier('pair').coque, 'vulcain');
+  assert.equal(invite.dernier('pair').nom, 'ALICE');
+});
+
+epreuve('une table qui expire le dit à son hôte', (salle, horloge) => {
+  const alice = salle.arrive('ALICE');
+  alice.dis({ t: 'creer' });
+  const id = alice.dernier('salon').id;
+
+  // Personne ne vient, et la table dépasse ses dix minutes.
+  salle.duo.salons.get(id).cree = Date.now() - 11 * 60_000;
+  horloge.bat(12000);
+
+  assert.equal(salle.duo.salons.has(id), false, 'la table devait être balayée');
+  // ELLE DISPARAISSAIT SOUS LUI EN SILENCE. Le serveur la retirait de la liste,
+  // et l'hôte restait sur l'écran d'attente devant un compteur qui tournait pour
+  // une partie qui n'existait plus — plus joignable, et pas prévenu.
+  const parti = alice.dernier('parti');
+  assert.ok(parti, 'l’hôte n’a jamais appris que sa table avait expiré');
+  assert.equal(parti.cause, 'expire');
+  assert.equal(parti.hote, false, 'c’est SA table qui a expiré, pas celle d’un autre');
+});
+
+epreuve('un hôte déjà déconnecté ne reçoit pas d’adieu', (salle, horloge) => {
+  const alice = salle.arrive('ALICE');
+  alice.dis({ t: 'creer' });
+  const id = alice.dernier('salon').id;
+  alice.ouverte = false;
+  const avant = alice.des('parti').length;
+
+  horloge.bat(12000);
+
+  assert.equal(salle.duo.salons.has(id), false);
+  assert.equal(alice.des('parti').length, avant, 'on écrit sur une socket fermée');
 });

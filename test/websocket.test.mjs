@@ -172,7 +172,9 @@ test('la plus grosse trame que seize bits peuvent porter passe entière', () => 
   const charge = Buffer.alloc(65535, 0x5a);
   w.envoie(trameClient(0x2, charge));
   assert.equal(w.recus.length, 1, '65 535 octets refusés alors qu’ils sont sous le plafond');
-  assert.deepEqual(w.recus[0], charge);
+  // `equals` plutôt que `deepEqual` : sur soixante-quatre kilooctets, le rapport
+  // de différence d'assert est plus long à produire que la trame à décoder.
+  assert.ok(charge.equals(w.recus[0]), 'la plus grosse trame sur seize bits revient abîmée');
 });
 
 test('une trame annoncée trop grosse est refusée AVANT que la charge n’arrive', () => {
@@ -184,7 +186,11 @@ test('une trame annoncée trop grosse est refusée AVANT que la charge n’arriv
   const t = w.trames();
   assert.equal(t.length, 1, 'le serveur n’a pas répondu à une trame démesurée');
   assert.equal(t[0].opcode, 0x8, 'la réponse n’est pas une fermeture');
-  assert.equal(t[0].charge.readUInt16BE(0), 1009, 'le code de fermeture n’est pas 1009 (trop gros)');
+  assert.equal(
+    t[0].charge.readUInt16BE(0),
+    1009,
+    'le code de fermeture n’est pas 1009 (trop gros)'
+  );
   assert.equal(w.co.ouverte, false);
   assert.equal(w.recus.length, 0);
 });
@@ -218,7 +224,7 @@ test('le plafond tombe exactement à 64 Kio : 64 Kio passe, un octet de plus est
   const juste = Buffer.alloc(PLAFOND, 0x2a);
   w.envoie(trameClient(0x2, juste));
   assert.equal(w.recus.length, 1, '64 Kio pile a été refusé alors qu’il est sous le plafond');
-  assert.deepEqual(w.recus[0], juste, 'la plus grosse trame permise revient abîmée');
+  assert.ok(juste.equals(w.recus[0]), 'la plus grosse trame permise revient abîmée');
   assert.ok(w.co.ouverte);
 
   const trop = branche();
@@ -238,7 +244,11 @@ test('une trame non masquée est refusée, même parfaitement formée par ailleu
   assert.equal(w.recus.length, 0, 'une trame non masquée a été livrée au salon');
   const t = w.trames();
   assert.equal(t[0].opcode, 0x8);
-  assert.equal(t[0].charge.readUInt16BE(0), 1002, 'le code de fermeture n’est pas 1002 (protocole)');
+  assert.equal(
+    t[0].charge.readUInt16BE(0),
+    1002,
+    'le code de fermeture n’est pas 1002 (protocole)'
+  );
   assert.equal(t[0].charge.subarray(2).toString(), 'non-masquee');
 });
 
@@ -261,7 +271,11 @@ test('un message fragmenté est recollé et livré une seule fois', () => {
     trameClient(0x0, 'NO', { fin: false }),
     trameClient(0x0, 'VA')
   );
-  assert.deepEqual(w.recus, ['HYPERNOVA'], 'les morceaux n’ont pas été recollés en un seul message');
+  assert.deepEqual(
+    w.recus,
+    ['HYPERNOVA'],
+    'les morceaux n’ont pas été recollés en un seul message'
+  );
 });
 
 test('un ping glissé au milieu d’un message fragmenté ne le casse pas', () => {
@@ -440,7 +454,11 @@ test('l’en-tête d’émission grandit aux bonnes bornes : 2, 4 puis 10 octets
     const w = branche();
     assert.equal(w.co.envoie('a'.repeat(n)), true);
     const t = litTrameServeur(w.socket.ecrits[0]);
-    assert.equal(t.entete, entete, `${n} octets : en-tête de ${t.entete} octets au lieu de ${entete}`);
+    assert.equal(
+      t.entete,
+      entete,
+      `${n} octets : en-tête de ${t.entete} octets au lieu de ${entete}`
+    );
     assert.equal(t.taille, n, `${n} octets : taille annoncée ${t.taille}`);
     assert.equal(t.charge.length, n, `${n} octets : charge tronquée`);
     assert.equal(t.opcode, 0x1);
@@ -620,4 +638,122 @@ test('une montée réussie donne une connexion qui décode déjà les trames', (
   co.onMessage = (m) => recus.push(m);
   socket.emit('data', trameClient(0x1, '{"t":"pret"}'));
   assert.deepEqual(recus, ['{"t":"pret"}']);
+});
+
+// --- Ce qui ne doit jamais emporter le processus ------------------------------
+//
+// Ce fichier décode des octets venus du réseau ; celui-ci décode une ADRESSE
+// venue du réseau, ce qui est le même genre de danger avec une tête plus
+// rassurante. `new URL` jette sur une cible de requête malformée. Écrite hors
+// d'un try, dans un gestionnaire d'événement, l'exception remonte en
+// `uncaughtException` et TUE LE PROCESSUS : tous les joueurs connectés tombent,
+// y compris ceux qui étaient en pleine partie. Depuis n'importe où, sans compte,
+// en une ligne. Vérifié sur le vrai serveur avant correction — il mourait.
+
+test('une adresse de requête malformée ne tue pas le serveur', () => {
+  const serveur = new EventEmitter();
+  let ouvertures = 0;
+  brancheWebSocket(serveur, () => ({ onOuverture: () => ouvertures++ }));
+  const socket = fausseSocket();
+
+  // « GET //[ HTTP/1.1 » : c'est tout ce qu'il fallait.
+  assert.doesNotThrow(() =>
+    serveur.emit('upgrade', { url: '//[', headers: ENTETES_VALIDES }, socket)
+  );
+  assert.equal(socket.destroyed, true, 'la socket fautive devait être refermée');
+  assert.equal(ouvertures, 0, 'on a ouvert un salon sur une adresse qu’on n’a pas su lire');
+
+  // ET LE SERVEUR SERT ENCORE : c'est toute la question.
+  const suivante = fausseSocket();
+  serveur.emit('upgrade', { url: '/duo', headers: ENTETES_VALIDES }, suivante);
+  assert.equal(ouvertures, 1, 'le joueur suivant ne peut plus se connecter');
+});
+
+test('une exception à l’ouverture referme la connexion sans emporter le reste', () => {
+  const serveur = new EventEmitter();
+  brancheWebSocket(serveur, () => ({
+    onOuverture: () => {
+      throw new Error('salon en vrac');
+    },
+  }));
+  const socket = fausseSocket();
+
+  // Tous les autres rappels du fichier sont déjà protégés ; celui-ci ne l'était
+  // pas, et c'est le seul qui court pendant la poignée de main.
+  assert.doesNotThrow(() =>
+    serveur.emit('upgrade', { url: '/duo', headers: ENTETES_VALIDES }, socket)
+  );
+});
+
+test('un message fragmenté sans fin ne fait pas gonfler la mémoire sans limite', () => {
+  const socket = fausseSocket();
+  const co = new Connexion(socket, { url: new URL('http://x/duo'), contexte: {} });
+  const recus = [];
+  co.onMessage = (m) => recus.push(m);
+
+  // Chaque trame respecte le plafond des soixante-quatre kilo-octets. Mais rien
+  // ne bornait leur NOMBRE : un client qui enchaîne les continuations sans jamais
+  // poser le bit de fin faisait grossir le tampon jusqu'à faire tomber le
+  // processus. Le plafond de la TRAME ne protège que si le MESSAGE en a un.
+  const bloc = 'x'.repeat(32 * 1024);
+  socket.emit('data', trameClient(0x1, bloc, { fin: false }));
+  for (let i = 0; i < 8 && co.ouverte; i++) {
+    socket.emit('data', trameClient(0x0, bloc, { fin: false }));
+  }
+
+  // `close` laisse soixante millisecondes à la trame de fermeture pour partir
+  // avant de détruire la socket : c'est `ouverte` qui dit tout de suite si la
+  // connexion est condamnée, pas `destroyed`.
+  assert.equal(co.ouverte, false, 'le message pouvait grossir indéfiniment');
+  assert.deepEqual(recus, [], 'un message jamais terminé ne doit rien livrer');
+});
+
+test('un message fragmenté normal passe toujours', () => {
+  // La borne ne doit pas casser le cas légitime : un gros message découpé.
+  const socket = fausseSocket();
+  const co = new Connexion(socket, { url: new URL('http://x/duo'), contexte: {} });
+  const recus = [];
+  co.onMessage = (m) => recus.push(m);
+
+  socket.emit('data', trameClient(0x1, 'bon', { fin: false }));
+  socket.emit('data', trameClient(0x0, 'jour', { fin: true }));
+
+  assert.deepEqual(recus, ['bonjour']);
+  assert.equal(co.ouverte, true);
+
+  // Et le compteur repart de zéro : deux messages découpés à la suite ne
+  // s'additionnent pas jusqu'au plafond.
+  socket.emit('data', trameClient(0x1, 'à', { fin: false }));
+  socket.emit('data', trameClient(0x0, ' plus', { fin: true }));
+  assert.deepEqual(recus, ['bonjour', 'à plus']);
+});
+
+test('la première trame collée à la poignée de main n’est pas perdue', () => {
+  // Node livre en troisième argument du `upgrade` ce qu'il a lu APRÈS les
+  // en-têtes, dans le même paquet TCP. Un client a le droit de coller sa
+  // première trame à sa poignée de main, et un intermédiaire peut agglomérer
+  // les deux paquets à sa place. Ces octets-là étaient jetés : sur le canal du
+  // duo, le message perdu est celui qui dit qui vous êtes.
+  const serveur = new EventEmitter();
+  const socket = fausseSocket();
+  const recus = [];
+  let co = null;
+  // Le collecteur se pose dans onOuverture, exactement comme le vrai salon le
+  // fait — ce qui est aussi la raison pour laquelle ces octets ne peuvent être
+  // livrés qu'APRÈS elle.
+  brancheWebSocket(serveur, () => ({
+    onOuverture: (c) => {
+      co = c;
+      c.onMessage = (m) => recus.push(m);
+    },
+  }));
+  serveur.emit(
+    'upgrade',
+    { url: '/duo', headers: ENTETES_VALIDES },
+    socket,
+    trameClient(0x1, '{"t":"bonjour"}')
+  );
+
+  assert.ok(co, 'la connexion n’a pas été ouverte');
+  assert.deepEqual(recus, ['{"t":"bonjour"}'], 'le premier message a été jeté');
 });

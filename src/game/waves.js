@@ -2,7 +2,7 @@
 // La difficulté monte via le nombre, les PV, la fréquence des plongées et la vitesse des tirs.
 
 import * as THREE from 'three';
-import { WAVES, ENEMY, DIRECTOR } from './constants.js';
+import { WAVES, ENEMY, DIRECTOR, SURVIE, PENTE_ARCADE } from './constants.js';
 import { alea, mulberry32 } from '../core/rng.js';
 
 // Position de base d'un slot de formation (sans le balancement, appliqué en continu ailleurs).
@@ -75,6 +75,20 @@ function shuffled(list, rng) {
 // opts.forceBoss / opts.noBoss : contrôle du boss par les missions de campagne
 // (en arcade, le boss revient toutes les WAVES.bossEvery vagues).
 // opts.seed : graine de la partie ; la vague n en dérive la sienne.
+// CE QU'ON DEMANDE À makeWave POUR LA VAGUE NUMÉRO n.
+//
+// Deux lignes, sorties du jeu pour qu'une épreuve puisse les tenir. Elles ont
+// une propriété qui ne se lit sur aucune des deux prise seule : deux vagues
+// voisines ne doivent JAMAIS produire la même chose. La difficulté seule ne le
+// garantit pas — la pente l'étale, donc l'arrondi la répète — et la graine seule
+// non plus. C'est leur couple qui distingue, et c'est le couple qu'on éprouve.
+export function paramsVague(n, { survie = false, seed = 0 } = {}) {
+  return {
+    diff: Math.max(1, Math.round(survie ? n * SURVIE.pente : 1 + (n - 1) * PENTE_ARCADE)),
+    seed: seed + n * 977,
+  };
+}
+
 export function makeWave(n, opts = {}) {
   const isBossWave = opts.forceBoss || (!opts.noBoss && n % WAVES.bossEvery === 0);
   const cols = Math.min(WAVES.colsBase + Math.floor(n / 3), WAVES.colsMax);

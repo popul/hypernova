@@ -19,7 +19,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeWave, dailySeed, slotBasePosition, difficulty, pickWeighted, pickDiveStyle } from '../src/game/waves.js';
+import {
+  makeWave,
+  paramsVague,
+  dailySeed,
+  slotBasePosition,
+  difficulty,
+  pickWeighted,
+  pickDiveStyle,
+} from '../src/game/waves.js';
 import { STAGES, stageForWave, durcisPourBoss, biomeForWave } from '../src/game/space/biomes.js';
 import { escalePourSecteur, A_UNE_ESCALE } from '../src/game/space/escales.js';
 import { createLandmark } from '../src/game/space/landmarks.js';
@@ -72,7 +80,10 @@ test('une vague livre toujours des ennemis, et des ennemis que le jeu sait fabri
         assert.ok(ENEMY_TYPES[s.type], `vague ${n} : type d'ennemi inconnu « ${s.type} »`);
         assert.equal(s.cols, cols, `vague ${n} : deux largeurs de formation dans la même vague`);
         assert.ok(Number.isFinite(s.delay) && s.delay >= 0, `vague ${n} : délai d'entrée aberrant`);
-        assert.ok(Number.isInteger(s.col) && s.col >= 0 && s.col < cols, `vague ${n} : colonne ${s.col} hors formation`);
+        assert.ok(
+          Number.isInteger(s.col) && s.col >= 0 && s.col < cols,
+          `vague ${n} : colonne ${s.col} hors formation`
+        );
         assert.ok(s.curve && s.curve.v3, `vague ${n} : un ennemi sans trajectoire d'entrée`);
       }
     }
@@ -145,12 +156,20 @@ test('le boss tombe quand il doit, et jamais quand on le refuse', () => {
     // Le drapeau et le contenu doivent dire la même chose : la musique, le HUD et
     // la fin de vague se fient au drapeau, la scène au contenu.
     const amiraux = auto.spawns.filter((s) => s.type === 'boss').length;
-    assert.equal(amiraux, auto.boss ? 1 : 0, `vague ${n} : ${amiraux} amiral(aux) pour boss=${auto.boss}`);
+    assert.equal(
+      amiraux,
+      auto.boss ? 1 : 0,
+      `vague ${n} : ${amiraux} amiral(aux) pour boss=${auto.boss}`
+    );
 
     // Les missions de campagne et les escales imposent leur choix : une escale
     // sans boss doit rester sans boss, même sur un numéro de rendez-vous.
     assert.equal(makeWave(n, { seed: 9, noBoss: true }).boss, false, `vague ${n} : noBoss ignoré`);
-    assert.equal(makeWave(n, { seed: 9, forceBoss: true }).boss, true, `vague ${n} : forceBoss ignoré`);
+    assert.equal(
+      makeWave(n, { seed: 9, forceBoss: true }).boss,
+      true,
+      `vague ${n} : forceBoss ignoré`
+    );
     assert.equal(
       makeWave(n, { seed: 9, noBoss: true }).spawns.some((s) => s.type === 'boss'),
       false,
@@ -191,7 +210,10 @@ test('la vague déferle en deux assauts, avec une respiration entre les deux', (
     assert.ok(a.length && b.length, `vague ${n} : il n'y a plus deux assauts`);
     const finA = Math.max(...a.map((s) => s.delay));
     const debutB = Math.min(...b.map((s) => s.delay));
-    assert.ok(debutB - finA >= 1, `vague ${n} : les deux assauts se rejoignent (${(debutB - finA).toFixed(2)} s)`);
+    assert.ok(
+      debutB - finA >= 1,
+      `vague ${n} : les deux assauts se rejoignent (${(debutB - finA).toFixed(2)} s)`
+    );
   }
 });
 
@@ -227,9 +249,17 @@ test('à graine égale, vague égale — au point de contrôle près', () => {
   }
   // La graine par défaut est documentée comme valant 1. Une partie lancée sans
   // graine et une partie de graine 1 doivent donc être la même partie.
-  assert.equal(empreinte(makeWave(6)), empreinte(makeWave(6, { seed: 1 })), 'la graine par défaut a changé');
+  assert.equal(
+    empreinte(makeWave(6)),
+    empreinte(makeWave(6, { seed: 1 })),
+    'la graine par défaut a changé'
+  );
   // Zéro est une graine, pas une absence de graine : `?? 1` et non `|| 1`.
-  assert.notEqual(empreinte(makeWave(6, { seed: 0 })), empreinte(makeWave(6, { seed: 1 })), 'la graine 0 est traitée comme absente');
+  assert.notEqual(
+    empreinte(makeWave(6, { seed: 0 })),
+    empreinte(makeWave(6, { seed: 1 })),
+    'la graine 0 est traitée comme absente'
+  );
 });
 
 test('deux graines différentes ne donnent pas la même vague', () => {
@@ -239,7 +269,10 @@ test('deux graines différentes ne donnent pas la même vague', () => {
     const vues = new Map();
     for (let graine = 0; graine < 30; graine++) {
       const e = empreinte(makeWave(n, { seed: graine }));
-      assert.ok(!vues.has(e), `vague ${n} : les graines ${vues.get(e)} et ${graine} donnent la même vague`);
+      assert.ok(
+        !vues.has(e),
+        `vague ${n} : les graines ${vues.get(e)} et ${graine} donnent la même vague`
+      );
       vues.set(e, graine);
     }
   }
@@ -252,13 +285,20 @@ test('la graine du jour ne dépend que du jour', () => {
   const matin = dailySeed(new Date('2026-08-28T00:00:01Z'));
   const soir = dailySeed(new Date('2026-08-28T23:59:59Z'));
   assert.equal(matin, soir, 'la graine du jour bouge au cours de la journée');
-  assert.notEqual(matin, dailySeed(new Date('2026-08-29T00:00:01Z')), 'deux jours de suite, même défi');
+  assert.notEqual(
+    matin,
+    dailySeed(new Date('2026-08-29T00:00:01Z')),
+    'deux jours de suite, même défi'
+  );
 
   const vues = new Set();
   for (let j = 0; j < 400; j++) {
     const d = new Date(Date.UTC(2026, 0, 1 + j));
     const g = dailySeed(d);
-    assert.ok(Number.isInteger(g) && g >= 0 && g <= 0xffffffff, `graine du jour hors bornes : ${g}`);
+    assert.ok(
+      Number.isInteger(g) && g >= 0 && g <= 0xffffffff,
+      `graine du jour hors bornes : ${g}`
+    );
     vues.add(g);
   }
   assert.equal(vues.size, 400, 'deux jours de l’année partagent la même graine');
@@ -283,13 +323,22 @@ test('tout tirage de motif tombe sur un motif que le jeu sait jouer', () => {
       let somme = 0;
       for (const [cle, poids] of Object.entries(table)) {
         assert.ok(permis.has(cle), `vague ${n} : motif « ${cle} » que personne ne sait jouer`);
-        assert.ok(poids > 0, `vague ${n} : le motif « ${cle} » a un poids nul, il ne sortira jamais`);
+        assert.ok(
+          poids > 0,
+          `vague ${n} : le motif « ${cle} » a un poids nul, il ne sortira jamais`
+        );
         somme += poids;
       }
-      assert.ok(Math.abs(somme - 1) < 1e-9, `vague ${n} : les poids totalisent ${somme} au lieu de 1`);
+      assert.ok(
+        Math.abs(somme - 1) < 1e-9,
+        `vague ${n} : les poids totalisent ${somme} au lieu de 1`
+      );
       for (let i = 0; i < 200; i++) {
         const sorti = tire(table, i / 200);
-        assert.ok(cles.includes(sorti), `vague ${n} : le tirage ${i / 200} sort « ${sorti} », hors table`);
+        assert.ok(
+          cles.includes(sorti),
+          `vague ${n} : le tirage ${i / 200} sort « ${sorti} », hors table`
+        );
       }
     }
   }
@@ -324,11 +373,17 @@ test('les onze secteurs durent tous le même temps, et sont tous atteignables', 
   // dans le découpage ferait sauter un secteur entier — celui-là ne se verrait
   // jamais, et personne ne saurait qu'il existe.
   const longueurs = STAGES.slice(0, -1).map((_, i) => vaguesDuSecteur(i).length);
-  assert.ok(longueurs.every((l) => l === longueurs[0]), `paliers de durées inégales : ${longueurs.join(',')}`);
+  assert.ok(
+    longueurs.every((l) => l === longueurs[0]),
+    `paliers de durées inégales : ${longueurs.join(',')}`
+  );
   assert.ok(longueurs[0] >= 1, 'un palier ne couvre aucune vague');
   assert.equal(vaguesDuSecteur(0)[0], 1, 'la partie ne commence pas au premier secteur');
   // Et le dernier ne se termine pas : la partie continue quand le voyage s'arrête.
-  assert.ok(vaguesDuSecteur(STAGES.length - 1).length > longueurs[0], 'le dernier palier a une fin');
+  assert.ok(
+    vaguesDuSecteur(STAGES.length - 1).length > longueurs[0],
+    'le dernier palier a une fin'
+  );
 });
 
 test('chaque secteur est complet, et ils sont tous distincts', () => {
@@ -338,15 +393,26 @@ test('chaque secteur est complet, et ils sont tous distincts', () => {
   const modele = Object.keys(STAGES[0]).sort();
   const ids = new Set();
   for (const s of STAGES) {
-    assert.deepEqual(Object.keys(s).sort(), modele, `le secteur « ${s.id} » n'a pas les mêmes champs que les autres`);
+    assert.deepEqual(
+      Object.keys(s).sort(),
+      modele,
+      `le secteur « ${s.id} » n'a pas les mêmes champs que les autres`
+    );
     assert.ok(!ids.has(s.id), `deux secteurs portent l'identifiant « ${s.id} »`);
     ids.add(s.id);
     assert.ok(s.name && s.sub, `le secteur « ${s.id} » n'a pas de quoi s'annoncer`);
     assert.ok(s.sun > 0, `le secteur « ${s.id} » n'a plus de soleil du tout`);
     assert.ok(s.fog.density > 0, `le secteur « ${s.id} » n'a pas de brouillard`);
     assert.ok(s.hemi.intensity > 0 && s.exposure > 0, `le secteur « ${s.id} » est éteint`);
-    assert.equal(s.star.opacity.length, 2, `le secteur « ${s.id} » : deux opacités d'étoiles attendues`);
-    assert.ok(Array.isArray(s.nebulas) && Array.isArray(s.landmark), `le secteur « ${s.id} » : nébuleuses ou décors mal formés`);
+    assert.equal(
+      s.star.opacity.length,
+      2,
+      `le secteur « ${s.id} » : deux opacités d'étoiles attendues`
+    );
+    assert.ok(
+      Array.isArray(s.nebulas) && Array.isArray(s.landmark),
+      `le secteur « ${s.id} » : nébuleuses ou décors mal formés`
+    );
   }
 });
 
@@ -375,8 +441,14 @@ test('aucun décor ne pose de rose dans le fond', () => {
   // l'être SEULS. Un fond, une brume ou une lumière de bord dans la même teinte
   // et l'on ne distingue plus ce qui tue de ce qui décore. C'est le genre de
   // réglage qu'on change pour une raison esthétique, sans penser aux balles.
-  assert.ok(estRose(ENEMY.bulletColorAimed), 'le critère ne désigne plus la couleur des balles visées');
-  assert.ok(!estRose(ENEMY.bulletColorStraight), 'le critère est devenu si large qu’il attrape les balles droites');
+  assert.ok(
+    estRose(ENEMY.bulletColorAimed),
+    'le critère ne désigne plus la couleur des balles visées'
+  );
+  assert.ok(
+    !estRose(ENEMY.bulletColorStraight),
+    'le critère est devenu si large qu’il attrape les balles droites'
+  );
 
   const lieux = [];
   for (const s of STAGES) {
@@ -393,7 +465,10 @@ test('aucun décor ne pose de rose dans le fond', () => {
       ['liseré', l.rim],
       ['étoiles', l.star.color],
     ]) {
-      assert.ok(!estRose(c), `« ${l.id} » : le ${quoi} est rose comme un projectile (0x${c.toString(16)})`);
+      assert.ok(
+        !estRose(c),
+        `« ${l.id} » : le ${quoi} est rose comme un projectile (0x${c.toString(16)})`
+      );
     }
     for (const [css] of l.nebulas) {
       const m = css.match(/rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
@@ -410,16 +485,28 @@ test('l’arrivée de l’amiral assombrit le lieu sans le remplacer', () => {
   // là-dessus — sans quoi l'assombrissement ne s'appliquerait jamais.
   for (const base of [STAGES[0], STAGES[6], escalePourSecteur(STAGES[3], 0)]) {
     const d = durcisPourBoss(base);
-    assert.notEqual(d.id, base.id, `« ${base.id} » : l'identifiant ne change pas, la scène ne se rebâtira pas`);
+    assert.notEqual(
+      d.id,
+      base.id,
+      `« ${base.id} » : l'identifiant ne change pas, la scène ne se rebâtira pas`
+    );
     assert.equal(d.name, base.name, `« ${base.id} » : le joueur perd le nom du lieu où il se bat`);
-    assert.deepEqual(d.landmark, base.landmark, `« ${base.id} » : les décors disparaissent à l'arrivée de l'amiral`);
+    assert.deepEqual(
+      d.landmark,
+      base.landmark,
+      `« ${base.id} » : les décors disparaissent à l'arrivée de l'amiral`
+    );
     assert.equal(d.escale, base.escale, `« ${base.id} » : une escale cesse d'être une escale`);
     assert.ok(d.fog.density > base.fog.density, `« ${base.id} » : le brouillard ne monte pas`);
     assert.ok(d.hemi.intensity < base.hemi.intensity, `« ${base.id} » : la lumière ne baisse pas`);
     assert.ok(d.exposure < base.exposure, `« ${base.id} » : l'exposition ne baisse pas`);
   }
   assert.equal(biomeForWave(1, false), STAGES[0], 'biomeForWave ne rend plus le secteur nu');
-  assert.equal(biomeForWave(1, true).id, durcisPourBoss(STAGES[0]).id, 'biomeForWave n’assombrit plus pour le boss');
+  assert.equal(
+    biomeForWave(1, true).id,
+    durcisPourBoss(STAGES[0]).id,
+    'biomeForWave n’assombrit plus pour le boss'
+  );
 });
 
 // ─── LES ESCALES ─────────────────────────────────────────────────────────────
@@ -430,7 +517,10 @@ test('chaque secteur du voyage mène quelque part', () => {
   // au joueur pour l'expédier directement à la boutique, sans rien.
   for (const s of STAGES) {
     assert.ok(A_UNE_ESCALE(s.id), `le secteur « ${s.id} » n'offre aucun détour`);
-    assert.ok(escalePourSecteur(s, 0), `le secteur « ${s.id} » se dit une escale mais n'en rend aucune`);
+    assert.ok(
+      escalePourSecteur(s, 0),
+      `le secteur « ${s.id} » se dit une escale mais n'en rend aucune`
+    );
   }
   // Les deux réponses doivent s'accorder : le jeu interroge la première pour
   // décider du détour, et n'appelle la seconde qu'après l'avoir facturé.
@@ -438,7 +528,7 @@ test('chaque secteur du voyage mène quelque part', () => {
   assert.equal(escalePourSecteur({ id: 'secteur-qui-n-existe-pas' }, 0), null);
 });
 
-test('une escale a tout ce qu’un secteur a, et un nom à elle', () => {
+test('une escale a tout ce qu’un secteur a, et un peu plus', () => {
   // `setBiome` reçoit une escale exactement comme il reçoit un secteur : tout
   // champ ajouté aux secteurs et oublié ici devient un `undefined` au milieu de
   // la construction de la scène, à l'endroit précis du jeu qu'on a fait le détour
@@ -450,14 +540,31 @@ test('une escale a tout ce qu’un secteur a, et un nom à elle', () => {
       for (const c of champsSecteur) {
         assert.ok(c in e, `escale de « ${s.id} » : champ « ${c} » manquant`);
       }
-      assert.ok(e.escale, `escale de « ${s.id} » : elle ne dit pas de quel genre de lieu il s'agit`);
+      assert.ok(
+        e.escale,
+        `escale de « ${s.id} » : elle ne dit pas de quel genre de lieu il s'agit`
+      );
       assert.ok(e.name && e.sub, `escale de « ${s.id} » : elle ne s'annonce pas`);
-      assert.deepEqual(e.nebulas, [], `escale de « ${s.id} » : des nébuleuses peintes derrière un sol`);
-      assert.equal(e.landmark.length, 1, `escale de « ${s.id} » : une escale est un lieu, pas une collection`);
-      assert.ok(e.fog.density > s.fog.density, `escale de « ${s.id} » : elle n'est pas plus fermée que le vide`);
+      assert.deepEqual(
+        e.nebulas,
+        [],
+        `escale de « ${s.id} » : des nébuleuses peintes derrière un sol`
+      );
+      assert.equal(
+        e.landmark.length,
+        1,
+        `escale de « ${s.id} » : une escale est un lieu, pas une collection`
+      );
+      assert.ok(
+        e.fog.density > s.fog.density,
+        `escale de « ${s.id} » : elle n'est pas plus fermée que le vide`
+      );
       // Le plancher d'éclairage : une escale qu'on a fait le détour d'aller voir
       // et qu'on ne voit pas n'existe pas. Il vaut 0,62 dans le code.
-      assert.ok(e.hemi.intensity >= 0.62, `escale de « ${s.id} » : trop sombre pour être vue (${e.hemi.intensity})`);
+      assert.ok(
+        e.hemi.intensity >= 0.62,
+        `escale de « ${s.id} » : trop sombre pour être vue (${e.hemi.intensity})`
+      );
     }
   }
 });
@@ -473,7 +580,10 @@ test('deux escales ne se confondent jamais, ni entre elles ni avec un secteur', 
       if (vus.has(e.id) && !e.id.endsWith(s.id)) {
         assert.fail(`l'escale « ${e.id} » entre en collision avec un autre lieu`);
       }
-      assert.ok(e.id.includes(s.id), `l'escale « ${e.id} » ne porte pas le secteur dont elle dépend`);
+      assert.ok(
+        e.id.includes(s.id),
+        `l'escale « ${e.id} » ne porte pas le secteur dont elle dépend`
+      );
       vus.add(e.id);
     }
   }
@@ -484,7 +594,10 @@ test('deux escales ne se confondent jamais, ni entre elles ni avec un secteur', 
     for (let tirage = 0; tirage < 6; tirage++) {
       const e = escalePourSecteur(s, tirage);
       const deja = titres.get(e.name);
-      assert.ok(deja == null || deja === e.id, `« ${e.id} » et « ${deja} » s'annoncent tous deux « ${e.name} »`);
+      assert.ok(
+        deja == null || deja === e.id,
+        `« ${e.id} » et « ${deja} » s'annoncent tous deux « ${e.name} »`
+      );
       titres.set(e.name, e.id);
     }
   }
@@ -504,12 +617,19 @@ test('une escale est stable pour un tirage donné, et se rejoue', () => {
     }
     // Un tirage négatif ne doit pas sortir de la table : ce serait un `undefined`
     // déstructuré, donc une erreur, au moment d'entrer dans le lieu.
-    assert.equal(escalePourSecteur(s, -3).id, escalePourSecteur(s, 3).id, `escale de « ${s.id} » : tirage négatif mal ramené`);
+    assert.equal(
+      escalePourSecteur(s, -3).id,
+      escalePourSecteur(s, 3).id,
+      `escale de « ${s.id} » : tirage négatif mal ramené`
+    );
     // La graine du décor doit rester dans ses bornes et ne jamais valoir zéro —
     // c'est elle qui sème la disposition des cailloux.
     for (const tirage of [0, 996, 997, 1994, 100002]) {
       const g = escalePourSecteur(s, tirage).landmark[0].seed;
-      assert.ok(Number.isInteger(g) && g >= 1 && g <= 997, `escale de « ${s.id} » : graine de décor hors bornes (${g})`);
+      assert.ok(
+        Number.isInteger(g) && g >= 1 && g <= 997,
+        `escale de « ${s.id} » : graine de décor hors bornes (${g})`
+      );
     }
   }
 });
@@ -579,7 +699,10 @@ test('les deux routes ne proposent jamais la même chose', () => {
       );
       assert.ok(r.courte.nom && r.courte.desc, `palier ${i} : route directe sans description`);
       assert.ok(r.longue.nom && r.longue.desc, `palier ${i} : détour sans description`);
-      assert.ok(r.destination && STAGES.includes(r.destination), `palier ${i} : destination inconnue`);
+      assert.ok(
+        r.destination && STAGES.includes(r.destination),
+        `palier ${i} : destination inconnue`
+      );
     }
   }
 });
@@ -596,20 +719,33 @@ test('un risque de route durcit vraiment la vague suivante', () => {
     const risque = routesForStage(i, 0).longue.risque;
     assert.ok(risque.id && risque.label, `palier ${i} : risque sans nom à afficher`);
     for (const [cle, val] of Object.entries(risque.mods)) {
-      assert.ok(val > 1, `palier ${i} : le risque « ${risque.id} » adoucit la vague (${cle}=${val})`);
+      assert.ok(
+        val > 1,
+        `palier ${i} : le risque « ${risque.id} » adoucit la vague (${cle}=${val})`
+      );
       vus.add(cle);
     }
     const durci = difficulty(10, { ...MODS_NEUTRES, ...risque.mods }, 0);
-    assert.ok(durci.formationFireInterval <= base.formationFireInterval, `palier ${i} : la formation tire moins`);
+    assert.ok(
+      durci.formationFireInterval <= base.formationFireInterval,
+      `palier ${i} : la formation tire moins`
+    );
     assert.ok(durci.diveInterval <= base.diveInterval, `palier ${i} : moins de piqués`);
     if (risque.mods.fire) {
-      assert.ok(durci.formationFireInterval < base.formationFireInterval, `palier ${i} : « nourri » ne nourrit rien`);
+      assert.ok(
+        durci.formationFireInterval < base.formationFireInterval,
+        `palier ${i} : « nourri » ne nourrit rien`
+      );
     }
     if (risque.mods.dive) {
       assert.ok(durci.diveInterval < base.diveInterval, `palier ${i} : « piqués » ne change rien`);
     }
   }
-  assert.deepEqual([...vus].sort(), ['dive', 'fire', 'hp'], 'les trois leviers de risque ne sont plus tous employés');
+  assert.deepEqual(
+    [...vus].sort(),
+    ['dive', 'fire', 'hp'],
+    'les trois leviers de risque ne sont plus tous employés'
+  );
 });
 
 test('deux joueurs de même graine ont eu le même choix au même moment', () => {
@@ -617,12 +753,18 @@ test('deux joueurs de même graine ont eu le même choix au même moment', () =>
   // défendable. Un Math.random ici ne casserait rien de visible.
   for (let i = 0; i < 24; i++) {
     for (const graine of GRAINES) {
-      assert.deepEqual(routesForStage(i, graine), routesForStage(i, graine), `palier ${i}, graine ${graine}`);
+      assert.deepEqual(
+        routesForStage(i, graine),
+        routesForStage(i, graine),
+        `palier ${i}, graine ${graine}`
+      );
     }
   }
   // Et la graine doit compter : sans ça, toutes les parties offriraient la même
   // suite de routes, et le classement comparerait deux fois la même chose.
-  const differents = GRAINES.some((g) => JSON.stringify(routesForStage(2, g)) !== JSON.stringify(routesForStage(2, 0)));
+  const differents = GRAINES.some(
+    (g) => JSON.stringify(routesForStage(2, g)) !== JSON.stringify(routesForStage(2, 0))
+  );
   assert.ok(differents, 'la graine n’influence plus le choix de route');
 });
 
@@ -642,8 +784,16 @@ test('la destination annoncée est bien le secteur où l’on arrive', () => {
   // Au bout du voyage, on ne promet plus d'ailleurs : rebrousser chemin n'aurait
   // aucun sens, et la partie, elle, continue.
   const dernier = STAGES.length - 1;
-  assert.equal(routesForStage(dernier, 0).destination, STAGES[dernier], 'le voyage repart après sa fin');
-  assert.equal(routesForStage(dernier + 40, 0).destination, STAGES[dernier], 'un palier au-delà du voyage sort de la table');
+  assert.equal(
+    routesForStage(dernier, 0).destination,
+    STAGES[dernier],
+    'le voyage repart après sa fin'
+  );
+  assert.equal(
+    routesForStage(dernier + 40, 0).destination,
+    STAGES[dernier],
+    'un palier au-delà du voyage sort de la table'
+  );
 });
 
 test('les paliers de coque se méritent dans l’ordre, et s’annoncent juste', () => {
@@ -653,11 +803,18 @@ test('les paliers de coque se méritent dans l’ordre, et s’annoncent juste',
   // dans 0 fragment » sans jamais l'obtenir.
   assert.equal(PALIERS[0].fragments, 0, 'le premier palier doit être gratuit');
   for (let i = 1; i < PALIERS.length; i++) {
-    assert.ok(PALIERS[i].fragments > PALIERS[i - 1].fragments, `le palier ${PALIERS[i].chiffre} ne coûte pas plus que le précédent`);
+    assert.ok(
+      PALIERS[i].fragments > PALIERS[i - 1].fragments,
+      `le palier ${PALIERS[i].chiffre} ne coûte pas plus que le précédent`
+    );
     assert.ok(PALIERS[i].chiffre && PALIERS[i].effet, `le palier ${i} ne dit pas ce qu'il apporte`);
   }
   for (const p of PALIERS) {
-    assert.equal(palierDeCoque(p.fragments), PALIERS.indexOf(p), `le seuil de ${p.fragments} fragments n'ouvre pas le palier ${p.chiffre}`);
+    assert.equal(
+      palierDeCoque(p.fragments),
+      PALIERS.indexOf(p),
+      `le seuil de ${p.fragments} fragments n'ouvre pas le palier ${p.chiffre}`
+    );
   }
   let precedent = 0;
   for (let f = 0; f <= 40; f++) {
@@ -667,14 +824,30 @@ test('les paliers de coque se méritent dans l’ordre, et s’annoncent juste',
     const reste = fragmentsAvantPalierSuivant(f);
     const vise = prochainPalier(f);
     if (vise) {
-      assert.equal(reste, vise.fragments - f, `${f} fragments : « dans ${reste} » ne mène pas au palier ${vise.chiffre}`);
+      assert.equal(
+        reste,
+        vise.fragments - f,
+        `${f} fragments : « dans ${reste} » ne mène pas au palier ${vise.chiffre}`
+      );
       assert.ok(reste > 0, `${f} fragments : on annonce un palier déjà atteint`);
     } else {
-      assert.equal(reste, null, `${f} fragments : il reste des fragments à faire sans palier à atteindre`);
-      assert.equal(p, PALIERS.length - 1, `${f} fragments : plus rien à viser sans être au maximum`);
+      assert.equal(
+        reste,
+        null,
+        `${f} fragments : il reste des fragments à faire sans palier à atteindre`
+      );
+      assert.equal(
+        p,
+        PALIERS.length - 1,
+        `${f} fragments : plus rien à viser sans être au maximum`
+      );
     }
   }
-  assert.equal(palierDeCoque(-1), 0, 'un compte de fragments aberrant doit retomber au premier palier');
+  assert.equal(
+    palierDeCoque(-1),
+    0,
+    'un compte de fragments aberrant doit retomber au premier palier'
+  );
 });
 
 test('les vies du Registre restent dans ce que la coque peut porter', () => {
@@ -690,4 +863,82 @@ test('les vies du Registre restent dans ce que la coque peut porter', () => {
     PLAYER.baseLives + donnees <= PLAYER.maxLives + 2,
     'un joueur qui ne va que chercher des fragments dépasse déjà le plafond de vies'
   );
+});
+
+// --- Deux vagues voisines ne sont jamais la même ------------------------------
+//
+// Cette épreuve défend une propriété qui a DÉJÀ cédé une fois, en production.
+//
+// Tant que la difficulté de l'arcade valait le numéro de vague, makeWave recevait
+// un nombre différent à chaque fois et la graine pouvait rester fixe. La pente a
+// étalé cette difficulté : l'arrondi donne désormais la même à des vagues
+// voisines. La graine n'ayant pas suivi, les vagues 2 et 3 étaient le même
+// combat, joué deux fois d'affilée — comme 6 et 7, 9 et 10, 13 et 14. Rien ne
+// plantait. On rejouait, simplement.
+
+test('la pente donne bien la même difficulté à des vagues voisines', () => {
+  // On constate le fait qui rend l'épreuve suivante nécessaire : sans lui, la
+  // graine fixe n'aurait jamais posé de problème.
+  const doublons = [];
+  for (let n = 2; n <= 16; n++) {
+    if (paramsVague(n).diff === paramsVague(n - 1).diff) doublons.push(n);
+  }
+  assert.ok(
+    doublons.length > 0,
+    'la pente est censée étaler la difficulté, donc en répéter à l’arrondi'
+  );
+});
+
+test('deux vagues d’arcade qui se suivent ne sont jamais identiques', () => {
+  const signature = (n) => {
+    const { diff, seed } = paramsVague(n, { seed: 1234 });
+    const w = makeWave(diff, { seed });
+    // CE QUI DISTINGUE DEUX VAGUES, ET CE QUI VIENT D'OÙ.
+    //
+    // La FORMATION — qui occupe quelle case de la grille — découle de la seule
+    // difficulté : à difficulté égale, deux vagues alignent le même monde. C'est
+    // voulu, la difficulté EST la composition.
+    //
+    // La CHORÉGRAPHIE — qui entre quand, et par quel côté — découle de la graine.
+    // C'est elle qui fait que deux vagues de même difficulté ne se jouent pas
+    // pareil, et c'est précisément elle qui ne variait plus. On la met donc dans
+    // la signature, sans la courbe d'entrée, qui est un objet Three.js entier.
+    return JSON.stringify(w.spawns.map((e) => [e.type, e.row, e.col, e.delay, e.side]));
+  };
+  for (let n = 1; n <= 30; n++) {
+    assert.notEqual(
+      signature(n),
+      signature(n + 1),
+      `la vague ${n + 1} rejoue exactement la vague ${n}`
+    );
+  }
+});
+
+test('la graine du jeu change toute la série de vagues', () => {
+  // Deux parties lancées de suite ne doivent pas dérouler la même chose. La
+  // grille sera la même — elle suit la difficulté — mais l'entrée des ennemis,
+  // non.
+  const serie = (seed) =>
+    Array.from({ length: 8 }, (_, i) => {
+      const p = paramsVague(i + 1, { seed });
+      return JSON.stringify(
+        makeWave(p.diff, { seed: p.seed }).spawns.map((e) => [
+          e.type,
+          e.row,
+          e.col,
+          e.delay,
+          e.side,
+        ])
+      );
+    }).join('|');
+  assert.notEqual(serie(1), serie(2), 'deux parties tirent la même suite de vagues');
+});
+
+test('la survie garde la suite de vagues qu’elle avait', () => {
+  // La correction ne devait toucher QUE l'arcade : la survie variait déjà sa
+  // graine avec le numéro de vague, et changer sa suite invaliderait sans raison
+  // les enregistrements et les classements du mode.
+  for (let n = 1; n <= 20; n++) {
+    assert.equal(paramsVague(n, { survie: true, seed: 77 }).seed, 77 + n * 977);
+  }
 });

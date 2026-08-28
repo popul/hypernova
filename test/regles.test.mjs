@@ -28,7 +28,10 @@ test('la difficulté monte à chaque vague, sans exception', () => {
       assert.ok(d.diveInterval <= precedent.diveInterval, `vague ${n} : moins de piqués`);
       assert.ok(d.bulletSpeed >= precedent.bulletSpeed, `vague ${n} : balles plus lentes`);
       assert.ok(d.bulletBudget >= precedent.bulletBudget, `vague ${n} : moins de balles permises`);
-      assert.ok(d.simultaneousDivers >= precedent.simultaneousDivers, `vague ${n} : moins de plongeurs`);
+      assert.ok(
+        d.simultaneousDivers >= precedent.simultaneousDivers,
+        `vague ${n} : moins de plongeurs`
+      );
     }
     precedent = d;
   }

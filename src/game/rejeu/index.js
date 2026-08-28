@@ -106,11 +106,20 @@ export class LecteurReplay {
     this.partie = partie;
     this.vagues = [];
     const r = new Lecteur(octets);
-    const n = r.entier();
+    // LE NOMBRE DE VAGUES VIENT DU FLUX, DONC ON NE LE CROIT PAS SUR PAROLE.
+    //
+    // `entier()` lit quatre octets et n'a aucune raison de rendre quelque chose
+    // de sensé sur un flux abîmé : il peut rendre deux milliards. La boucle
+    // tournait alors sur un `subarray` hors bornes, empilait des vagues vides et
+    // figeait l'onglet. On borne par ce que le tampon peut PHYSIQUEMENT contenir
+    // — huit octets d'en-tête par vague au minimum — et on s'arrête dès qu'une
+    // taille annoncée dépasse ce qui reste.
+    const n = Math.min(r.entier(), Math.floor(octets.length / 8));
     for (let i = 0; i < n; i++) {
       const frames = r.entier();
       const taille = r.entier();
       const debut = r.n;
+      if (taille < 0 || debut + taille > octets.length) break;
       r.n += taille;
       this.vagues.push({
         frames,

@@ -131,6 +131,16 @@ export class Connexion {
   _traite({ fin, opcode, charge }) {
     switch (opcode) {
       case 0x0: // suite d'une trame fragmentée
+        // UN MESSAGE FRAGMENTÉ A UNE TAILLE, LUI AUSSI. Chaque trame est bornée
+        // à soixante-quatre kilo-octets, mais rien ne bornait le NOMBRE de
+        // continuations : un client qui en envoie sans jamais poser le bit de
+        // fin faisait grossir ce tampon jusqu'à ce que le processus tombe. Le
+        // plafond de la trame ne protège que si le message en a un aussi.
+        this._fragTaille = (this._fragTaille || 0) + charge.length;
+        if (this._fragTaille > TRAME_MAX) {
+          this.close(1009, 'trop-gros');
+          return;
+        }
         this._frag.push(charge);
         if (fin) this._livre();
         return;
@@ -139,6 +149,7 @@ export class Connexion {
         if (fin) return this._delivre(opcode, charge);
         this._fragOp = opcode;
         this._frag = [charge];
+        this._fragTaille = charge.length;
         return;
       case 0x8: // fermeture
         this.close(1000, 'au-revoir');
@@ -156,6 +167,7 @@ export class Connexion {
   _livre() {
     const charge = Buffer.concat(this._frag);
     this._frag = [];
+    this._fragTaille = 0;
     this._delivre(this._fragOp, charge);
   }
 
@@ -242,10 +254,24 @@ export class Connexion {
 // `accepte(url)` décide : elle rend un objet de contexte pour accepter, ou null
 // pour refuser — c'est là que vivent l'authentification et le routage.
 export function brancheWebSocket(serveur, accepte) {
-  serveur.on('upgrade', (req, socket) => {
+  serveur.on('upgrade', (req, socket, tete) => {
     const cle = req.headers['sec-websocket-key'];
     const version = req.headers['sec-websocket-version'];
-    const url = new URL(req.url, 'http://x');
+    // UNE ADRESSE MALFORMÉE NE DOIT PAS TUER LE SERVEUR.
+    //
+    // `new URL` jette sur une cible de requête invalide — et nous sommes dans un
+    // gestionnaire d'événement, donc l'exception remonte en `uncaughtException`
+    // et emporte le processus. Tous les joueurs connectés tombent, y compris
+    // ceux qui étaient en pleine partie. « GET //[ » suffit, depuis n'importe
+    // où. C'est le genre de ligne qu'on écrit sans y penser parce qu'elle ne
+    // peut « évidemment pas » échouer.
+    let url;
+    try {
+      url = new URL(req.url, 'http://x');
+    } catch {
+      socket.destroy();
+      return;
+    }
     // On refuse en HTTP, pas en coupant : le client reçoit un code et sait quoi
     // en dire à l'utilisateur.
     const refuse = (code, texte) => {
@@ -272,6 +298,25 @@ export function brancheWebSocket(serveur, accepte) {
         `sec-websocket-accept: ${accept}\r\n\r\n`
     );
     const co = new Connexion(socket, { url, contexte });
-    contexte.onOuverture?.(co);
+    // Comme tous les autres rappels du fichier : ce qui se passe au-dessus de
+    // nous ne doit pas emporter la couche transport.
+    try {
+      contexte.onOuverture?.(co);
+    } catch (e) {
+      console.error('[ws] ouverture', e?.message || e);
+      co.close(1011, 'ouverture');
+    }
+    // LES OCTETS DÉJÀ LUS, ET SEULEMENT UNE FOIS LE SALON PRÊT.
+    //
+    // Node livre en troisième argument ce qu'il a lu APRÈS les en-têtes HTTP,
+    // dans le même paquet. On les ignorait : un client qui colle sa première
+    // trame à sa poignée de main — c'est permis, et un intermédiaire peut le
+    // faire à sa place en agglomérant deux paquets — voyait son premier message
+    // disparaître sans un mot. Sur le canal du duo, c'est celui qui dit qui vous
+    // êtes.
+    //
+    // APRÈS onOuverture, parce que c'est là que le salon pose son `onMessage` :
+    // les livrer avant, c'est les jeter une seconde fois, dans le vide.
+    if (tete?.length && co.ouverte) co._avale(tete);
   });
 }

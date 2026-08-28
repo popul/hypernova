@@ -105,8 +105,15 @@ export class Duo {
     switch (m.t) {
       case 'coque':
         c.coque = coquePropre(m.coque);
-        if (c.salon) this._annonceSalon(c.salon);
-        else this._diffuseListe();
+        // `c.salon` est un IDENTIFIANT, et _annonceSalon attend le SALON. On lui
+        // passait la chaîne : `s.hote` valait undefined, la garde en tête de
+        // méthode renvoyait aussitôt, et changer de coque dans la salle d'attente
+        // ne prévenait jamais l'autre joueur — il voyait le vaisseau d'avant
+        // jusqu'au décompte.
+        if (c.salon) {
+          const s = this.salons.get(c.salon);
+          if (s) this._annonceSalon(s);
+        } else this._diffuseListe();
         return;
       // Le mode se change sans rouvrir la connexion : elle sert aussi de canal de
       // présence, et la fermer pour passer d'arcade à survie couperait les amis.
@@ -319,7 +326,14 @@ export class Duo {
       if (mort || (!s.invite && s.cree < limite)) {
         if (s.compte) clearInterval(s.compte);
         this.salons.delete(id);
-        if (s.hote) s.hote.salon = null;
+        if (s.hote) {
+          s.hote.salon = null;
+          // ON LE DIT À L'HÔTE. Sa table expirait sous lui en silence : le
+          // serveur la retirait de la liste, et lui restait sur l'écran d'attente
+          // à regarder tourner un compteur pour une partie qui n'existait plus.
+          // Personne ne pouvait plus le rejoindre, et rien ne le lui indiquait.
+          if (!mort) s.hote.co.envoieJSON({ t: 'parti', cause: 'expire', hote: false });
+        }
         if (s.invite) {
           s.invite.salon = null;
           s.invite.co.envoieJSON({ t: 'parti', cause: 'expire', hote: true });

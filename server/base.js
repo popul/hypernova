@@ -463,20 +463,28 @@ export class Base {
   // reste au tableau même quand son replay a cédé la place.
   // L'élagage est par pilote ET par mode : un marathon de survie ne doit pas
   // chasser les enregistrements d'arcade, ce sont deux collections distinctes.
+  //
+  // ET IL GARDE CE QUE LE CLASSEMENT MONTRE. Il triait au score dans les deux
+  // modes, alors que la survie se classe à la VAGUE — voir classement() juste en
+  // dessous. Une course allée très loin en marquant peu était donc effacée alors
+  // qu'elle était en tête du tableau : le meilleur run pouvait disparaître, et
+  // son replay avec. On emprunte désormais le MÊME ordre que l'affichage, parce
+  // que garder autre chose que ce qu'on montre n'a aucun sens.
   _elague(pilote, mode) {
+    const ordre = this._ordre(mode);
     this.db
       .prepare(
         `UPDATE parties SET flux = NULL, etats = NULL, controles = NULL
          WHERE pilote = ? AND mode = ? AND flux IS NOT NULL AND id NOT IN (
            SELECT id FROM parties WHERE pilote = ? AND mode = ? AND flux IS NOT NULL
-           ORDER BY score DESC, vague DESC LIMIT ?
+           ORDER BY ${ordre} LIMIT ?
          )`
       )
       .run(pilote, mode, pilote, mode, MAX_REPLAYS_PAR_PILOTE);
     this.db
       .prepare(
         `DELETE FROM parties WHERE pilote = ? AND mode = ? AND id NOT IN (
-           SELECT id FROM parties WHERE pilote = ? AND mode = ? ORDER BY score DESC, vague DESC LIMIT ?
+           SELECT id FROM parties WHERE pilote = ? AND mode = ? ORDER BY ${ordre} LIMIT ?
          )`
       )
       .run(pilote, mode, pilote, mode, MAX_PARTIES_PAR_PILOTE);
@@ -486,11 +494,19 @@ export class Base {
   // à la VAGUE atteinte, le score ne départageant qu'à égalité — parce que la
   // question qu'on s'y pose est « jusqu'où es-tu allé ? », pas « combien as-tu
   // marqué en chemin ? ».
+  // La survie se classe à la vague atteinte, l'arcade au score — à deux comme en
+  // solo, puisque c'est la QUESTION qui change, pas le nombre de pilotes. Cet
+  // ordre sert à AFFICHER le tableau et à choisir ce qu'on GARDE : les deux
+  // doivent répondre pareil, sinon on efface le haut du classement.
+  _ordre(mode) {
+    return modePropre(mode).startsWith('survie')
+      ? 'vague DESC, score DESC'
+      : 'score DESC, vague DESC';
+  }
+
   classement(limite = 20, mode = 'arcade') {
     const m = modePropre(mode);
-    // La survie se classe à la vague atteinte, l'arcade au score — à deux comme
-    // en solo, puisque c'est la QUESTION qui change, pas le nombre de pilotes.
-    const ordre = m.startsWith('survie') ? 'vague DESC, score DESC' : 'score DESC, vague DESC';
+    const ordre = this._ordre(m);
     return this.db
       .prepare(
         `SELECT id, pilote AS nom, mode, score, vague, duree, jouee_le,

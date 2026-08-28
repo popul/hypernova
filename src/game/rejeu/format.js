@@ -48,7 +48,10 @@ import {
 //       jouait la onzième. Les ennemis ne se comportent donc plus pareil à
 //       numéro de vague égal, et un enregistrement d'avant raconterait une autre
 //       partie que celle qu'il prétend.
-export const VERSION = 12;
+//  13 — la graine de l'arcade suit le numéro de vague. Depuis la pente, deux
+//       vagues voisines pouvaient recevoir la même difficulté ARRONDIE ; avec la
+//       même graine, elles étaient alors la même vague, jouée deux fois de suite.
+export const VERSION = 13;
 
 // --- Écriture ---------------------------------------------------------------
 
@@ -201,9 +204,21 @@ export async function empaquete(octets) {
   }
 }
 
+// UN ENREGISTREMENT ABÎMÉ SE REFUSE, IL NE SE JETTE PAS.
+//
+// Les deux étages peuvent échouer sur des octets qui ne veulent rien dire :
+// `atob` jette sur un base64 tronqué, et le dégonflage rejette sur un flux
+// corrompu. Rien de tout cela n'était rattrapé — une ligne mal recopiée, un
+// transfert coupé, une vieille colonne à demi migrée, et l'écran de rejeu
+// cassait au lieu de dire « enregistrement illisible ». L'appelant sait déjà
+// traiter `null` : c'est ce qu'il reçoit quand il n'y a rien à lire.
 export async function depaquete(texte) {
   if (!texte) return null;
-  const corps = depuisBase64(texte.slice(1));
-  if (texte[0] !== 'z') return corps;
-  return gunzip(corps);
+  try {
+    const corps = depuisBase64(texte.slice(1));
+    if (texte[0] !== 'z') return corps;
+    return await gunzip(corps);
+  } catch {
+    return null;
+  }
 }

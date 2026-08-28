@@ -11,7 +11,7 @@ import { ArmeVulcain } from './armes/vulcain.js';
 import { Hud } from './hud.js';
 import { Shop } from './shop.js';
 import { Cinematic } from './cinematic.js';
-import { makeWave, dailySeed } from './waves.js';
+import { makeWave, dailySeed, paramsVague } from './waves.js';
 import {
   UPGRADES,
   priceOf,
@@ -99,7 +99,6 @@ import {
   SURVIE,
   DEFAULT_MODS,
   DUO,
-  PENTE_ARCADE,
   BOSS_PHASES,
   MODULE_RARETE,
   COQUES,
@@ -3375,13 +3374,22 @@ export class Game {
       // La difficulté suit une pente adoucie dans les DEUX modes. L'arcade n'en
       // avait pas : elle prenait le numéro de vague brut, et doublait de dureté
       // entre la sixième et la douzième — voir PENTE_ARCADE.
-      const nDiff = Math.max(1, Math.round(survie ? n * SURVIE.pente : 1 + (n - 1) * PENTE_ARCADE));
+      const { diff: nDiff, seed: graine } = paramsVague(n, { survie, seed: this.seed });
       // UNE ESCALE N'A PAS DE BOSS. C'est un détour, pas le rendez-vous : on est
       // venu chercher quelque chose dans un endroit, pas affronter l'amiral au
       // milieu d'un champ de débris. Il attend au niveau suivant, et il y sera.
       const boss = this.bis ? false : survie ? n % SURVIE.bossTousLes === 0 : undefined;
+      // LA GRAINE SUIT LE VRAI NUMÉRO DE VAGUE, DANS LES DEUX MODES.
+      //
+      // L'arcade avait `0` ici, et ça allait tant que sa difficulté valait son
+      // numéro de vague : deux vagues n'avaient jamais la même. Depuis la pente,
+      // elles l'ont — l'arrondi donne la même difficulté aux vagues 2 et 3, 6 et
+      // 7, 9 et 10, 13 et 14. Même difficulté PLUS même graine, c'est la même
+      // vague, à l'ennemi près. On rejouait donc quatre vagues en double sur les
+      // quatorze premières, ce qui est exactement ce que la pente cherchait à
+      // éviter.
       def = makeWave(nDiff, {
-        seed: this.seed + (survie ? n * 977 : 0),
+        seed: graine,
         forceBoss: boss === true ? true : undefined,
         noBoss: boss === false ? true : undefined,
       });
