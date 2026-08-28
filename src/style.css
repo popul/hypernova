@@ -1179,7 +1179,31 @@ body.touch .btn-energy-touch {
     top: 50%;
     transform: translateY(-50%);
     width: min(340px, 26vw);
+    /* Sur le côté, la place est là : on montre tout sans faire défiler. */
+    max-height: 74vh;
   }
+}
+
+/* LE CLASSEMENT DÉFILE CHEZ LUI, LA COLONNE NE GRANDIT PLUS.
+   
+   Empilé en entier, il poussait le logo hors de l'écran sur un téléphone — et
+   comme la colonne est centrée, c'est le HAUT qui sortait, donc la partie qu'on
+   ne peut pas aller chercher. Couper à trois lignes réglait la hauteur et
+   supprimait l'information : on vient aussi voir où l'on est.
+   
+   Le bloc garde donc ses dix lignes et se plafonne : quatre visibles, le reste
+   sous le doigt. La colonne cesse de dépendre du nombre de joueurs inscrits, ce
+   qui est la vraie propriété qu'on cherchait. */
+.screen.title .title-lb {
+  /* Vingt-deux pour cent, et le chiffre vient d'un calcul, pas d'un goût : sur un
+     iPhone, l'encoche et la barre du bas prennent quatre-vingt-treize pixels que
+     la mesure faite sur un ordinateur ne voit pas, `env()` y valant zéro. À
+     trente-deux pour cent la colonne débordait d'exactement cela. */
+  max-height: 22vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Le titre du bloc reste visible pendant qu'on fait défiler les scores. */
+  scrollbar-width: thin;
 }
 
 /* Sur l'écran d'accueil seulement : des lignes plus serrées. Ailleurs — à la fin
@@ -4137,9 +4161,18 @@ body.touch .btn-call-touch {
    savoir qu'un copain appelle. Posé en haut au centre, hors du champ de tir. */
 .voix-barre {
   position: fixed;
-  top: 10px;
+  /* SOUS L'ENCOCHE, PAS DESSOUS. À dix pixels du haut, le bandeau passait sous
+     l'îlot dynamique d'un iPhone : le nom du copain était coupé en deux et les
+     boutons à moitié cachés. La marge de sécurité fait cinquante-neuf pixels sur
+     ces appareils, et zéro partout ailleurs. */
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
   left: 50%;
   transform: translateX(-50%);
+  /* Sur un téléphone étroit, « En ligne avec UNTEL » plus deux boutons ne tiennent
+     pas sur une ligne : ils passent à la suivante au lieu de déborder. */
+  max-width: calc(100vw - 24px);
+  flex-wrap: wrap;
+  justify-content: center;
   display: flex;
   align-items: center;
   gap: 10px;

@@ -1282,14 +1282,14 @@ export class Game {
     const mode = this._modeTableau || 'arcade';
     this.audio.setMode('title');
     this.hud.root.classList.add('hidden');
-    // TROIS NOMS, PAS CINQ.
+    // LE CLASSEMENT ENTIER, DANS UNE BOÎTE QUI DÉFILE.
     //
-    // Le panthéon de l'accueil dit « il y a une compétition, et voilà qui mène ».
-    // Trois lignes le disent aussi bien que cinq, et cinq occupaient un tiers de
-    // la hauteur — mesuré, 215 pixels sur 759, ce qui repoussait le logo à
-    // trente-huit pixels du bord. Le classement complet est à un clic, sur
-    // l'écran de fin de partie, où il n'a rien à écraser.
-    const scores = classementConnu(this._modeTableau || 'arcade').slice(0, 3);
+    // J'avais coupé à trois lignes pour rendre sa hauteur au titre. C'était la
+    // mauvaise réponse à la bonne question : on vient aussi voir OÙ L'ON EST, et
+    // trois noms ne le disent pas. Ce n'est pas le nombre de lignes qu'il fallait
+    // réduire, c'est la place que le bloc prend dans la colonne — et pour ça il
+    // suffit qu'il défile chez lui (voir .title-lb dans la feuille de style).
+    const scores = classementConnu(this._modeTableau || 'arcade').slice(0, 10);
     const pilot = activePilot();
     const el = this._screen(`
       <div class="screen title">
@@ -1340,7 +1340,7 @@ export class Game {
       </div>
     `);
     this._brancheRejeux(el); // le panthéon du menu est cliquable, comme celui de fin
-    this._rafraichitPantheon(el, '#title-lb', mode, 3);
+    this._rafraichitPantheon(el, '#title-lb', mode, 10);
     for (const b of el.querySelectorAll('.lb-onglet')) {
       b.addEventListener('click', () => {
         this._modeTableau = b.dataset.mode;
@@ -2696,6 +2696,15 @@ export class Game {
         ),
     };
     duo.connecte({ nom, mode, jeton: jeton() });
+    // LA CONNEXION EST DÉJÀ OUVERTE, ET C'EST LE PIÈGE.
+    //
+    // Depuis que le canal des amis s'ouvre au démarrage, `connecte` n'ouvre plus
+    // rien quand on entre ici : il redemande seulement la liste. `onEtat('hall')`
+    // ne part donc jamais, et l'écran restait sur « Connexion au serveur… » alors
+    // qu'il était connecté depuis une minute — en affichant, juste en dessous, la
+    // liste vide qu'il venait de recevoir. On peint tout de suite si la ligne est
+    // déjà debout.
+    if (duo.etat === 'hall' || duo.etat === 'salon') peintTout();
 
     const clavier = (e) => {
       if (this.state !== 'salons' || e.key !== 'Escape') return;
