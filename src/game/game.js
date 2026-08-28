@@ -2164,9 +2164,9 @@ export class Game {
         return;
       // ---- REJOINDRE UNE PARTIE EN COURS ----
       case 'rejoindre':
-        return this._demandeDeRejoindre(de);
+        return this._demandeDeRejoindre(de, d);
       case 'rejoindre-oui':
-        return this._rejoindreAccepte(de);
+        return this._rejoindreAccepte(de, d);
       case 'rejoindre-non':
         this._ditRegard(`${de} préfère finir seul.`);
         return this.hud.announce('Refusé', `${de} préfère finir sa partie seul`, 2400);
@@ -2425,7 +2425,11 @@ export class Game {
   demandeARejoindre() {
     const qui = this.spectateur?.de;
     if (!qui) return;
-    this.duo.signale(qui, 'rejoindre', null);
+    // ON EMPORTE SA PROPRE COQUE. En regardant, `this.coque` est celle de
+    // l'hôte : c'est son état qu'on restaure à chaque vague. Sans cet échange,
+    // celui qui rejoint se retrouvait à piloter le vaisseau de l'autre — et
+    // l'hôte le voyait arriver dans un double du sien.
+    this.duo.signale(qui, 'rejoindre', { coque: this._coqueAMoi || 'orion' });
     this._ditRegard(`Demande envoyée à ${qui}…`);
     this.hud.announce('Demande envoyée', `${qui} doit accepter`, 2200);
   }
@@ -2433,8 +2437,9 @@ export class Game {
   // Chez l'hôte : un spectateur veut prendre les commandes du second vaisseau.
   // On ne l'accepte JAMAIS d'office — la partie est la sienne, et jouer à deux
   // change tout : les ennemis durcissent, et le score ne va plus au même tableau.
-  _demandeDeRejoindre(qui) {
+  _demandeDeRejoindre(qui, d) {
     if (this.variante === 'duo') return this.duo.signale(qui, 'rejoindre-non', null);
+    this._coqueDuRenfort = coqueParId(d?.coque).id;
     const barre = document.createElement('div');
     barre.className = 'voix-barre';
     barre.innerHTML = `<span class="voix-nom">${esc(qui)} veut JOUER avec vous</span>`;
@@ -2456,9 +2461,11 @@ export class Game {
   }
 
   _accepteRejoindre(qui) {
-    this.duo.signale(qui, 'rejoindre-oui', null);
+    // Chacun annonce la sienne : l'hôte garde la sienne, le renfort arrive avec
+    // la sienne, et les deux vaisseaux sont enfin ceux qu'on croit.
+    this.duo.signale(qui, 'rejoindre-oui', { coque: this.coque });
     // On note l'intention ; la bascule attend la prochaine vague.
-    this._duoEnVol = { qui, moi: 0 };
+    this._duoEnVol = { qui, moi: 0, saCoque: this._coqueDuRenfort || 'orion' };
     this.hud.announce('Renfort en approche', `${qui} entre au prochain tableau`, 2600);
     // S'IL DISPARAÎT AVANT LE RENDEZ-VOUS, ON N'Y VA PAS SEUL. Basculer en pas
     // verrouillé avec quelqu'un qui n'est plus là, c'est se figer en attendant
@@ -2473,9 +2480,9 @@ export class Game {
   }
 
   // Chez celui qui regarde : c'est accepté. Même attente, même rendez-vous.
-  _rejoindreAccepte(qui) {
+  _rejoindreAccepte(qui, d) {
     if (this.spectateur?.de !== qui) return;
-    this._duoEnVol = { qui, moi: 1 };
+    this._duoEnVol = { qui, moi: 1, saCoque: coqueParId(d?.coque).id };
     this._ditRegard(`${qui} a accepté — vous entrez au prochain tableau`);
     this.hud.announce('Accepté', `Vous entrez au prochain tableau`, 2600);
   }
@@ -2504,12 +2511,16 @@ export class Game {
       // restaurer est celui de l'HÔTE, pas le sien. On le déplace donc au second
       // bord, et l'on s'en fabrique un neuf.
       this.spectateur = null;
-      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: this.coque });
+      // Le second bord, c'est l'HÔTE : il garde sa coque à lui.
+      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: v.saCoque || this.coque });
       this.joueur2.group.position.copy(this.player.position);
       this.bord2.score = this.score;
       this.bord2.lives = this.lives;
       this.bord2.levels = { ...this.levels };
       this.bord2.stats = computeStats(this.bord2.levels, this.surcharge);
+      // ET ON REPREND SA PROPRE COQUE. Elle avait été remplacée par celle de
+      // l'hôte au premier instantané restauré, puisqu'on rejouait sa partie.
+      this.coque = this._coqueAMoi || 'orion';
       // Le nouveau venu arrive nu, avec ses propres vies : il n'a rien acheté.
       this.player.reset();
       this.levels = emptyLevels();
@@ -2518,7 +2529,8 @@ export class Game {
       this.score = 0;
       this.player.rebuild(this._fiche());
     } else {
-      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: this.coque });
+      // Le second bord, c'est le RENFORT : il arrive avec la coque qu'il pilote.
+      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: v.saCoque || 'orion' });
     }
     this.duoMoi = v.moi;
     this._attenteDuo = 0;
@@ -2582,6 +2594,11 @@ export class Game {
   _commenceARegarder(qui) {
     clearTimeout(this._attenteRegard);
     this.quitteVitrine();
+    // LA SIENNE, AVANT D'ENDOSSER CELLE DE L'AUTRE. À partir du premier
+    // instantané restauré, `this.coque` sera celle de l'hôte — c'est sa partie
+    // qu'on rejoue. Si l'on demande ensuite à jouer, il faut savoir quoi
+    // reprendre : sans cette ligne, on repart avec le vaisseau de l'hôte.
+    this._coqueAMoi = this.coque || 'orion';
     this.spectateur = { de: qui, file: [], vue: false };
     // L'ÉTAT EST « playing », ET C'EST LE POINT DE TOUT.
     //
