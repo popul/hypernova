@@ -17,6 +17,8 @@
 import { createServer } from 'node:http';
 import { Base } from './base.js';
 import { routeAdmin, administrable } from './admin.js';
+import { brancheWebSocket } from './websocket.js';
+import { Duo } from './duo.js';
 
 const PORT = Number(process.env.PORT || 8081);
 const CHEMIN_BASE = process.env.DB_PATH || '/data/hypernova.db';
@@ -33,6 +35,9 @@ const SCORE_MAX = 10_000_000;
 const VAGUE_MAX = 999;
 
 const base = new Base(CHEMIN_BASE);
+// Le jeu à deux vit entièrement en mémoire : un salon n'a pas à survivre au
+// redémarrage du serveur, et une partie encore moins.
+const duo = new Duo({ nomPropre });
 
 // --- Limitation de débit ----------------------------------------------------
 // En mémoire : le service tourne en un seul exemplaire, et une limite approximative
@@ -294,10 +299,25 @@ async function route(req, res, chemin) {
   }
 
   if (req.method === 'GET' && (chemin === '/sante' || chemin === '/')) {
-    return repond(res, 200, { ok: true, ...base.chiffres() });
+    return repond(res, 200, { ok: true, ...base.chiffres(), duo: duo.chiffres() });
   }
 
   return repond(res, 404, { erreur: 'route' });
+}
+
+// LE SALON DU JEU À DEUX, EN WEBSOCKET.
+//
+// Le pseudo passe en paramètre d'URL et non en en-tête : un navigateur ne permet
+// pas d'ajouter d'en-tête à une ouverture de WebSocket, et c'est le protocole qui
+// veut ça. Ce n'est pas une identification — le pseudo sert à s'afficher chez
+// l'autre joueur, rien de plus — donc rien de sensible n'y transite.
+function accepteDuo(url) {
+  let chemin = url.pathname.replace(/\/+$/, '') || '/';
+  if (chemin.startsWith('/api')) chemin = chemin.slice(4) || '/';
+  if (chemin !== '/duo') return null;
+  const nom = url.searchParams.get('nom');
+  const mode = url.searchParams.get('mode');
+  return { onOuverture: (co) => duo.accueille(co, { nom, mode }) };
 }
 
 const serveur = createServer(async (req, res) => {
@@ -324,6 +344,8 @@ const serveur = createServer(async (req, res) => {
     if (!res.headersSent) repond(res, 500, { erreur: 'interne' });
   }
 });
+
+brancheWebSocket(serveur, accepteDuo);
 
 serveur.listen(PORT, () => {
   const c = base.chiffres();

@@ -68,6 +68,9 @@ export default [
         process: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        // Les salons du jeu à deux : compte à rebours, balayage, ping.
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
       },
     },
     rules: {
