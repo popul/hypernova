@@ -3542,11 +3542,38 @@ export class Game {
     if (!def.boss) this.audio.waveStart();
   }
 
+  // JE NE PILOTE PAS CETTE PARTIE.
+  //
+  // Deux situations où ce qui est à l'écran ne m'appartient pas : la relecture
+  // d'un enregistrement, et le fait de regarder un copain jouer. Dans les deux
+  // cas, tout ce qui se DÉCIDE entre deux vagues — la boutique, le choix de
+  // trajectoire, le saut — n'a aucun sens : il n'y a rien à acheter, rien à
+  // choisir, et le prochain tableau viendra de l'extérieur.
+  //
+  // La relecture était protégée partout ; le spectateur ne l'était nulle part. La
+  // boutique s'ouvrait donc chez celui qui regarde, avec ses cartes et son bouton
+  // « Lancer la vague » — sur une partie qui n'est pas la sienne. Vu par Paul.
+  //
+  // Une seule question désormais, pour que la prochaine situation du même genre
+  // n'ait qu'un seul endroit à compléter.
+  // CE QU'ON VOIT PENDANT QUE L'AUTRE S'ÉQUIPE.
+  //
+  // Le copain est dans son hangar : ça prend le temps que ça prend, et il ne se
+  // passe rien à l'écran. Sans un mot, on croit que la liaison est tombée.
+  _entreDeuxVagues() {
+    if (!this.spectateur) return;
+    this._ditRegard(`${this.spectateur.de} est au hangar…`);
+  }
+
+  get spectacle() {
+    return !!this.rejeu || !!this.spectateur;
+  }
+
   // Entre deux vagues : on saute. La boutique s'ouvre à l'arrivée, dans le nouveau
   // secteur — donc le joueur choisit ses améliorations en regardant déjà l'endroit
   // où il va se battre, et non l'arène vide qu'il vient de nettoyer.
   _startJump() {
-    if (this.rejeu) return;
+    if (this.spectacle) return this._entreDeuxVagues();
     const nextWave = this.wave + 1;
     const nextBiome = this._biomeFor(nextWave);
     this.characters.setContext({ secteur: nextBiome.name });
@@ -3628,7 +3655,7 @@ export class Game {
 
   // Deux routes, deux récompenses, et un vrai dilemme : s'équiper ou comprendre.
   _showRouteChoice() {
-    if (this.rejeu) return;
+    if (this.spectacle) return this._entreDeuxVagues();
     this.state = 'route';
     // Le HUD n'apporte rien pendant une décision — le score et les commandes
     // tactiles se contentaient de traverser le texte qu'on demande de lire.
@@ -3866,7 +3893,7 @@ export class Game {
   }
 
   openShop() {
-    if (this.rejeu) return;
+    if (this.spectacle) return this._entreDeuxVagues();
     // Le HUD revient ICI, et pas au choix de trajectoire. Il s'y rallumait, et le
     // voyage vers l'escale se jouait donc derrière un score, des crédits, un
     // numéro de vague et les boutons tactiles — pour un plan de trois secondes
