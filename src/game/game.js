@@ -4087,7 +4087,7 @@ export class Game {
     this.reflexCooldown = 0;
 
     this._refreshShip();
-    this.player.restaure(etat.vaisseau);
+    this.player.restaure(etat.vaisseau, this);
 
     this.hud.setCredits(this.credits);
     this.hud.setLives(this.lives);

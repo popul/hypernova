@@ -135,3 +135,41 @@ test('le maintien l’emporte toujours sur la bombe, jauge pleine', async () => 
     assert.equal(gesteEnergie({ tenu, energie: 100, relache: true }), 'overdrive', `tenu ${tenu}`);
   }
 });
+
+// --- LA COUTURE, QUI S'ACHÈTE MAINTENANT --------------------------------------
+//
+// Sortir par un bord pour rentrer par l'autre était acquis dès la première vague.
+// C'est pourtant la manœuvre la plus forte du jeu — celle qui transforme un
+// encerclement en fuite — et elle ne coûtait rien.
+
+test('la couture est un module, et un module abordable', async () => {
+  const { UPGRADES, priceOf } = await import('../src/game/upgrades.js');
+  const couture = UPGRADES.find((u) => u.id === 'couture');
+  assert.ok(couture, 'le module de couture n’existe pas');
+  assert.equal(couture.maxLevel, 1, 'on l’a ou on ne l’a pas');
+  // Une manœuvre qu'on n'a jamais les moyens d'apprendre ne s'apprend jamais : le
+  // premier hangar doit pouvoir se la payer.
+  assert.ok(priceOf(couture, 0) <= 100, `elle coûte ${priceOf(couture, 0)} crédits`);
+});
+
+test('sans le module, les bords sont des murs', async () => {
+  const { boucleActive } = await import('../src/game/arena.js');
+  assert.equal(boucleActive({ levels: {} }), false);
+  assert.equal(boucleActive({ levels: { couture: 0 } }), false);
+  assert.equal(boucleActive({}), false);
+  assert.equal(boucleActive(null), false, 'un appel sans jeu ne doit pas jeter');
+});
+
+test('avec le module, la couture s’ouvre', async () => {
+  const { boucleActive } = await import('../src/game/arena.js');
+  assert.equal(boucleActive({ levels: { couture: 1 } }), true);
+});
+
+test('un enregistrement d’avant la couture est refusé, pas rejoué de travers', async () => {
+  // Une partie enregistrée quand l'arène bouclait toujours ne se rejoue pas ici :
+  // le vaisseau taperait un mur là où il passait, et tout divergerait dès le
+  // premier bord touché. Mieux vaut dire « version antérieure » que raconter une
+  // autre partie.
+  const { VERSION } = await import('../src/game/rejeu/format.js');
+  assert.ok(VERSION >= 14, `le format est resté en ${VERSION} malgré le changement de règle`);
+});

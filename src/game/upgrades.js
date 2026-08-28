@@ -100,6 +100,18 @@ export const UPGRADES = [
     desc: 'Pendant l’Overdrive seulement : vos tirs frappent plus fort, et changent de couleur à chaque niveau. Vaut pour les trois coques.',
   },
   {
+    id: 'couture',
+    name: 'Translateur de couture',
+    icon: '⇄',
+    maxLevel: 1,
+    // Tôt et pas cher : c'est une manœuvre, pas une statistique, et une manœuvre
+    // qu'on n'a jamais les moyens d'apprendre ne s'apprend jamais. Le premier
+    // hangar doit pouvoir se la payer.
+    basePrice: 90,
+    priceMul: 1,
+    desc: 'Sortir par un bord fait rentrer par l’autre. Sans lui, les bords sont des murs.',
+  },
+  {
     id: 'cone',
     name: 'Lentille divergente',
     icon: '◁',

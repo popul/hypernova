@@ -49,6 +49,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ARENA } from './constants.js';
+import { boucleActive } from './arena.js';
 
 // Un bruit déterministe et sans état : la même graine rend toujours la même valeur.
 // Il sert à deux choses très différentes — peindre la texture une fois pour toutes,
@@ -605,7 +606,7 @@ export class Aura {
     const bat = this._respire(t);
 
     const p = game.player.position;
-    this._manteau(dt, p, n, bat);
+    this._manteau(dt, p, n, bat, boucleActive(game));
     this._langues(t, p, n, bat);
     this._graviers(t, p, n);
     this._arcs(t, p, n, bat);
@@ -626,7 +627,7 @@ export class Aura {
     }
   }
 
-  _manteau(dt, p, n, bat) {
+  _manteau(dt, p, n, bat, boucle) {
     // Le défilement est COMMUN aux trois coquilles : une seule translation de
     // texture, trois vitesses apparentes, parce que l'échelle des v est cuite dans
     // chaque géométrie. On replie l'offset dans [-1, 0] — la période de la texture
@@ -670,7 +671,7 @@ export class Aura {
     // couchée avec le roulis, elle se lisait comme une écharpe accrochée à l'aile.
     // Le renversement, lui, est posé une fois pour toutes au constructeur.
 
-    if (ARENA.wrap && ARENA.playerXMax - Math.abs(p.x) < ARENA.wrapGhostZone) {
+    if (boucle && ARENA.playerXMax - Math.abs(p.x) < ARENA.wrapGhostZone) {
       const span = ARENA.playerXMax * 2;
       this.couture.visible = true;
       this.couture.position.set(p.x > 0 ? p.x - span : p.x + span, p.y, p.z + RECUL);

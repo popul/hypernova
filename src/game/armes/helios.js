@@ -19,6 +19,7 @@
 
 import * as THREE from 'three';
 import { ARENA, FUREUR, PLAYER } from '../constants.js';
+import { boucleActive } from '../arena.js';
 
 // ---- Le rayon ----
 
@@ -359,6 +360,9 @@ export class ArmeHelios {
   update(dt, game) {
     this._audio = game.audio;
     this.horloge += dt;
+    // Relevé une fois par image : `_ecartX` est appelé une fois par ennemi, et il
+    // n'a pas à retrouver le jeu depuis le fond de sa boucle.
+    this._boucle = boucleActive(game);
 
     const levels = game.levels || {};
     const stats = game.stats || {};
@@ -496,7 +500,9 @@ export class ArmeHelios {
   // jeu qui l'ignore.
   _ecartX(ex, bx) {
     let dx = ex - bx;
-    if (!ARENA.wrap) return dx;
+    // Le rayon ne franchit la couture que si le vaisseau le peut : sans le module,
+    // il s'arrête au bord comme tout le reste.
+    if (!this._boucle) return dx;
     const span = ARENA.playerXMax * 2;
     if (dx > span / 2) dx -= span;
     else if (dx < -span / 2) dx += span;
@@ -716,7 +722,7 @@ export class ArmeHelios {
 
     // La couture : le trait prolongé de l'autre côté de l'arène, aux mêmes
     // conditions que la coque du vaisseau.
-    if (ARENA.wrap && ARENA.playerXMax - Math.abs(p.x) < ARENA.wrapGhostZone) {
+    if (this._boucle && ARENA.playerXMax - Math.abs(p.x) < ARENA.wrapGhostZone) {
       const span = ARENA.playerXMax * 2;
       const x = p.x > 0 ? p.x - span : p.x + span;
       this._poseTrait(this.couture, x, milieu, largeur, longueur, charge, bat, tube);

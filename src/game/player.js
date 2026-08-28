@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { createPlayerShip, createShieldMesh, createGrazeAura } from './ships.js';
-import { makeWrapPlanes, aimPlane } from './arena.js';
+import { makeWrapPlanes, aimPlane, boucleActive } from './arena.js';
 import { ARENA, PLAYER, OVERDRIVE, ROLL } from './constants.js';
 
 // Demi-envergure de la coque (bouts d'ailes compris, échelle de carène appliquée).
@@ -137,8 +137,10 @@ export class Player {
   // rien n'est dupliqué. Dès qu'elle mord sur un bord, on tranche : le morceau resté
   // à l'intérieur est dessiné ici, le morceau qui dépasse est dessiné à l'autre bord.
   // C'est un seul objet qui traverse une frontière, pas deux objets côte à côte.
-  _updateSeam() {
-    if (!ARENA.wrap || !this.seam) return;
+  _updateSeam(game) {
+    // Pas de couture, pas de fantôme : dessiner un vaisseau de l'autre côté d'un
+    // mur qu'on ne peut pas franchir serait une promesse en l'air.
+    if (!boucleActive(game) || !this.seam) return;
     const x = this.group.position.x;
     const span = ARENA.playerXMax * 2;
     const overRight = ARENA.playerXMax - x < HALF_WIDTH;
@@ -226,7 +228,7 @@ export class Player {
     ];
   }
 
-  restaure(e) {
+  restaure(e, jeu) {
     if (!e) return;
     this.group.position.x = e[0];
     this.group.position.z = e[1];
@@ -245,7 +247,7 @@ export class Player {
     this.group.visible = this.alive;
     this.shieldMesh.visible = this.shieldUp;
     this.group.rotation.set(0, 0, 0);
-    this._updateSeam();
+    this._updateSeam(jeu);
   }
 
   // `bord` est le POSTE DE PILOTAGE : la commande du joueur, ses statistiques, sa
@@ -317,7 +319,8 @@ export class Player {
     this.vz += (targetVz - this.vz) * Math.min(1, 11 * pdt);
 
     let nx = this.group.position.x + this.vx * pdt;
-    if (ARENA.wrap) {
+    // La couture s'achète : sans le module, les bords sont des murs.
+    if (boucleActive(game)) {
       const span = ARENA.playerXMax * 2;
       if (nx > ARENA.playerXMax) {
         nx -= span;
@@ -338,7 +341,7 @@ export class Player {
       ARENA.playerZMin,
       ARENA.playerZMax
     );
-    this._updateSeam();
+    this._updateSeam(game);
 
     // Roulis + léger lacet selon la vitesse, et tangage selon l'avance : le nez
     // pique en avançant, se relève en reculant. C'est ce qui rend l'axe lisible.

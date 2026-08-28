@@ -51,7 +51,12 @@ import {
 //  13 — la graine de l'arcade suit le numéro de vague. Depuis la pente, deux
 //       vagues voisines pouvaient recevoir la même difficulté ARRONDIE ; avec la
 //       même graine, elles étaient alors la même vague, jouée deux fois de suite.
-export const VERSION = 13;
+//  14 — la couture s'achète. Sortir par un bord pour rentrer par l'autre était
+//       acquis dès la première vague ; c'est un module désormais, et sans lui les
+//       bords sont des murs. Un enregistrement d'avant a été joué dans une arène
+//       qui bouclait toujours : rejoué ici, le vaisseau taperait un mur là où il
+//       passait, et la partie divergerait dès le premier bord touché.
+export const VERSION = 14;
 
 // --- Écriture ---------------------------------------------------------------
 

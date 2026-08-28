@@ -164,6 +164,22 @@ const _ray = new THREE.Vector3();
 // vers le bas sur un téléphone étroit ; on gagne de pouvoir franchir les bords
 // partout où l'on a le droit d'aller, ce qui vaut infiniment plus.
 
+// LA COUTURE SE GAGNE.
+//
+// Sortir par un bord pour rentrer par l'autre était acquis dès la première vague.
+// C'est pourtant la manœuvre la plus forte du jeu — celle qui transforme un
+// encerclement en fuite — et elle ne coûtait rien. Elle s'achète maintenant, et
+// sans elle les bords sont des murs, ce qui est le comportement de toutes les
+// bornes d'arcade dont ce jeu descend.
+//
+// La question se pose à un seul endroit, parce qu'elle a cinq réponses à donner :
+// le déplacement du vaisseau, son fantôme de l'autre côté, l'aura qui le suit, le
+// rayon d'HÉLIOS qui doit franchir la couture avec lui, et la couture elle-même
+// qui ne doit s'allumer que si elle sert à quelque chose.
+export function boucleActive(game) {
+  return ARENA.wrap && (game?.levels?.couture | 0) > 0;
+}
+
 const MARGE_BORD = 0.035; // ce qu'on garde entre le bord de l'arène et celui de l'écran
 const _coin = new THREE.Vector3();
 
