@@ -348,13 +348,31 @@ test('l’arcade se classe au score, la survie à la vague — à deux comme en 
   );
   assert.equal(base.classement(1, 'survie2')[0].vague, 40, 'le duo de survie se classe à la vague');
 
-  // À vague égale, c'est le score qui départage — et pas l'ordre d'arrivée.
-  base.ajoutePartie('ZOÉ', { mode: 'survie', score: 500, vague: 40 });
-  assert.equal(
-    base.classement(1, 'survie')[0].score,
-    500,
-    'le score ne départage plus les ex æquo'
+  // À VAGUE ÉGALE, C'EST LE SCORE QUI DÉPARTAGE.
+  //
+  // Elle ne regardait que la PREMIÈRE ligne : on vérifie maintenant la SUITE
+  // ENTIÈRE des ex æquo, insérés dans le désordre.
+  //
+  // ET IL FAUT SAVOIR CE QU'ELLE NE PROUVE PAS. L'index parties_vague porte
+  // (mode, vague DESC, score DESC) : SQLite le parcourt pour satisfaire le tri,
+  // et rend donc les ex æquo dans le bon ordre MÊME si l'on retire « score DESC »
+  // de la requête — vérifié en le retirant. Aucune épreuve passant par
+  // classement() ne peut distinguer les deux. Ce qu'on épingle ici, c'est la
+  // RÈGLE telle que le joueur la voit, garantie par la clause et par l'index à la
+  // fois ; ce qu'on ne peut pas épingler, c'est lequel des deux la tient.
+  for (const score of [700, 200, 900, 400, 600]) {
+    base.ajoutePartie('ZOÉ', { mode: 'survie', score, vague: 40 });
+  }
+  const exaequo = base
+    .classement(10, 'survie')
+    .filter((p) => p.vague === 40)
+    .map((p) => p.score);
+  assert.deepEqual(
+    exaequo,
+    [...exaequo].sort((a, b) => b - a),
+    'à vague égale, le score ne départage plus'
   );
+  assert.ok(exaequo.length >= 5, 'les ex æquo ne sont pas tous là pour être comparés');
 });
 
 test('chaque tableau ne montre que son mode', (t) => {
