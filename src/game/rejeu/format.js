@@ -43,7 +43,12 @@ import {
 //       joueur, et s'annonce trois secondes avant par une flèche au sol
 //  11 — la Chambre de fureur : pendant l'Overdrive, les tirs frappent plus fort
 //       et changent de couleur et de taille à chaque niveau du module
-export const VERSION = 11;
+//  12 — la pente de l'arcade : la difficulté est ÉTALÉE, sans rien perdre de sa
+//       montée. La vague 12 joue ce que jouait la neuvième, la vague 15 ce que
+//       jouait la onzième. Les ennemis ne se comportent donc plus pareil à
+//       numéro de vague égal, et un enregistrement d'avant raconterait une autre
+//       partie que celle qu'il prétend.
+export const VERSION = 12;
 
 // --- Écriture ---------------------------------------------------------------
 

@@ -39,6 +39,24 @@ export const PLAYER = {
 
 // Directeur de menace : la difficulté ne dépend plus seulement du numéro de vague.
 // Tant que le joueur ne meurt pas, la pression monte ; une mort la fait retomber.
+// LA PENTE DE L'ARCADE.
+//
+// Mesurée, la difficulté doublait entre la vague 6 et la vague 12 : la formation
+// passait de 0,57 à 1,09 tir par seconde, les piqués de 0,43 à 0,81, et les
+// plongeurs simultanés de trois à quatre. Or les meilleures parties du panthéon
+// s'arrêtaient précisément là — vague 8 — ce qui est le signe qu'on ne bute pas
+// sur un manque d'adresse mais sur un mur.
+//
+// On ne baisse donc rien : on ÉTALE. La vague 12 joue la difficulté d'autrefois
+// vers la neuvième, la vague 20 celle de la quinzième. Le voyage est le même,
+// les boss tombent au même rythme, on a simplement le temps d'apprendre. C'est
+// exactement ce que fait déjà le mode Survie avec sa propre pente — ici, l'idée
+// n'avait jamais été appliquée à l'arcade.
+//
+// 0,72 et pas 0,5 : trop plat, et la montée cesse de se sentir, ce qui est
+// l'autre façon de rater une courbe de difficulté.
+export const PENTE_ARCADE = 0.72;
+
 export const DIRECTOR = {
   heatPerSecond: 0.05,
   cleanStreakSeconds: 8, // il faut être indemne depuis N secondes pour chauffer

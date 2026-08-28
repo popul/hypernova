@@ -81,10 +81,19 @@ const MODES = {
   shop: { gain: 0.15 },
   paused: { gain: 0.06 }, // en sourdine, pas coupée : la grille doit continuer d'avancer
   boss: { gain: 0.21 },
+  // L'ESCALE. Le détour se paie d'un niveau entier à survivre, et le lieu doit se
+  // sentir avant de se voir. On ne réécrit pas une partition : on emprunte au
+  // boss son assombrissement — la quinte et la seconde abaissées — SANS sa chute
+  // d'octave, qui est réservée à l'amiral. La même ligne, plus étroite, un cran
+  // plus haut en volume : on est ailleurs, et ça ne va pas être une promenade.
+  escale: { gain: 0.22, sombre: true, tempo: 1.06 },
   cinematic: { gain: 0 }, // la cinématique joue ses propres nappes sur cineBus
 };
 
 const boss = (mode) => mode === 'boss';
+// Ce qui rend la mélodie inquiète : le boss ET l'escale. Le boss descend en plus
+// d'une octave, l'escale reste à sa hauteur.
+const sombre = (mode) => mode === 'boss' || mode === 'escale';
 
 export class AudioEngine {
   constructor() {
@@ -207,7 +216,10 @@ export class AudioEngine {
   // PAS de partition, pas en secondes : sans ça, une noire de « La longue nuit »
   // (60 BPM) durerait le temps d'une noire à 84, soit 40 % trop court.
   get tempo() {
-    return this.theme.tempo;
+    // L'escale presse légèrement le pas : six pour cent, assez pour qu'on le
+    // sente dans le corps sans qu'on puisse le nommer. Au-delà, la partition
+    // cesse de sonner comme elle-même.
+    return this.theme.tempo * (MODES[this.mode]?.tempo || 1);
   }
 
   // Changer de thème. La boucle en cours va au bout de sa mesure, la suivante
@@ -2687,7 +2699,8 @@ export class AudioEngine {
       const local = bar - 16; // 0..7, les huit mesures de la phrase
       for (const ev of this.theme.melodie) {
         if (ev.b !== local || ev.s !== step) continue;
-        const n = isBoss ? darken(ev.n) - 12 : ev.n;
+        // Le boss descend d'une octave, l'escale garde la sienne.
+        const n = sombre(this.mode) ? darken(ev.n) - (isBoss ? 12 : 0) : ev.n;
         this._horn(when, n - 12, ev.d, 1.9);
         // La seconde moitié de la phrase — la réponse — est doublée à l'octave :
         // le pupitre s'ouvre pile au moment où la mélodie va chercher son sommet.

@@ -59,7 +59,13 @@ export class Colosse {
         depthWrite: false,
       })
     );
-    pointe.rotation.x = -Math.PI / 2; // couchée, la pointe vers le joueur
+    // COUCHÉE, LA POINTE VERS LE JOUEUR — et le signe comptait.
+    //
+    // Un cône de Three regarde vers +Y. Une rotation de -π/2 autour de X l'envoie
+    // vers -Z, c'est-à-dire vers le FOND : la flèche montrait d'où le colosse
+    // vient au lieu d'où il va. Elle indiquait donc exactement l'inverse de ce
+    // qu'on doit fuir. +π/2 l'envoie vers +Z, dans le sens de sa descente.
+    pointe.rotation.x = Math.PI / 2;
     this.flecheGroupe.add(pointe);
     this.matFleche = pointe.material;
 

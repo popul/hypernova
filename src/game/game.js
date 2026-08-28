@@ -99,6 +99,7 @@ import {
   SURVIE,
   DEFAULT_MODS,
   DUO,
+  PENTE_ARCADE,
   BOSS_PHASES,
   MODULE_RARETE,
   COQUES,
@@ -3327,7 +3328,10 @@ export class Game {
       // suivantes se ressembleraient toutes. La GRAINE, elle, suit le vrai numéro
       // de vague — sinon deux vagues de difficulté égale seraient identiques.
       const survie = this.mode === 'survie';
-      const nDiff = survie ? Math.max(1, Math.round(n * SURVIE.pente)) : n;
+      // La difficulté suit une pente adoucie dans les DEUX modes. L'arcade n'en
+      // avait pas : elle prenait le numéro de vague brut, et doublait de dureté
+      // entre la sixième et la douzième — voir PENTE_ARCADE.
+      const nDiff = Math.max(1, Math.round(survie ? n * SURVIE.pente : 1 + (n - 1) * PENTE_ARCADE));
       // UNE ESCALE N'A PAS DE BOSS. C'est un détour, pas le rendez-vous : on est
       // venu chercher quelque chose dans un endroit, pas affronter l'amiral au
       // milieu d'un champ de débris. Il attend au niveau suivant, et il y sera.
@@ -3376,6 +3380,10 @@ export class Game {
     // et le thème s'éloigne avec. Le palier de boss garde celui de son secteur —
     // c'est `darken()` qui l'assombrit, pas un changement de partition.
     this.audio.setThemePourPalier?.(stageForWave(n).id);
+    // L'ESCALE A SA COULEUR. Le détour se paie d'un niveau entier à survivre :
+    // le lieu doit se sentir avant de se voir. Un boss reste prioritaire — c'est
+    // le sommet, rien ne passe devant.
+    if (!def.boss) this.audio.setMode(this.bis && this.escale?.vague === n ? 'escale' : 'play');
     if (!def.boss) this.audio.waveStart();
   }
 
@@ -3634,6 +3642,8 @@ export class Game {
   // l'amiral attend.
   _quitteEscale() {
     this.bis = false;
+    // On quitte le lieu : la musique reprend son assiette.
+    this.audio.setMode('play');
     const avant = palierDeCoque(this.fragments);
     this.fragments++;
     const apres = palierDeCoque(this.fragments);
