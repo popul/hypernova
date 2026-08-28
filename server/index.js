@@ -278,6 +278,61 @@ async function route(req, res, chemin) {
     return repond(res, 201, { id });
   }
 
+  // --- Amis ------------------------------------------------------------------
+  //
+  // Tout ce qui suit exige un jeton : une liste d'amis est ce qu'un compte a de
+  // plus personnel après son adresse, et elle ne sort jamais pour quelqu'un
+  // d'autre que son propriétaire.
+
+  // GET /amis — ma liste, mes demandes reçues, mes demandes parties.
+  if (req.method === 'GET' && chemin === '/amis') {
+    const pilote = base.parJeton(jetonDe(req));
+    if (!pilote) return repond(res, 401, { erreur: 'jeton' });
+    return repond(res, 200, {
+      amis: base.amis(pilote.nom),
+      recues: base.demandesRecues(pilote.nom),
+      envoyees: base.demandesEnvoyees(pilote.nom),
+    });
+  }
+
+  // POST /amis — demander, accepter, refuser, oublier. Une seule route et un
+  // verbe dans le corps : quatre routes pour quatre gestes sur le même objet
+  // auraient coûté quatre fois la même vérification de jeton.
+  if (req.method === 'POST' && chemin === '/amis') {
+    const pilote = base.parJeton(jetonDe(req));
+    if (!pilote) return repond(res, 401, { erreur: 'jeton' });
+    const corps = await lisCorps(req);
+    const qui = nomPropre(corps.nom);
+    if (!qui) return repond(res, 400, { erreur: 'nom' });
+    let r;
+    switch (corps.geste) {
+      case 'demander':
+        r = base.demande(pilote.nom, qui);
+        break;
+      case 'accepter':
+        r = base.accepte(pilote.nom, qui);
+        break;
+      case 'refuser':
+        r = base.refuse(pilote.nom, qui);
+        break;
+      case 'oublier':
+        r = base.oublie(pilote.nom, qui);
+        break;
+      default:
+        return repond(res, 400, { erreur: 'geste' });
+    }
+    if (!r.ok) return repond(res, 400, r);
+    // On rend la liste à jour : le client n'a pas à redemander pour se peindre.
+    return repond(res, 200, {
+      ...r,
+      amis: base.amis(pilote.nom),
+      recues: base.demandesRecues(pilote.nom),
+      envoyees: base.demandesEnvoyees(pilote.nom),
+      // Qui, parmi eux, est connecté en ce moment.
+      enLigne: duo.enLigne(),
+    });
+  }
+
   // GET /classement — le tableau, sans rien de personnel.
   if (req.method === 'GET' && chemin === '/classement') {
     const url = new URL(req.url, 'http://x');
@@ -315,9 +370,19 @@ function accepteDuo(url) {
   let chemin = url.pathname.replace(/\/+$/, '') || '/';
   if (chemin.startsWith('/api')) chemin = chemin.slice(4) || '/';
   if (chemin !== '/duo') return null;
-  const nom = url.searchParams.get('nom');
   const mode = url.searchParams.get('mode');
-  return { onOuverture: (co) => duo.accueille(co, { nom, mode }) };
+  // LE JETON VAUT IDENTITÉ, LE PSEUDO NE VAUT RIEN.
+  //
+  // Le pseudo arrivait en paramètre et le serveur le croyait : suffisant pour
+  // s'afficher chez l'autre joueur, insuffisant dès qu'on parle d'amis. « Qui
+  // est en ligne » et « rejoindre la partie d'un ami » supposent de savoir de
+  // qui il s'agit vraiment, sinon n'importe qui se déclare n'importe qui.
+  //
+  // On accepte donc les deux : un jeton, et l'on est identifié ; pas de jeton,
+  // et l'on reste un invité qui peut jouer mais qu'aucun ami ne verra.
+  const pilote = base.parJeton(url.searchParams.get('jeton'));
+  const nom = pilote ? pilote.nom : url.searchParams.get('nom');
+  return { onOuverture: (co) => duo.accueille(co, { nom, mode, identifie: !!pilote }) };
 }
 
 const serveur = createServer(async (req, res) => {

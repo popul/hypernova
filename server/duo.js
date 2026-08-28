@@ -51,7 +51,14 @@ export class Duo {
     // Tout le monde connecté, salon ou pas : c'est à eux qu'on pousse la liste.
     this.clients = new Set();
     this.salons = new Map();
-    this._minuteur = setInterval(() => this._balaie(), 30_000);
+    // DOUZE SECONDES, ET C'EST LA PRÉSENCE QUI LE DÉCIDE.
+    //
+    // Une socket coupée sans au revoir — un téléphone qui perd le réseau, un
+    // onglet tué — n'est détectée qu'à la première ÉCRITURE dessus. Sans
+    // battement régulier, un ami resté « en ligne » le serait jusqu'au prochain
+    // message, c'est-à-dire potentiellement jamais. Douze secondes bornent donc
+    // le mensonge ; un ping vide coûte deux octets.
+    this._minuteur = setInterval(() => this._balaie(), 12_000);
     this._minuteur.unref?.();
   }
 
@@ -60,18 +67,25 @@ export class Duo {
   }
 
   // Un client arrive. `co` est une connexion WebSocket déjà ouverte.
-  accueille(co, { nom, mode }) {
+  accueille(co, { nom, mode, identifie = false }) {
     const c = {
       co,
       nom: this.nomPropre(nom) || 'PILOTE',
+      // Seul un pilote reconnu par son jeton compte comme « en ligne » pour ses
+      // amis : un invité peut jouer, mais il n'est l'ami de personne.
+      identifie,
       mode: mode === 'survie' ? 'survie' : 'arcade',
       coque: 'orion',
       salon: null,
     };
     this.clients.add(c);
     co.onMessage = (m) => this._recois(c, m);
-    co.onClose = () => this._depart(c);
+    co.onClose = () => {
+      this._depart(c);
+      this._diffusePresence();
+    };
     this._listePour(c);
+    this._diffusePresence();
     return c;
   }
 
@@ -277,9 +291,34 @@ export class Duo {
       }
     }
     // Un ping régulier tient la connexion ouverte à travers les intermédiaires,
-    // et détecte les pairs muets.
+    // et surtout détecte les pairs muets : c'est l'écriture qui révèle la socket
+    // morte, pas l'attente.
     for (const c of this.clients) c.co.ping();
     this._diffuseListe();
+    this._diffusePresence();
+  }
+
+  // QUI EST LÀ. La présence n'est pas stockée : elle EST la liste des connexions
+  // ouvertes. Une table « en ligne » en base se désynchronise au premier
+  // processus tué — on aurait des joueurs éternellement connectés que personne
+  // ne peut rejoindre.
+  enLigne() {
+    const out = {};
+    for (const c of this.clients) {
+      if (!c.identifie || !c.nom) continue;
+      out[c.nom] = { salon: !!c.salon, partie: !!c.salon && !!this.salons.get(c.salon)?.enCours };
+    }
+    return out;
+  }
+
+  // La présence est POUSSÉE, pas interrogée. Un client qui demanderait toutes les
+  // dix secondes apprendrait qu'un ami vient d'arriver avec dix secondes de
+  // retard, et pour rien la plupart du temps.
+  _diffusePresence() {
+    const l = this.enLigne();
+    for (const c of this.clients) {
+      if (c.identifie) c.co.envoieJSON({ t: 'presence', l });
+    }
   }
 
   chiffres() {

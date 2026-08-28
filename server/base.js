@@ -92,6 +92,33 @@ export class Base {
         pilote     TEXT NOT NULL REFERENCES pilotes(nom) ON DELETE CASCADE,
         cree_le    TEXT NOT NULL
       );
+      -- LES AMIS. Une seule ligne par lien, jamais deux.
+      --
+      -- Le réflexe serait d'écrire une ligne « A suit B » et une « B suit A »,
+      -- et de les tenir synchronisées. C'est deux fois plus de lignes et une
+      -- occasion permanente d'en avoir une sans l'autre — auquel cas l'un des
+      -- deux voit son ami en ligne et l'autre non, sans que rien ne le signale.
+      --
+      -- On stocke donc UNE ligne, avec les deux pseudos rangés dans l'ordre
+      -- alphabétique. La clé primaire interdit alors le doublon par
+      -- construction, et « sommes-nous amis ? » est une seule lecture.
+      CREATE TABLE IF NOT EXISTS amis (
+        a       TEXT NOT NULL REFERENCES pilotes(nom) ON DELETE CASCADE,
+        b       TEXT NOT NULL REFERENCES pilotes(nom) ON DELETE CASCADE,
+        depuis  TEXT NOT NULL,
+        PRIMARY KEY (a, b),
+        CHECK (a < b)
+      );
+      -- Les demandes en attente. Elles ont un sens, elles : « de » a demandé à
+      -- « vers », et c'est « vers » qui répond.
+      CREATE TABLE IF NOT EXISTS demandes (
+        de      TEXT NOT NULL REFERENCES pilotes(nom) ON DELETE CASCADE,
+        vers    TEXT NOT NULL REFERENCES pilotes(nom) ON DELETE CASCADE,
+        faite_le TEXT NOT NULL,
+        PRIMARY KEY (de, vers)
+      );
+      CREATE INDEX IF NOT EXISTS amis_b ON amis(b);
+      CREATE INDEX IF NOT EXISTS demandes_vers ON demandes(vers);
       CREATE INDEX IF NOT EXISTS sessions_pilote ON sessions(pilote);
       CREATE INDEX IF NOT EXISTS parties_score  ON parties(mode, score DESC, vague DESC);
       CREATE INDEX IF NOT EXISTS parties_vague  ON parties(mode, vague DESC, score DESC);
@@ -253,6 +280,99 @@ export class Base {
     // sessions vivaient dans la ligne du pilote. Sans ce repli, une mise à jour du
     // serveur déconnecterait tout le monde d'un coup.
     return this.db.prepare('SELECT * FROM pilotes WHERE jeton_hash = ?').get(h) || null;
+  }
+
+  // --- Amis --------------------------------------------------------------------
+  //
+  // Le lien est SYMÉTRIQUE et rangé : on trie les deux pseudos avant d'écrire ou
+  // de lire, ce qui rend le doublon impossible et la question « sommes-nous
+  // amis ? » réductible à une seule lecture.
+
+  _paire(x, y) {
+    return x < y ? [x, y] : [y, x];
+  }
+
+  amis(nom) {
+    return this.db
+      .prepare(
+        `SELECT CASE WHEN a = ? THEN b ELSE a END AS nom, depuis
+         FROM amis WHERE a = ? OR b = ? ORDER BY depuis DESC`
+      )
+      .all(nom, nom, nom);
+  }
+
+  sontAmis(x, y) {
+    const [a, b] = this._paire(x, y);
+    return !!this.db.prepare('SELECT 1 FROM amis WHERE a = ? AND b = ?').get(a, b);
+  }
+
+  // Demander en ami. Trois cas, et le troisième est celui qui compte : si l'autre
+  // avait DÉJÀ demandé, la demande vaut acceptation. Sans ça, deux personnes qui
+  // s'ajoutent en même temps se retrouvent avec deux demandes en attente et
+  // personne d'ami.
+  demande(de, vers) {
+    if (de === vers) return { ok: false, erreur: 'soi-meme' };
+    if (!this.pilote(vers)) return { ok: false, erreur: 'inconnu' };
+    if (this.sontAmis(de, vers)) return { ok: true, deja: true };
+    const inverse = this.db
+      .prepare('SELECT 1 FROM demandes WHERE de = ? AND vers = ?')
+      .get(vers, de);
+    if (inverse) {
+      this.accepte(de, vers);
+      return { ok: true, accepte: true };
+    }
+    this.db
+      .prepare('INSERT OR IGNORE INTO demandes (de, vers, faite_le) VALUES (?, ?, ?)')
+      .run(de, vers, new Date().toISOString());
+    return { ok: true, enAttente: true };
+  }
+
+  // `qui` accepte la demande de `de`.
+  accepte(qui, de) {
+    const enAttente = this.db
+      .prepare('SELECT 1 FROM demandes WHERE de = ? AND vers = ?')
+      .get(de, qui);
+    if (!enAttente && !this.sontAmis(qui, de)) return { ok: false, erreur: 'aucune-demande' };
+    const [a, b] = this._paire(qui, de);
+    this.db
+      .prepare('INSERT OR IGNORE INTO amis (a, b, depuis) VALUES (?, ?, ?)')
+      .run(a, b, new Date().toISOString());
+    // Les deux sens sont effacés : une demande croisée ne doit pas survivre au
+    // lien qu'elle vient de créer.
+    this.db
+      .prepare('DELETE FROM demandes WHERE (de = ? AND vers = ?) OR (de = ? AND vers = ?)')
+      .run(de, qui, qui, de);
+    return { ok: true };
+  }
+
+  refuse(qui, de) {
+    const n = this.db
+      .prepare('DELETE FROM demandes WHERE de = ? AND vers = ?')
+      .run(de, qui).changes;
+    return { ok: true, refusees: Number(n) };
+  }
+
+  // Se défaire d'un ami efface aussi toute demande qui traînerait : sinon on
+  // redeviendrait ami au prochain clic sans l'avoir demandé.
+  oublie(qui, autre) {
+    const [a, b] = this._paire(qui, autre);
+    const n = this.db.prepare('DELETE FROM amis WHERE a = ? AND b = ?').run(a, b).changes;
+    this.db
+      .prepare('DELETE FROM demandes WHERE (de = ? AND vers = ?) OR (de = ? AND vers = ?)')
+      .run(a, b, b, a);
+    return { ok: true, oublies: Number(n) };
+  }
+
+  demandesRecues(nom) {
+    return this.db
+      .prepare('SELECT de AS nom, faite_le FROM demandes WHERE vers = ? ORDER BY faite_le DESC')
+      .all(nom);
+  }
+
+  demandesEnvoyees(nom) {
+    return this.db
+      .prepare('SELECT vers AS nom, faite_le FROM demandes WHERE de = ? ORDER BY faite_le DESC')
+      .all(nom);
   }
 
   // --- Parties ---------------------------------------------------------------
