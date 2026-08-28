@@ -1277,7 +1277,14 @@ export class Game {
     const mode = this._modeTableau || 'arcade';
     this.audio.setMode('title');
     this.hud.root.classList.add('hidden');
-    const scores = classementConnu(this._modeTableau || 'arcade').slice(0, 5);
+    // TROIS NOMS, PAS CINQ.
+    //
+    // Le panthéon de l'accueil dit « il y a une compétition, et voilà qui mène ».
+    // Trois lignes le disent aussi bien que cinq, et cinq occupaient un tiers de
+    // la hauteur — mesuré, 215 pixels sur 759, ce qui repoussait le logo à
+    // trente-huit pixels du bord. Le classement complet est à un clic, sur
+    // l'écran de fin de partie, où il n'a rien à écraser.
+    const scores = classementConnu(this._modeTableau || 'arcade').slice(0, 3);
     const pilot = activePilot();
     const el = this._screen(`
       <div class="screen title">
@@ -1304,7 +1311,6 @@ export class Game {
         </div>
         <button class="btn-ghost" id="btn-story">◈ Histoire</button>
         <div class="title-version">v${__VERSION__}</div>
-        <div class="title-install" id="title-install" hidden></div>
         <button class="btn-ghost title-amis" id="btn-amis">☍ Mes copains<span class="amis-pastille" id="amis-pastille" hidden></span></button>
         ${
           scores.length
@@ -1325,6 +1331,7 @@ export class Game {
                  <div id="title-lb">${this._leaderboardHtml([], -1, mode)}</div>
                </div>`
         }
+        <div class="title-install" id="title-install" hidden></div>
       </div>
     `);
     this._brancheRejeux(el); // le panthéon du menu est cliquable, comme celui de fin

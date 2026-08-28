@@ -1129,6 +1129,37 @@ body.touch .btn-energy-touch {
   width: min(430px, 92vw);
 }
 
+/* LE PANTHÉON SORT DE LA COLONNE, SUR LES ÉCRANS LARGES.
+   
+   Empilé sous le menu, il mangeait un tiers de la hauteur et repoussait le logo
+   à quarante pixels du bord — mesuré. Or la place manque en HAUTEUR, jamais en
+   largeur : un écran de portable a mille cinq cents pixels de large pour sept
+   cents de haut, et les deux tiers droits sont vides.
+   
+   Posé sur le côté, il ne coûte plus rien à la colonne centrale, et il se lit
+   mieux : on ne le confond plus avec la suite du menu. En dessous de mille
+   pixels — un téléphone, une fenêtre étroite — il retourne dans le flux, où il
+   n'y a pas d'autre choix. */
+@media (min-width: 1000px) {
+  .screen.title .title-lb {
+    position: absolute;
+    right: max(24px, env(safe-area-inset-right));
+    top: 50%;
+    transform: translateY(-50%);
+    width: min(340px, 26vw);
+  }
+}
+
+/* Sur l'écran d'accueil seulement : des lignes plus serrées. Ailleurs — à la fin
+   d'une partie — le classement est le sujet de l'écran et garde son air. */
+.screen.title .lb-row {
+  font-size: 13px;
+}
+
+.screen.title .title-lb .lb-title {
+  margin-bottom: 5px;
+}
+
 .lb-title {
   font-size: 12px;
   letter-spacing: 0.34em;
@@ -3864,14 +3895,15 @@ body.touch .btn-call-touch {
 
 /* En bas, à côté du numéro de version : ce n'est pas une bannière qui recouvre
    le jeu, c'est une ligne qu'on remarque quand on cherche quoi faire. */
+/* DANS LE FLUX, PAS PAR-DESSUS. Posée en absolu au bas de l'écran, elle
+   recouvrait la dernière ligne du panthéon dès que celui-ci avait de quoi le
+   remplir. Une invitation qui cache un score n'est plus discrète, elle est
+   pénible. */
 .title-install {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 8px;
   display: flex;
   align-items: center;
   gap: 4px;
+  margin-top: 2px;
 }
 
 .install-oui {
@@ -3954,10 +3986,12 @@ body.touch .btn-call-touch {
 
 /* ---- Les copains --------------------------------------------------------- */
 
+/* À GAUCHE, parce que le badge du pilote occupe déjà le coin droit — les deux se
+   chevauchaient, et le pseudo passait sous « Mes copains ». */
 .title-amis {
   position: absolute;
-  right: 12px;
-  top: 12px;
+  left: max(20px, env(safe-area-inset-left));
+  top: max(18px, env(safe-area-inset-top));
   font-size: 12px;
   display: flex;
   align-items: center;
