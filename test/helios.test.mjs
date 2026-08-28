@@ -24,6 +24,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { ArmeHelios } from '../src/game/armes/helios.js';
 import { UPGRADES } from '../src/game/upgrades.js';
+import { Shop } from '../src/game/shop.js';
 
 const NEZ = 11.8;
 const arme = () => new ArmeHelios(new THREE.Scene());
@@ -138,4 +139,35 @@ test('la lentille coûte assez pour être un choix', () => {
   assert.ok(cone.basePrice < canons.basePrice, 'la lentille coûte plus cher que les canons');
   assert.ok(cone.basePrice > 100, 'la lentille est achetée sans y penser');
   assert.equal(cone.maxLevel, 3);
+});
+
+test('la boutique n’offre jamais la lentille à une autre coque', () => {
+  // CE QUE LA DONNÉE DIT NE SUFFIT PAS : encore faut-il que la boutique le lise.
+  // Elle ne le lisait pas. Le filtre existait dans le tirage des modules de survie
+  // et pas dans le hangar, et la carte est apparue en jeu, à la deuxième place,
+  // sur une partie ORION. L'épreuve d'à côté vérifiait la fiche du module ; elle
+  // n'aurait jamais vu ça.
+  const shop = new Shop(null, {});
+  const etat = (coque) => ({ credits: 9999, levels: {}, wave: 5, lives: 3, coque });
+
+  for (const coque of ['orion', 'vulcain']) {
+    const ids = shop._eligible(etat(coque)).map((o) => o.id);
+    assert.ok(!ids.includes('cone'), `la lentille est proposée à ${coque.toUpperCase()}`);
+  }
+  const ids = shop._eligible(etat('helios')).map((o) => o.id);
+  assert.ok(ids.includes('cone'), 'la lentille n’est plus proposée à HÉLIOS');
+});
+
+test('les modules communs restent proposés aux trois coques', () => {
+  // Le filtre ne doit toucher QUE ce qui porte une restriction.
+  const shop = new Shop(null, {});
+  const communs = UPGRADES.filter((u) => !u.coques).map((u) => u.id);
+  for (const coque of ['orion', 'helios', 'vulcain']) {
+    const ids = shop
+      ._eligible({ credits: 9999, levels: {}, wave: 5, lives: 3, coque })
+      .map((o) => o.id);
+    for (const id of communs) {
+      assert.ok(ids.includes(id), `${id} a disparu pour ${coque}`);
+    }
+  }
 });

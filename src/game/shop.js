@@ -60,6 +60,13 @@ export class Shop {
       // Le jour où le plafond bouge, la boutique proposerait une Coque que
       // l'achat refuserait — une carte qui répond « non » quand on clique.
       if (u.id === 'hull' && state.lives >= PLAYER.maxLives) return false;
+      // UN MODULE PROPRE À UNE COQUE NE SE PROPOSE QU'À ELLE.
+      //
+      // Sans ce filtre, la boutique vendait la Lentille divergente à un pilote
+      // d'ORION, qui n'a pas de rayon à évaser — et il ne l'aurait découvert
+      // qu'après avoir payé. Vu en jouant : la carte était bien là, à la
+      // deuxième place du hangar, sur une partie ORION.
+      if (u.coques && !u.coques.includes(state.coque)) return false;
       return true;
     }).map((u) => ({
       id: u.id,
