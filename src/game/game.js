@@ -1908,15 +1908,24 @@ export class Game {
   // qu'expliquer — et le dire franchement vaut mieux qu'un bouton qui ne ferait
   // rien.
   _montreInstallPomme() {
+    // Le bouton Partager n'est pas au même endroit selon l'appareil et le
+    // navigateur — bas de l'écran sur iPhone en Safari, haut sur iPad, dans le
+    // menu ailleurs. Une instruction fausse est pire qu'une instruction vague :
+    // elle envoie chercher là où il n'y a rien.
+    const ou = {
+      iphone: 'la barre du bas',
+      ipad: 'la barre du haut',
+      'ios-autre': 'le menu de votre navigateur',
+    }[this.installation.appareil];
     const boite = document.createElement('div');
     boite.className = 'install-pomme';
     boite.innerHTML = `
       <div class="install-carte">
         <h3>Poser HYPERNOVA sur l’écran d’accueil</h3>
-        <p>Sur iPhone et iPad, c’est Safari qui s’en charge — le jeu ne peut pas
-        le faire à votre place.</p>
+        <p>Sur iPhone et iPad, c’est le navigateur qui s’en charge — le jeu ne
+        peut pas le faire à votre place.</p>
         <ol>
-          <li>Touchez <b>Partager</b> <span class="install-ico">⤴</span> en bas de l’écran.</li>
+          <li>Touchez <b>Partager</b> <span class="install-ico">⤴</span>, dans ${ou}.</li>
           <li>Faites défiler jusqu’à <b>Sur l’écran d’accueil</b>.</li>
           <li>Touchez <b>Ajouter</b>.</li>
         </ol>

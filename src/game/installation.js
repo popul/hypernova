@@ -85,6 +85,22 @@ export class Installation {
     return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   }
 
+  // OÙ SE TROUVE LE BOUTON PARTAGER — et pourquoi on ne peut pas se contenter
+  // d'une phrase. Sur iPhone en Safari il est dans la barre du bas ; sur iPad il
+  // est en haut ; dans Chrome ou Firefox sur iOS il est dans le menu du
+  // navigateur. Trois endroits pour un seul geste, et une instruction fausse est
+  // pire qu'une instruction vague : elle envoie chercher là où il n'y a rien.
+  get appareil() {
+    const ua = navigator.userAgent || '';
+    // Tous les navigateurs d'iOS tournent sur le moteur de Safari, donc l'agent
+    // contient « Safari » partout : ce sont les marqueurs des AUTRES qu'il faut
+    // chercher, pas celui de Safari.
+    if (/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua)) return 'ios-autre';
+    return /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+      ? 'ipad'
+      : 'iphone';
+  }
+
   // Y a-t-il quelque chose à proposer, et sous quelle forme ?
   //   'native'   — la fenêtre du système, un bouton suffit
   //   'pomme'    — il faut expliquer le geste
