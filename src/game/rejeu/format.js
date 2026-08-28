@@ -61,7 +61,11 @@ import {
 //       z = 26 quand un écran large s'arrêtait à 14, et les balles s'effaçaient
 //       onze unités plus loin. Un enregistrement d'avant a été joué dans une
 //       arène qui n'existe plus, aux dimensions de l'écran de celui qui l'a fait.
-export const VERSION = 15;
+//  16 — l'instantané porte les DEUX bords du jeu à deux, indexés par numéro de
+//       joueur. Il n'en portait qu'un, ce qui suffisait au rejeu et au
+//       spectateur — on y rejoue la partie d'un seul — mais interdisait de
+//       réparer une divergence entre deux joueurs sans échanger leurs vaisseaux.
+export const VERSION = 16;
 
 // --- Écriture ---------------------------------------------------------------
 

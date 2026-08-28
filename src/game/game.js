@@ -2174,6 +2174,21 @@ export class Game {
       case 'c':
         if (this.duo.direct === de) this.duo.recues.set(d.f, d.d);
         return;
+      // La vérification croisée, et sa réparation.
+      case 'emp':
+        return this._recoisEmpreinte(de, d);
+      case 'resync':
+        // L'autre a vu qu'on avait divergé : on lui enverra notre état au début
+        // du prochain tableau, comme on le fait pour un spectateur.
+        this._doitResync = de;
+        return;
+      case 'resync-etat':
+        if (this.variante !== 'duo' || this.duo.direct !== de) return;
+        this._restaure(d);
+        this._resyncDemande = false;
+        note('resync', { ou: `vague ${this.wave}`, avec: de });
+        this.hud.announce('Resynchronisé', de, 1800);
+        return;
       case 'vue':
         if (this.spectateur?.de !== de) return;
         // AVANT de restaurer : est-ce qu'on avait raison ? C'est le seul moment
@@ -2287,6 +2302,110 @@ export class Game {
     });
   }
 
+  // ---- LA VÉRIFICATION CROISÉE, À DEUX ---------------------------------------
+  //
+  // LE SPECTATEUR A UN RENDEZ-VOUS, LE DUO N'EN A AUCUN.
+  //
+  // Celui qui regarde reçoit l'état complet de l'hôte à chaque vague : il suffit
+  // de comparer avant de restaurer, et l'on sait tout. À DEUX, personne n'envoie
+  // jamais son état — les deux machines partent de la même graine et n'échangent
+  // que des commandes. C'est ce qui rend le jeu à deux si économe, et c'est aussi
+  // ce qui fait qu'une divergence peut y courir jusqu'à la fin de la partie sans
+  // que rien ne la signale.
+  //
+  // On comble le trou avec ce qu'on a déjà : une EMPREINTE, quelques nombres,
+  // envoyée une fois par seconde sur le canal qui porte déjà les commandes. Celui
+  // qui la reçoit la compare à ce qu'il avait, lui, à cette image-là.
+  //
+  // Pourquoi pas un serveur qui arbitre : il ne simule pas la partie. Il faudrait
+  // qu'il fasse tourner le jeu entier chez lui pour trancher, ce qui coûterait
+  // exactement ce qui fait la valeur du système actuel — des rejeux vérifiables
+  // et quelques octets par image au lieu de kilo-octets.
+
+  // Tous les combien on s'envoie une empreinte. Une par seconde : assez pour
+  // attraper une divergence avant qu'elle n'ait tout emporté, assez rare pour ne
+  // rien coûter.
+  static EMPREINTE_TOUS_LES = 60;
+  // Combien d'empreintes on garde en attendant celle de l'autre. Elle arrive avec
+  // le retard du réseau, donc après l'image qu'elle décrit.
+  static EMPREINTES_GARDEES = 240;
+
+  // Ce qu'on compare : les quelques nombres dont un écart trahit tout le reste.
+  // Pas les positions de chaque ennemi — ce serait plus sûr et cent fois plus
+  // cher, alors qu'un score qui diverge suffit à dire que le reste a divergé.
+  _empreinteDuo() {
+    const p = this.player.position;
+    const q = this.joueur2?.position;
+    return [
+      this.wave,
+      this.score | 0,
+      this.lives | 0,
+      this.enemies.list.length,
+      Math.round(p.x * 100),
+      Math.round(p.z * 100),
+      Math.round((q?.x ?? 0) * 100),
+      Math.round((q?.z ?? 0) * 100),
+    ];
+  }
+
+  // Appelée à chaque image du pas verrouillé, chez les deux joueurs.
+  _croiseEmpreintes(frame) {
+    if (frame % Game.EMPREINTE_TOUS_LES !== 0) return;
+    if (!this._empreintes) this._empreintes = new Map();
+    const mienne = this._empreinteDuo();
+    this._empreintes.set(frame, mienne);
+    // On oublie les vieilles : sans ça, une partie d'une heure garderait trois
+    // mille six cents tableaux pour rien.
+    if (this._empreintes.size > Game.EMPREINTES_GARDEES) {
+      const vieux = frame - Game.EMPREINTE_TOUS_LES * Game.EMPREINTES_GARDEES;
+      for (const f of this._empreintes.keys()) if (f < vieux) this._empreintes.delete(f);
+    }
+    const pair = this.duo.direct || this.bord2?.nom;
+    if (pair) this.duo.signale(pair, 'emp', { f: frame, e: mienne });
+  }
+
+  // L'empreinte de l'autre vient d'arriver. Elle décrit une image qu'on a déjà
+  // jouée : on la retrouve et on compare.
+  _recoisEmpreinte(de, d) {
+    if (!d || !this._empreintes) return;
+    const mienne = this._empreintes.get(d.f);
+    if (!mienne) return; // trop vieille, ou pas encore atteinte : on ne conclut rien
+    this._empreintes.delete(d.f);
+    const sienne = d.e;
+    if (!Array.isArray(sienne) || sienne.length !== mienne.length) return;
+
+    const NOMS = ['vague', 'score', 'vies', 'ennemis', 'x', 'z', 'x2', 'z2'];
+    const ecarts = {};
+    for (let i = 0; i < mienne.length; i++) {
+      if (mienne[i] !== sienne[i]) ecarts[NOMS[i]] = { lui: sienne[i], moi: mienne[i] };
+    }
+    // À deux, les positions sont SYMÉTRIQUES : mon vaisseau est son second, et
+    // inversement. Une différence sur x/x2 n'est donc pas une divergence, c'est
+    // le point de vue. On ne compare que ce qui doit être identique des deux
+    // côtés — et le score, qui est celui de chacun, en fait partie pour la même
+    // raison : chacun compte le sien.
+    for (const cle of ['x', 'z', 'x2', 'z2', 'score', 'vies']) delete ecarts[cle];
+    const cles = Object.keys(ecarts);
+    if (!cles.length) return;
+
+    note('desynchro', {
+      ou: `vague ${this.wave} image ${d.f}`,
+      quoi: cles.join(','),
+      avec: de,
+      mode: this.mode,
+      variante: 'duo',
+      ecarts,
+    });
+    // ET ON SE REPARLE AU PROCHAIN TABLEAU. Détecter sans réparer ne servirait
+    // qu'à écrire de belles lignes de journal : celui qui a rejoint — le second —
+    // demande l'état de l'autre, exactement comme un spectateur.
+    if (this.duoMoi === 1 && !this._resyncDemande) {
+      this._resyncDemande = true;
+      this.duo.signale(de, 'resync', null);
+      this.hud.announce('Resynchronisation', 'au prochain tableau', 2000);
+    }
+  }
+
   // ---- REJOINDRE UNE PARTIE EN COURS -----------------------------------------
   //
   // LA BASCULE SE FAIT À LA FRONTIÈRE D'UNE VAGUE, ET NULLE PART AILLEURS.
@@ -2341,6 +2460,16 @@ export class Game {
     // On note l'intention ; la bascule attend la prochaine vague.
     this._duoEnVol = { qui, moi: 0 };
     this.hud.announce('Renfort en approche', `${qui} entre au prochain tableau`, 2600);
+    // S'IL DISPARAÎT AVANT LE RENDEZ-VOUS, ON N'Y VA PAS SEUL. Basculer en pas
+    // verrouillé avec quelqu'un qui n'est plus là, c'est se figer en attendant
+    // des commandes qui ne viendront jamais. Une minute est bien plus qu'il n'en
+    // faut pour finir une vague ; au-delà, la promesse est caduque.
+    clearTimeout(this._attenteRenfort);
+    this._attenteRenfort = setTimeout(() => {
+      if (this._duoEnVol?.qui !== qui) return;
+      this._duoEnVol = null;
+      this.hud.announce('Renfort annulé', `${qui} n'est plus là`, 2400);
+    }, 60000);
   }
 
   // Chez celui qui regarde : c'est accepté. Même attente, même rendez-vous.
@@ -2358,6 +2487,13 @@ export class Game {
     const v = this._duoEnVol;
     if (!v) return;
     this._duoEnVol = null;
+    clearTimeout(this._attenteRenfort);
+    // Le copain est-il toujours en ligne ? Basculer vers quelqu'un qui a fermé
+    // son onglet, c'est se condamner à l'attendre.
+    if (this._presence && !this._presence[v.qui]) {
+      this.hud.announce('Renfort annulé', `${v.qui} s'est déconnecté`, 2400);
+      return;
+    }
 
     const moiNom = activePilot()?.name || 'MOI';
     this.variante = 'duo';
@@ -2385,6 +2521,11 @@ export class Game {
       this._ouvreSecondBord({ luiNom: v.qui, luiCoque: this.coque });
     }
     this.duoMoi = v.moi;
+    this._attenteDuo = 0;
+    // IL NE REGARDE PLUS, IL JOUE. Le laisser dans la liste des spectateurs lui
+    // enverrait encore l'instantané complet de l'hôte à chaque vague — qui
+    // écraserait son propre vaisseau par celui de l'hôte, en pleine partie.
+    this._regardeurs?.delete(v.qui);
     // On ne regarde plus : on joue. Le bandeau du spectateur n'a plus lieu d'être.
     document.getElementById('regard-barre')?.remove();
     this.duo.amorce(commandeVersTableau(commandeVide()));
@@ -3136,7 +3277,12 @@ export class Game {
     this._fermeSecondBord();
     this._duoAttente = false;
     this._duoAbandonne = false;
-    this.duo?.ferme();
+    // UNE LIAISON DIRECTE SE COUPE SANS FERMER LE CANAL DES AMIS. Le même
+    // WebSocket porte les deux : le fermer ici mettrait tous les copains hors
+    // ligne parce qu'un seul est parti — et l'on perdrait au passage la présence,
+    // la voix et toute possibilité de recommencer.
+    if (this.duo?.direct) this.duo.fermeDirect();
+    else this.duo?.ferme();
     // La variante reste « duo » pour le tableau des scores, mais la simulation
     // repasse en temps réel : il n'y a plus personne à attendre.
     this._duoAbandonne = true;
@@ -3195,8 +3341,28 @@ export class Game {
         // verrouillé, et ça ne dure que le temps d'un aller-retour.
         d.attentes++;
         this._duoAttend = true;
+
+        // MAIS ON N'ATTEND PAS INDÉFINIMENT, ET C'EST TOUT LE SUJET.
+        //
+        // En salon, le serveur envoie « parti » quand le copain s'en va : la
+        // partie repasse en solo et personne ne reste bloqué. En liaison DIRECTE
+        // — celle d'un spectateur qui vient de rejoindre — il n'y a pas de
+        // salon, donc rien ne peut sauver celui qui attend. Si la bascule échoue
+        // d'un seul côté, ou si l'autre ferme son onglet, le jeu se fige : on ne
+        // simule plus, on ne rend plus la main, et le joueur n'a plus qu'à
+        // recharger la page. Signalé par Paul, et c'est exactement ce qui se
+        // passait.
+        //
+        // Cinq secondes sans une seule commande, c'est cent fois un
+        // aller-retour normal : ce n'est plus de la latence, c'est une absence.
+        this._attenteDuo = (this._attenteDuo || 0) + dtReel;
+        if (this._attenteDuo > 5) {
+          note('duo-perdu', { ou: `vague ${this.wave}`, avec: d.direct || this.bord2?.nom });
+          this._duoSeul();
+        }
         return;
       }
+      this._attenteDuo = 0;
       this._duoAttend = false;
       // Ma commande part avec de l'avance ; celle de l'autre arrive pour MAINTENANT.
       this._construitCommande(PAS_DUO);
@@ -3205,6 +3371,9 @@ export class Game {
       this.enregistreur.frame(this.cmd, this._controle());
       d.frame++;
       this._updatePlaying(PAS_DUO);
+      // Une empreinte par seconde, croisée avec celle de l'autre : c'est tout ce
+      // qui sépare une divergence silencieuse d'une divergence mesurée.
+      this._croiseEmpreintes(d.frame);
     }
   }
 
@@ -3699,6 +3868,13 @@ export class Game {
       for (const qui of this._regardeurs) this.duo.signale(qui, 'vue', vue);
     }
     this.state = 'playing';
+    // LA RÉPARATION D'UNE DIVERGENCE. L'autre a mesuré qu'on ne simulait plus la
+    // même chose : on lui envoie notre état, il le restaure, et l'écart est
+    // effacé. C'est le même mécanisme que pour le spectateur, au même moment.
+    if (this._doitResync) {
+      this.duo.signale(this._doitResync, 'resync-etat', this._instantane());
+      this._doitResync = null;
+    }
     // LE RENDEZ-VOUS. L'instantané vient de partir : les deux machines ont
     // exactement le même état, c'est donc ICI, et seulement ici, qu'une partie
     // solo peut devenir une partie à deux. Chez l'hôte comme chez celui qui
@@ -4390,6 +4566,30 @@ export class Game {
       mods: this.routeMods ? { ...this.routeMods } : null,
       heat: this.director.heat,
       vaisseau: this.player.instantane(),
+      // À DEUX, UN SEUL VAISSEAU NE SUFFIT PAS.
+      //
+      // L'instantané ne portait que le mien. Il servait au rejeu et au
+      // spectateur, où c'est exactement ce qu'il faut — mais il sert désormais à
+      // réparer une divergence entre deux joueurs, et là il faut les deux bords.
+      // Sans ça, celui qui restaure se retrouve avec le vaisseau de l'autre à la
+      // place du sien.
+      //
+      // On les indexe par NUMÉRO DE JOUEUR, jamais par « moi » et « lui » : ces
+      // deux mots désignent des choses différentes de chaque côté de la ligne,
+      // et c'est précisément ainsi qu'on inverse deux vaisseaux sans s'en
+      // apercevoir.
+      duoMoi: this.variante === 'duo' ? this.duoMoi : null,
+      vaisseau2: this.joueur2 ? this.joueur2.instantane() : null,
+      bord2:
+        this.variante === 'duo' && this.bord2
+          ? {
+              score: this.bord2.score,
+              lives: this.bord2.lives,
+              energy: this.bord2.energy,
+              credits: this.bord2.credits,
+              odTimer: this.bord2.odTimer,
+            }
+          : null,
       fiche: this._fiche(),
       systemIdx: this.mission?.systemIdx ?? null,
       gemmes: this.pickups.instantane(),
@@ -4408,7 +4608,36 @@ export class Game {
   // Restaure l'état complet d'une vague, puis la relance. On ne « rembobine » pas :
   // on repose la simulation exactement telle qu'elle était, et on la laisse
   // repartir. C'est plus court à écrire et bien plus sûr à vérifier.
-  _restaure(etat) {
+  // ON RESTAURE PAR NUMÉRO DE JOUEUR, JAMAIS PAR « MOI » ET « LUI ».
+  //
+  // L'instantané vient de l'autre machine, où « moi » désigne quelqu'un d'autre.
+  // Restaurer `etat.vaisseau` dans `this.player` est juste en rejeu et en
+  // spectateur — on rejoue SA partie — mais faux à deux, où l'on garde le sien.
+  // On regarde donc qui est qui, et l'on croise si nécessaire.
+  _croiseBords(etat) {
+    if (this.variante !== 'duo' || etat.duoMoi == null || !etat.vaisseau2) return etat;
+    if (etat.duoMoi === this.duoMoi) return etat; // même point de vue, rien à faire
+    // Points de vue opposés : son vaisseau est mon second, et inversement.
+    return {
+      ...etat,
+      vaisseau: etat.vaisseau2,
+      vaisseau2: etat.vaisseau,
+      score: etat.bord2?.score ?? etat.score,
+      vies: etat.bord2?.lives ?? etat.vies,
+      energie: etat.bord2?.energy ?? etat.energie,
+      credits: etat.bord2?.credits ?? etat.credits,
+      bord2: {
+        score: etat.score,
+        lives: etat.vies,
+        energy: etat.energie,
+        credits: etat.credits,
+        odTimer: 0,
+      },
+    };
+  }
+
+  _restaure(brut) {
+    const etat = this._croiseBords(brut);
     this.mode = etat.mode || 'arcade';
     this.seed = etat.seed;
     this.levels = { ...etat.niveaux };
@@ -4434,6 +4663,13 @@ export class Game {
     this.enemyBullets.clear();
     this.missiles.clear();
     this.pickups.restaure(etat.gemmes);
+    // Le second bord, quand il y en a un : sans lui, une resynchronisation à deux
+    // remettrait mon vaisseau en place et laisserait celui du copain là où ma
+    // simulation le croyait — c'est-à-dire au mauvais endroit.
+    if (this.variante === 'duo' && this.joueur2 && etat.vaisseau2) {
+      this.joueur2.restaure(etat.vaisseau2, this);
+      if (etat.bord2) Object.assign(this.bord2, etat.bord2);
+    }
     this.enemies.clear();
     this.bombFront = null;
     this.callWave = null;
