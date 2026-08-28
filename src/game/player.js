@@ -248,10 +248,19 @@ export class Player {
     this._updateSeam();
   }
 
-  update(dt, game) {
+  // `bord` est le POSTE DE PILOTAGE : la commande du joueur, ses statistiques, sa
+  // coque, sa furie. En solo c'est le jeu lui-même, et rien ne change. À deux, le
+  // second vaisseau reçoit son propre poste — sans quoi il volerait avec les
+  // commandes du premier, ce qui est exactement le bogue qu'on veut rendre
+  // impossible à écrire.
+  update(dt, game, bord = game) {
     if (!this.alive) return;
     this.time += dt;
-    const { stats, bullets, missiles, enemies, audio, fx } = game;
+    const { bullets, missiles, enemies, audio, fx } = game;
+    // Les statistiques sont celles du POSTE : deux joueurs n'ont pas les mêmes
+    // améliorations. Tout le reste — projectiles, ennemis, son, effets — est
+    // partagé, puisqu'il n'y a qu'une arène.
+    const { stats } = bord;
 
     // Pendant le ralenti d'esquive, le MONDE ralentit et le vaisseau non : son
     // déplacement est intégré avec le temps réel, pas avec le temps de jeu.
@@ -275,7 +284,7 @@ export class Player {
     // le monde et arrondie. C'est ce qui permet de rejouer une partie — et ce qui
     // fait qu'une partie jouée au doigt sur un téléphone se rejoue à l'identique
     // sur un écran large, où les mêmes pixels désigneraient un autre point.
-    const cmd = game.cmd;
+    const cmd = bord.cmd;
     let targetVx;
     let targetVz;
     if (cmd.vise) {
@@ -353,7 +362,7 @@ export class Player {
     // missiles ; HÉLIOS et VULCAIN ont leur propre arme, qui vit dans son fichier et
     // s'occupe de tout — y compris de ses dégâts. Le vaisseau, lui, ne sait rien
     // d'elles : il annonce seulement qu'il veut tirer.
-    const coque = game.coque || 'orion';
+    const coque = bord.coque || 'orion';
     // Le tir direct de VULCAIN est volontairement faible : c'est le prix de ses
     // charges. Celui d'HÉLIOS n'existe pas — son rayon EST son tir.
     //
@@ -366,7 +375,7 @@ export class Player {
 
     this.fireCooldown -= dt;
     if (coque !== 'helios' && cmd.tir && this.fireCooldown <= 0) {
-      const rate = stats.fireRate * cadenceCoque * (game.odTimer > 0 ? OVERDRIVE.odFireMul : 1);
+      const rate = stats.fireRate * cadenceCoque * (bord.odTimer > 0 ? OVERDRIVE.odFireMul : 1);
       this.fireCooldown = 1 / rate;
       this._shoot(stats, bullets, audio, fx);
     }
@@ -451,12 +460,12 @@ export class Player {
   }
 
   // Renvoie 'invuln' | 'shield' | 'hit' selon ce qui encaisse.
-  takeHit(game) {
+  takeHit(game, bord = game) {
     if (this.invulnTimer > 0 || !this.alive) return 'invuln';
     if (this.shieldUp) {
       this.shieldUp = false;
       this.shieldMesh.visible = false;
-      this.shieldRechargeTimer = game.stats.shieldRecharge;
+      this.shieldRechargeTimer = bord.stats.shieldRecharge;
       game.audio.shieldHit();
       game.fx.shockwave(this.group.position, 0x4ff2ff, 4);
       game.fx.addShake(0.3);

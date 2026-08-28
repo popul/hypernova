@@ -60,6 +60,31 @@ export function posDepuis(q) {
   return q * POS_PAS;
 }
 
+// LA COMMANDE, POUR LE RÉSEAU. Le jeu à deux s'échange soixante commandes par
+// seconde : on les met à plat dans un tableau de neuf nombres, ce que JSON
+// encode en une trentaine d'octets là où l'objet nommé en coûterait cent.
+//
+// Les valeurs sont DÉJÀ arrondies quand elles arrivent ici — c'est tout l'objet
+// de la quantification — donc ce tableau ne perd rien. Deux clients qui
+// s'échangent ces neuf nombres appliquent rigoureusement la même commande.
+export function commandeVersTableau(c) {
+  return [c.dt, c.echelle, c.dx, c.dz, c.vise ? 1 : 0, c.ax, c.az, c.tir ? 1 : 0, c.ev];
+}
+
+export function tableauVersCommande(t, dans = commandeVide()) {
+  if (!t || t.length < 9) return dans;
+  dans.dt = t[0];
+  dans.echelle = t[1];
+  dans.dx = t[2];
+  dans.dz = t[3];
+  dans.vise = !!t[4];
+  dans.ax = t[5];
+  dans.az = t[6];
+  dans.tir = !!t[7];
+  dans.ev = t[8];
+  return dans;
+}
+
 // Une commande vide, réutilisée d'une frame à l'autre : la boucle de jeu ne doit
 // pas allouer soixante objets par seconde.
 export function commandeVide() {

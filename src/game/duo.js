@@ -177,6 +177,17 @@ export class Duo {
 
   // --- Pas verrouillé --------------------------------------------------------
 
+  // L'AMORÇAGE, sans lequel rien ne démarre.
+  //
+  // Chaque commande est publiée pour l'image `f + DELAI`. Les DELAI premières
+  // images n'ont donc, par construction, aucune commande — et les deux clients
+  // s'attendent l'un l'autre pour toujours. Il faut poser à la main ces
+  // premières images vides, des deux côtés : c'est le seul instant du protocole
+  // où l'on envoie quelque chose qu'on n'a pas joué.
+  amorce(neutre) {
+    for (let f = 0; f < DELAI; f++) this._envoie({ t: 'c', f, d: neutre });
+  }
+
   // Ce qu'on envoie pour l'image `frame + DELAI`. `encode` transforme la commande
   // du jeu en tableau de nombres — c'est le seul endroit qui sait à quoi elle
   // ressemble, et le serveur, lui, ne le sait pas du tout.

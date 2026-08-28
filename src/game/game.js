@@ -41,7 +41,7 @@ import { ArriveeEscale } from './escale-arrivee.js';
 import { Aura } from './aura.js';
 import { PiloteAuto } from './pilote-auto.js';
 import { Colosse } from './asteroide.js';
-import { Duo } from './duo.js';
+import { Duo, PAS as PAS_DUO } from './duo.js';
 import { DemoArme } from './demo-arme.js';
 
 // Combien de temps la carène tourne sur elle-même avant que l'arme ne parle.
@@ -101,7 +101,15 @@ import {
   coqueParId,
 } from './constants.js';
 import { alea, semer } from '../core/rng.js';
-import { commandeVide, lireEntrees, EV, quantifieDt, dtDepuis } from './rejeu/commandes.js';
+import {
+  commandeVide,
+  lireEntrees,
+  EV,
+  quantifieDt,
+  dtDepuis,
+  commandeVersTableau,
+  tableauVersCommande,
+} from './rejeu/commandes.js';
 import { Enregistreur, ouvreReplay } from './rejeu/index.js';
 import { isTouchDevice } from '../core/input.js';
 
@@ -2082,12 +2090,84 @@ export class Game {
     });
   }
 
-  // Le décollage à deux. Écrit au chantier suivant : la simulation partagée
-  // demande un second vaisseau, et ce n'est pas trois lignes.
-  _lanceDuo(m, mode) {
-    this.hud.announce('Décollage', `${m.joueurs.map((j) => j.nom).join(' & ')}`, 2000);
-    this.duo?.ferme();
-    this.showVariante(mode);
+  // LE DÉCOLLAGE À DEUX.
+  //
+  // Les deux clients arrivent ici au même instant, avec la même graine et le même
+  // tableau de joueurs. À partir de là ils ne se parlent plus que par commandes :
+  // tout le reste — ennemis, tirs, score — est recalculé des deux côtés à partir
+  // de ce point de départ commun.
+  _lanceDuo(m) {
+    const moi = m.joueurs[m.moi];
+    const lui = m.joueurs[m.moi === 0 ? 1 : 0];
+    this.startRun(m.mode, moi.coque, {
+      variante: 'duo',
+      graine: m.graine,
+      duo: { moi: m.moi, moiNom: moi.nom, luiNom: lui.nom, luiCoque: lui.coque },
+    });
+    // Les premières images n'ont pas de commande à échanger — voir `amorce`.
+    this.duo.amorce(commandeVersTableau(commandeVide()));
+    this.hud.announce('Décollage', `${moi.nom} & ${lui.nom}`, 2000);
+  }
+
+  // Le second vaisseau, et son poste de pilotage. Il vit tant que la partie à
+  // deux dure ; le premier joueur, lui, est celui du jeu depuis toujours.
+  _ouvreSecondBord(duo) {
+    this._fermeSecondBord();
+    const fiche = { ...this._fiche(), carene: coqueParId(duo.luiCoque).carene };
+    this.joueur2 = new Player(this.scene, fiche);
+    this.joueur2.reset();
+    this.bord2 = {
+      cmd: commandeVide(),
+      // Le second joueur a ses propres améliorations, donc ses propres stats.
+      // Elles partent de zéro comme les nôtres et suivent SES achats.
+      levels: emptyLevels(),
+      stats: computeStats(emptyLevels(), 0),
+      coque: duo.luiCoque,
+      odTimer: 0,
+      energy: 0,
+      credits: 0,
+      lives: PLAYER.baseLives,
+      score: 0,
+      nom: duo.luiNom,
+    };
+  }
+
+  _fermeSecondBord() {
+    if (!this.joueur2) return;
+    this.joueur2.dispose?.();
+    this.scene.remove(this.joueur2.group);
+    if (this.joueur2.seam) this.scene.remove(this.joueur2.seam);
+    this.joueur2 = null;
+    this.bord2 = null;
+  }
+
+  // LE PAS VERROUILLÉ, VU DU JEU.
+  //
+  // `main.js` appelle `update` avec le temps réel. En solo on simule cette durée
+  // telle quelle. À deux, on la découpe en pas d'un soixantième — les deux
+  // machines doivent avancer par les MÊMES incréments — et chaque pas attend
+  // d'avoir les commandes des deux joueurs.
+  _updateDuo(dtReel) {
+    const d = this.duo;
+    if (!d || d.etat !== 'partie') return this._updatePlaying(PAS_DUO);
+    let n = d.pas(dtReel);
+    while (n-- > 0) {
+      if (!d.pret()) {
+        // On attend l'autre. Ce n'est pas une erreur : c'est le prix du pas
+        // verrouillé, et ça ne dure que le temps d'un aller-retour.
+        d.attentes++;
+        this._duoAttend = true;
+        return;
+      }
+      this._duoAttend = false;
+      // Ma commande part avec de l'avance ; celle de l'autre arrive pour MAINTENANT.
+      this._construitCommande(PAS_DUO);
+      d.publie(commandeVersTableau(this.cmd));
+      tableauVersCommande(d.consomme(), this.bord2.cmd);
+      this.enregistreur.frame(this.cmd, this._controle());
+      d.frame++;
+      this._updatePlaying(PAS_DUO);
+    }
   }
 
   showEntrainement(mode) {
@@ -2362,10 +2442,14 @@ export class Game {
   startRun(mode = 'arcade', coque = null, options = null) {
     // Toute partie appartient à un pilote : c'est lui qui la publie au panthéon.
     // Sauf la démonstration de l'écran d'accueil, qui ne publie rien.
-    // L'ENTRAÎNEMENT NE DEMANDE PAS QUI VOUS ÊTES. Un pilote sert à publier au
-    // panthéon, et l'entraînement ne publie rien : exiger un pseudo et un code
-    // pour refaire trois fois la vague 22 serait un péage sans contrepartie.
-    if (!activePilot() && !this._demoForce && options?.variante !== 'entrainement') {
+    // SEULE LA PARTIE SOLO EXIGE UN PILOTE. Il sert à publier au panthéon.
+    // L'entraînement ne publie rien — exiger un pseudo et un code pour refaire
+    // trois fois la vague 22 serait un péage sans contrepartie. Et le jeu à deux
+    // se joue à l'invitation d'un copain : lui demander de créer un compte
+    // pendant que l'autre attend dans le salon, c'est perdre les deux. Sans
+    // pilote, le score ne part simplement pas au tableau.
+    const variante = options?.variante || 'solo';
+    if (!activePilot() && !this._demoForce && variante === 'solo') {
       this.showPilotSelect(() => this.startRun(mode, coque, options));
       return;
     }
@@ -2385,6 +2469,11 @@ export class Game {
     this.coque = coque;
     this.mode = mode === 'survie' ? 'survie' : 'arcade';
     this.variante = options?.variante || 'solo';
+    // Le second vaisseau n'existe qu'à deux, et il est reconstruit à chaque
+    // partie : sa coque change avec le copain qu'on a en face.
+    this.duoMoi = options?.duo ? options.duo.moi : 0;
+    if (options?.duo) this._ouvreSecondBord(options.duo);
+    else this._fermeSecondBord();
     // Filet : un secteur caché pour une cinématique se rallume à sa fin, mais un
     // chemin de sortie oublié laisserait le jeu se jouer dans le noir. On le
     // repose ici, où passe forcément toute partie.
@@ -2448,7 +2537,9 @@ export class Game {
     // La graine du jour : les mêmes vagues pour tous les copains le même jour, donc
     // des scores qui se comparent honnêtement. La survie décale la sienne, sinon
     // ses cent vagues seraient les vagues d'arcade dans le même ordre.
-    this.seed = dailySeed() + (this.mode === 'survie' ? 613 : 0);
+    // À deux, la graine vient du SERVEUR : les deux clients doivent tirer le même
+    // hasard, et aucun des deux ne doit pouvoir le choisir.
+    this.seed = options?.graine ?? dailySeed() + (this.mode === 'survie' ? 613 : 0);
     this.hud.setEnergy(0);
     this.hud.setOverdrive(false);
 
@@ -2463,6 +2554,23 @@ export class Game {
     this.player.shieldUp = false;
     this.player.reset();
     this.player.invulnTimer = 0;
+    // Les deux vaisseaux ne partent pas au même endroit : superposés, on ne
+    // saurait pas lequel on pilote pendant les deux premières secondes. Posé
+    // APRÈS `reset`, qui ramène tout le monde au centre.
+    if (this.joueur2) {
+      this.joueur2.reset();
+      this.joueur2.invulnTimer = 0;
+      // LA PLACE DÉPEND DU RÔLE, PAS DE QUI REGARDE.
+      //
+      // Poser « mon vaisseau à gauche » chez les deux joueurs paraît naturel et
+      // c'est une divergence : chacun croit alors que l'autre est à droite, et
+      // les deux simulations racontent deux mondes différents dès la première
+      // image. Le joueur zéro est à gauche pour TOUT LE MONDE.
+      const gauche = this.duoMoi === 0 ? this.player : this.joueur2;
+      const droite = this.duoMoi === 0 ? this.joueur2 : this.player;
+      gauche.group.position.x = -3.2;
+      droite.group.position.x = 3.2;
+    }
 
     this.hud.setScore(0);
     this.hud.setHiscore(this.hiscore);
@@ -3276,7 +3384,9 @@ export class Game {
     }
 
     if (this.state === 'playing') {
-      this._updatePlaying(dt);
+      // À deux, le temps ne se consomme pas de la même façon : voir _updateDuo.
+      if (this.variante === 'duo') this._updateDuo(dt);
+      else this._updatePlaying(dt);
     } else if (this.state === 'shop') {
       // La boutique reste vivante : les gemmes restantes finissent d'arriver.
       this.pickups.update(
@@ -3292,7 +3402,11 @@ export class Game {
   _updatePlaying(dt) {
     // En partie : on lit les entrées, on les arrondit, on les note. En relecture :
     // la commande est déjà posée par le lecteur, on n'y touche pas.
-    if (!this.rejeu) {
+    // En partie : on lit les entrées, on les arrondit, on les note. En relecture :
+    // la commande est déjà posée par le lecteur. À deux, c'est `_updateDuo` qui
+    // s'en est chargé avant d'appeler ici — sans quoi on lirait le clavier deux
+    // fois pour la même image.
+    if (!this.rejeu && this.variante !== 'duo') {
       this._construitCommande(dt);
       this.enregistreur.frame(this.cmd, this._controle());
       dt = this.cmd.dt;
@@ -3341,6 +3455,10 @@ export class Game {
     this._updateBombFront(dt);
 
     this.player.update(dt, this);
+    // Le second vaisseau est simulé exactement comme le premier, avec SON poste
+    // de pilotage. Les deux machines exécutent ces deux lignes dans le même
+    // ordre avec les mêmes commandes : c'est tout le contrat du pas verrouillé.
+    if (this.joueur2) this.joueur2.update(dt, this, this.bord2);
     // Le vaisseau détruit n'est plus en furie : l'aura suivrait sinon une épave.
     this.aura.update(dt, this, this.odTimer > 0 && this.player.alive ? 1 : 0);
     this._updateColosse(dt);
