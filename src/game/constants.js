@@ -695,6 +695,30 @@ export const GRAZE = {
   shieldRecharge: 1.0, // secondes gagnées sur la recharge du bouclier
 };
 
+// CE QUE LE BOUTON D'ÉNERGIE DÉCIDE, à un instant donné.
+//
+// Une seule touche pour deux dépenses, donc une règle qu'il faut pouvoir tenir
+// hors du moteur : elle s'est déjà trompée une fois. L'Overdrive ne partait qu'au
+// RELÂCHÉ — la jauge affichait MAINTIENS, le joueur maintenait, rien ne se
+// passait, il finissait par lâcher et ça partait sans qu'il fasse le lien avec
+// son geste. Un bouton qui promet un maintien doit répondre au maintien.
+//
+//   'overdrive' — le maintien est mûr, la jauge est pleine : ça part tout de suite
+//   'bombe'     — un appui court, relâché
+//   'refus'     — un maintien mûr sans la jauge : on dit non, franchement, plutôt
+//                 que de lâcher une bombe que personne n'a demandée
+//   null        — rien encore, on attend
+export function gesteEnergie({ tenu, energie, relache = false }) {
+  const mur = tenu >= OVERDRIVE.holdTime;
+  if (!relache) {
+    // Pendant le maintien : on ne consomme QUE si le geste peut aboutir. Le refus
+    // attend le relâché, où il a le droit d'être bruyant.
+    return mur && energie >= OVERDRIVE.odCost ? 'overdrive' : null;
+  }
+  if (!mur) return 'bombe';
+  return energie >= OVERDRIVE.odCost ? 'overdrive' : 'refus';
+}
+
 // Une seule touche, deux dépenses : tap = bombe de panique, maintien = Overdrive.
 export const OVERDRIVE = {
   max: 100,

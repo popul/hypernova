@@ -82,3 +82,56 @@ test('le jeu à deux durcit la vague, et seulement elle', async () => {
     assert.ok(DUO[cle] < 2, `DUO.${cle} double la difficulté, c'est trop`);
   }
 });
+
+// --- LE BOUTON D'ÉNERGIE ------------------------------------------------------
+//
+// Une seule touche pour deux dépenses très différentes : un appui court lâche la
+// bombe de panique, un maintien déclenche l'Overdrive. La règle a déjà été
+// fausse une fois, et elle l'a été de la pire façon — sans rien casser.
+//
+// L'Overdrive ne partait qu'au RELÂCHÉ. La jauge affiche MAINTIENS ; le joueur
+// maintient ; rien ne se passe. Il finit par lâcher, et là ça part — sans qu'il
+// fasse le lien avec son geste. De son point de vue, « l'Overdrive n'apparaît
+// pas quand la barre est à fond ». Rien dans le code ne signalait quoi que ce
+// soit : la fonction faisait exactement ce qu'elle disait.
+
+test('maintenir la touche déclenche l’Overdrive sans attendre le relâché', async () => {
+  const { gesteEnergie, OVERDRIVE } = await import('../src/game/constants.js');
+  const plein = OVERDRIVE.odCost;
+  assert.equal(
+    gesteEnergie({ tenu: OVERDRIVE.holdTime + 0.01, energie: plein }),
+    'overdrive',
+    'le maintien ne répond pas au maintien'
+  );
+});
+
+test('un appui court reste la bombe de panique', async () => {
+  const { gesteEnergie, OVERDRIVE } = await import('../src/game/constants.js');
+  // Rien ne part tant qu'on n'a pas relâché : sinon le simple fait d'appuyer
+  // consommerait la jauge avant que le joueur ait choisi.
+  assert.equal(gesteEnergie({ tenu: 0.1, energie: 100 }), null);
+  assert.equal(gesteEnergie({ tenu: 0.1, energie: 100, relache: true }), 'bombe');
+  assert.ok(OVERDRIVE.holdTime > 0.1, 'le seuil de maintien est plus court qu’un appui');
+});
+
+test('sans la jauge pleine, on ne consomme rien pendant le maintien', async () => {
+  const { gesteEnergie, OVERDRIVE } = await import('../src/game/constants.js');
+  const tenu = OVERDRIVE.holdTime + 0.5;
+  assert.equal(
+    gesteEnergie({ tenu, energie: OVERDRIVE.odCost - 1 }),
+    null,
+    'on consomme un maintien qui ne peut pas aboutir'
+  );
+  // Au relâché, en revanche, on refuse FRANCHEMENT — avec un son. Lâcher une
+  // bombe à la place serait une dépense que personne n’a demandée.
+  assert.equal(gesteEnergie({ tenu, energie: OVERDRIVE.odCost - 1, relache: true }), 'refus');
+});
+
+test('le maintien l’emporte toujours sur la bombe, jauge pleine', async () => {
+  const { gesteEnergie, OVERDRIVE } = await import('../src/game/constants.js');
+  // Le joueur qui maintient a fait un choix : il ne doit jamais recevoir une
+  // bombe à la place, même si son maintien dépasse à peine le seuil.
+  for (const tenu of [OVERDRIVE.holdTime, OVERDRIVE.holdTime + 0.001, 3]) {
+    assert.equal(gesteEnergie({ tenu, energie: 100, relache: true }), 'overdrive', `tenu ${tenu}`);
+  }
+});

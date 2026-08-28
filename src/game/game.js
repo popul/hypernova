@@ -29,6 +29,7 @@ import {
   MINE,
   WAVES,
   bossPourVague,
+  gesteEnergie,
   PICKUPS,
   PLAYER,
   PRECISION,
@@ -525,12 +526,41 @@ export class Game {
 
   // ---- Énergie : frôler pour charger, dépenser en bombe ou en Overdrive ----
 
+  // LE MAINTIEN DÉCLENCHE PENDANT QU'ON MAINTIENT.
+  //
+  // Il ne partait qu'au RELÂCHÉ, et c'est ce qui faisait dire que l'Overdrive
+  // « n'apparaît pas quand la barre est à fond ». La jauge affiche MAINTIENS ; le
+  // joueur maintient ; rien ne se passe. Il finit par lâcher — et là ça part,
+  // sans qu'il fasse le lien avec son geste. Un bouton qui promet un maintien
+  // doit répondre au maintien.
+  //
+  // Appelée à chaque image de jeu. L'événement passe par `_demande`, donc il est
+  // enregistré comme n'importe quel autre : le rejeu ne bouge pas.
+  _verifieMaintien() {
+    if (!this._energyPressStart || this._energyConsomme) return;
+    if (this.state !== 'playing' || this.paused || !this.player.alive) return;
+    const tenu = (performance.now() - this._energyPressStart) / 1000;
+    if (gesteEnergie({ tenu, energie: this.energy }) !== 'overdrive') return;
+    this._energyConsomme = true;
+    this._demande(EV.OVERDRIVE);
+  }
+
   _releaseEnergyButton() {
     if (!this._energyPressStart) return;
     const held = (performance.now() - this._energyPressStart) / 1000;
     this._energyPressStart = 0;
+    // Déjà parti pendant le maintien : le relâché ne doit rien déclencher de plus,
+    // surtout pas une bombe.
+    if (this._energyConsomme) {
+      this._energyConsomme = false;
+      return;
+    }
     if (this.state !== 'playing' || this.paused || !this.player.alive) return;
-    this._demande(held >= OVERDRIVE.holdTime ? EV.OVERDRIVE : EV.BOMBE);
+    // `refus` et `overdrive` empruntent le même événement : c'est _tryOverdrive
+    // qui dit non, et il le dit avec un son. La règle, elle, tient dans
+    // gesteEnergie et se vérifie hors du moteur.
+    const geste = gesteEnergie({ tenu: held, energie: this.energy, relache: true });
+    this._demande(geste === 'bombe' ? EV.BOMBE : EV.OVERDRIVE);
   }
 
   // La pirouette se paie sur la jauge de furie, un peu. C'est ce qui la relie au
@@ -822,9 +852,26 @@ export class Game {
     this.hud.setEnergy(0);
     this.odTimer = OVERDRIVE.odDuration;
     this.hud.setOverdrive(true);
-    this.fx.shockwave(this.player.position, 0xffc857, 8);
-    this.audio.comboUp(4);
-    this.hud.announce('OVERDRIVE', 'score ×2', 1400);
+
+    // CE QUI SE PASSE DOIT SE VOIR ET S'ENTENDRE.
+    //
+    // Tout marchait déjà — cadence ×1,5, balles qui transpercent deux ennemis,
+    // tirs adverses ralentis, score doublé — mais rien ne le DISAIT. Un liseré
+    // doré sur le cadre du HUD, une aura discrète autour de la coque, et le son
+    // du combo emprunté à autre chose. Le joueur remplissait une jauge entière
+    // pour obtenir quelque chose qu'il ne remarquait pas.
+    //
+    // Trois anneaux qui partent l'un après l'autre, une gerbe, une secousse, et
+    // un ralenti d'un quart de seconde : le ralenti est ce qui compte le plus,
+    // parce qu'il est la seule façon de dire « ce qui vient de se passer est
+    // important » sans écrire un mot.
+    this.fx.shockwave(this.player.position, 0xffc857, 16);
+    this.fx.shockwave(this.player.position, 0xffffff, 9);
+    this.fx.burst(this.player.position, 0xffe066, { count: 46, speed: 22, life: 0.8, spread: 1.6 });
+    this.fx.addShake(0.9);
+    this.fx.slowmo?.(0.24, 0.45);
+    this.audio.overdrive();
+    this.hud.announce('OVERDRIVE', 'tirs ×1,5 · perforants · score ×2', 1800, true);
   }
 
   // ---- Écrans ----
@@ -4211,6 +4258,9 @@ export class Game {
     // dernier cas, on reconstruisait sa partie en y appliquant NOS touches.
     // Mesuré : 1990 points contre 3165, et un vaisseau qui ne bouge pas puisque
     // notre propre clavier ne dit rien.
+    // Le maintien du bouton d'énergie se juge AVANT de bâtir la commande : c'est
+    // lui qui peut y déposer un événement d'Overdrive.
+    if (!this.rejeu && !this.spectateur) this._verifieMaintien();
     if (!this.rejeu && !this.spectateur && this.variante !== 'duo') {
       this._construitCommande(dt);
       this.enregistreur.frame(this.cmd, this._controle());
@@ -4239,7 +4289,14 @@ export class Game {
 
     if (this.odTimer > 0) {
       this.odTimer -= dt;
-      if (this.odTimer <= 0) this.hud.setOverdrive(false);
+      if (this.odTimer <= 0) {
+        this.hud.setOverdrive(false);
+        // ON DOIT ENTENDRE QU'IL S'ARRÊTE. Sans ce signal, le joueur continue à
+        // jouer comme s'il était encore en furie — à foncer, à traverser — et il
+        // meurt sans comprendre ce qui a changé.
+        this.audio.overdriveFin?.();
+        this.fx.burst(this.player.position, 0x8ea0c0, { count: 12, speed: 7, life: 0.4 });
+      }
     }
     const odActive = this.odTimer > 0;
     if (this.bombCooldown > 0) this.bombCooldown -= dt;

@@ -298,23 +298,83 @@ body {
   color: var(--gold);
 }
 
-/* Overdrive actif : le cadre de l'écran s'embrase. */
+/* OVERDRIVE ACTIF — ET ÇA DOIT SE VOIR DEPUIS L'AUTRE BOUT DE LA PIÈCE.
+   Le cadre portait un liseré doré à vingt-huit pour cent d'opacité, ce qui est
+   à peu près la définition de « pas remarqué ». Le joueur remplissait une jauge
+   entière pour obtenir quatre secondes qu'il ne voyait pas passer.
+   Deux couches maintenant : un embrasement franc du cadre, et un éclair blanc
+   qui ne dure qu'un dixième de seconde au déclenchement — c'est lui qui fait
+   qu'on lève les yeux. */
 #hud.overdrive::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  box-shadow: inset 0 0 90px rgba(255, 200, 87, 0.28);
-  animation: od-frame 0.5s ease-in-out infinite;
+  box-shadow:
+    inset 0 0 140px rgba(255, 200, 87, 0.55),
+    inset 0 0 40px rgba(255, 255, 255, 0.22);
+  animation: od-frame 0.42s ease-in-out infinite;
+}
+
+/* L'ÉCLAIR. Il naît avec la classe, ne se joue qu'une fois, et disparaît. Sans
+   lui, l'entrée en Overdrive n'a pas d'INSTANT — or c'est l'instant qu'on
+   cherche à donner au joueur, pas seulement l'état qui suit. */
+#hud.overdrive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 78%,
+    rgba(255, 255, 255, 0.85),
+    rgba(255, 200, 87, 0.35) 38%,
+    transparent 68%
+  );
+  animation: od-flash 0.34s ease-out 1 forwards;
 }
 
 @keyframes od-frame {
   0%,
   100% {
-    opacity: 0.7;
+    opacity: 0.72;
   }
   50% {
     opacity: 1;
+  }
+}
+
+@keyframes od-flash {
+  0% {
+    opacity: 1;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+/* La jauge elle-même se met à brûler : c'est l'objet que le joueur regardait
+   juste avant d'appuyer, donc c'est là que la réponse doit d'abord arriver. */
+.hud-energy.overdrive .energy-fill {
+  background: linear-gradient(90deg, #fff, var(--gold));
+  box-shadow: 0 0 18px rgba(255, 200, 87, 0.9);
+}
+
+.hud-energy.overdrive .energy-label {
+  color: #fff;
+  text-shadow: 0 0 12px var(--gold);
+}
+
+/* Une secousse à l'écran demande du mouvement ; ceux qui n'en veulent pas
+   gardent l'embrasement, qui suffit à lire l'état. */
+@media (prefers-reduced-motion: reduce) {
+  #hud.overdrive::after,
+  #hud.overdrive::before {
+    animation: none;
+  }
+  #hud.overdrive::before {
+    opacity: 0;
   }
 }
 

@@ -1468,6 +1468,63 @@ export class AudioEngine {
     this._cymbal(t0, 1.3, 3);
   }
 
+  // L'OVERDRIVE. Il n'avait AUCUN son à lui : il empruntait celui du combo, qui
+  // sert déjà à autre chose et qu'on entend vingt fois par vague. Le joueur
+  // remplissait donc une jauge entière pour déclencher quelque chose qui sonnait
+  // exactement comme un enchaînement ordinaire.
+  //
+  // Ce qu'il lui faut est une MONTÉE, puis une frappe, puis une tenue. La montée
+  // dit qu'il se passe quelque chose ; la frappe dit que c'est arrivé ; la tenue
+  // dit que ça dure — et ça dure quatre secondes, ce qui est exactement la chose
+  // que le joueur a besoin de savoir.
+  overdrive() {
+    const t0 = this.ctx?.currentTime;
+    if (t0 == null) return;
+
+    // 1. La montée : deux scies qui glissent d'une octave et demie vers le haut,
+    // légèrement désaccordées pour que ça batte. C'est le son de quelque chose
+    // qu'on charge.
+    for (const detune of [0, 7]) {
+      this._tone({
+        type: 'sawtooth',
+        freq: 110 * Math.pow(2, detune / 1200),
+        freqEnd: 880,
+        dur: 0.42,
+        gain: 0.16,
+      });
+    }
+    // Un souffle qui monte avec, filtre grand ouvert : l'air qui se met en marche.
+    this._noise({ dur: 0.42, gain: 0.22, filterFreq: 300, filterEnd: 5200 });
+
+    // 2. La frappe, au bout de la montée. Timbale plus cymbale : c'est le seul
+    // endroit du jeu où les deux tombent ensemble, et c'est ce qui la rend
+    // reconnaissable entre tous les autres sons.
+    this._timpani(t0 + 0.42, 0, 1.2);
+    this._cymbal(t0 + 0.42, 1.1, 2.4);
+    this._tone({ type: 'square', freq: 880, freqEnd: 220, dur: 0.3, gain: 0.24, when: 0.42 });
+
+    // 3. La tenue : une quinte grave qui reste sous le jeu pendant que l'Overdrive
+    // court. Elle s'éteint toute seule — on ne la coupe pas, sinon il faudrait
+    // suivre l'état de l'arme depuis le moteur audio.
+    for (const semi of [0, 7, 12]) {
+      this._tone({
+        type: 'triangle',
+        freq: 110 * Math.pow(2, semi / 12),
+        dur: 3.4,
+        gain: 0.07,
+        when: 0.42,
+      });
+    }
+  }
+
+  // La fin de l'Overdrive : la tenue retombe. Court, et vers le bas — le joueur
+  // doit SENTIR qu'il redevient ordinaire, sinon il continue à jouer comme s'il
+  // était encore en furie et il meurt sans comprendre.
+  overdriveFin() {
+    this._tone({ type: 'triangle', freq: 220, freqEnd: 82, dur: 0.5, gain: 0.16 });
+    this._noise({ dur: 0.45, gain: 0.1, filterFreq: 1800, filterEnd: 90 });
+  }
+
   gameOver() {
     [392, 330, 262, 196].forEach((f, i) =>
       this._tone({ type: 'triangle', freq: f, dur: 0.4, gain: 0.2, when: i * 0.28 })
