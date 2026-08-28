@@ -3,7 +3,7 @@
 // machine à états par ennemi (entering → settling → formation ⇄ diving/returning).
 
 import * as THREE from 'three';
-import { createEnemyShip } from './ships.js';
+import { createEnemyShip, createMine } from './ships.js';
 import {
   ENEMY_TYPES,
   ENEMY,
@@ -13,6 +13,9 @@ import {
   WAVES,
   DIVES,
   ARENA,
+  LANCIER,
+  MINE,
+  PLAYER,
 } from './constants.js';
 import { slotBasePosition, difficulty, pickDiveStyle, pickWeighted } from './waves.js';
 import { alea, entre, ecart } from '../core/rng.js';
@@ -68,6 +71,14 @@ class Enemy {
 
   dispose() {
     this._scene.remove(this.group);
+    // Le rayon vit hors du groupe — il est dans le repère du monde, pas dans celui
+    // du lancier — donc il ne part pas tout seul avec lui.
+    if (this.rayon) {
+      this._scene.remove(this.rayon);
+      this.rayon.geometry.dispose();
+      this.rayon.material.dispose();
+      this.rayon = null;
+    }
   }
 }
 
@@ -105,6 +116,12 @@ export class Enemies {
     this.diveTimer = 2.5;
     this.fireTimer = 2;
     this.boss = null;
+    // Les mines vivent HORS de la liste des ennemis : ce sont des objets posés, pas
+    // des vaisseaux. Elles ne plongent pas, ne tirent pas, ne comptent pas pour la
+    // fin de vague — sinon une mine oubliée dans un coin empêcherait la vague de
+    // se terminer, et le joueur chercherait un ennemi qui n'existe pas.
+    this.mines = [];
+    this._souffleEnCours = null;
     this._tmp = new THREE.Vector3();
     this._tmp2 = new THREE.Vector3();
   }
@@ -138,6 +155,12 @@ export class Enemies {
     this.list = [];
     this.pending = [];
     this.boss = null;
+    // Les mines ne survivent PAS à leur vague : elles descendent lentement, donc
+    // certaines seraient encore en l'air au changement de tableau et sauteraient
+    // au visage d'un joueur qui vient d'arriver ailleurs.
+    for (const m of this.mines || []) this.scene.remove(m.group);
+    this.mines = [];
+    this._souffleEnCours = null;
   }
 
   aliveCount() {
@@ -246,11 +269,28 @@ export class Enemies {
       }
     }
 
+    this._updateMines(dt, game);
+    // Le souffle ne dure qu'un souffle : sans ce décompte, une mine ayant sauté
+    // resterait mortelle à cet endroit pour le restant de la vague.
+    if (this._souffleEnCours) {
+      this._souffleEnCours.temps -= dt;
+      if (this._souffleEnCours.temps <= 0) this._souffleEnCours = null;
+    }
+
     // Purge les morts de la liste (les meshes sont déjà retirés).
     if (this.list.some((e) => !e.alive)) this.list = this.list.filter((e) => e.alive);
   }
 
   _updateEnemy(e, dt, game) {
+    // UN LANCIER QUI QUITTE SA PLACE NE TIENT PLUS PERSONNE. Sans cette remise à
+    // zéro, un lancier parti en plongée laissait son rayon allumé au milieu de
+    // l'arène, immobile et mortel, longtemps après qu'il ait quitté l'endroit.
+    if (e.type === 'lancier' && e.state !== 'formation') {
+      this._cacheRayon(e);
+      e.visee = 0;
+      e.charge = 0;
+      e.tir = 0;
+    }
     switch (e.state) {
       case 'entering': {
         e.t += dt / ENEMY.entryDuration;
@@ -279,6 +319,11 @@ export class Enemies {
         e.group.position.y = Math.sin(e.time * 2.2) * 0.15;
         // Face au joueur, avec une petite oscillation vivante.
         e.group.rotation.set(0, Math.sin(e.time * 1.7) * 0.12, Math.sin(e.time * 2.6) * 0.08);
+        // Les deux métiers ne s'exercent qu'en formation : un lancier qui plonge
+        // ne vise plus, un poseur qui plonge ne pose plus. C'est ce qui les rend
+        // lisibles — leur menace a une PLACE.
+        if (e.type === 'lancier') this._lancier(e, dt, game);
+        else if (e.type === 'poseur') this._poseur(e, dt, game);
         break;
       }
       case 'diving': {
@@ -354,8 +399,22 @@ export class Enemies {
   }
 
   _launchDive(game) {
+    // NI LE LANCIER NI LE POSEUR NE PLONGENT, ET C'EST TOUTE LEUR IDENTITÉ.
+    //
+    // Ils tenaient leur place jusqu'à ce que le directeur les choisisse comme
+    // plongeurs — après quoi ils ne visaient plus, ne posaient plus rien, et
+    // finissaient leur course comme des guêpes plus lentes. Leur menace tient à
+    // ce qu'ils OCCUPENT un endroit : un lancier qui plonge n'interdit plus aucun
+    // couloir, un poseur qui plonge n'encombre plus rien. Mesuré en jeu : sur une
+    // vague 18, le seul lancier était parti en plongée avant d'avoir visé une
+    // seule fois, et le joueur n'avait jamais vu de rayon.
     const candidates = this.list.filter(
-      (e) => e.alive && ARMED_STATES.includes(e.state) && e.type !== 'boss'
+      (e) =>
+        e.alive &&
+        ARMED_STATES.includes(e.state) &&
+        e.type !== 'boss' &&
+        e.type !== 'lancier' &&
+        e.type !== 'poseur'
     );
     if (candidates.length === 0) return;
     // Les guêpes plongent plus volontiers.
@@ -714,6 +773,255 @@ export class Enemies {
       this._spawnShot(from, dir, 'straight', game);
     }
     game.audio.enemyShoot();
+  }
+
+  // ---- LE LANCIER : viser, charger, brûler ----------------------------------
+  //
+  // Trois temps, et le joueur doit pouvoir lire les trois. Il VISE tant que vous
+  // êtes dans son couloir ; il CHARGE quand la visée est mûre, et là le fil bat ;
+  // il BRÛLE, et c'est trop tard. La sortie est toujours latérale : un pas de
+  // côté suffit, à n'importe quel moment avant la brûlure.
+
+  // Le temps de visée à la vague courante. LE PLANCHER EST UNE PROMESSE, pas un
+  // réglage : sans une seconde pleine, il n'y a pas le temps de voir, décider et
+  // bouger, et le rayon cesse d'être une punition pour devenir un piège.
+  _amorceLancier() {
+    return Math.max(
+      LANCIER.amorceMin,
+      LANCIER.amorceBase - (this.waveNumber - 1) * LANCIER.amorcePente
+    );
+  }
+
+  _lancier(e, dt, game) {
+    const joueur = cible(game);
+    const px = joueur.position.x;
+    const dans = joueur.alive !== false && Math.abs(px - e.group.position.x) <= LANCIER.couloir;
+
+    // ON RETIENT CE QUI COURAIT AVANT DE DÉCOMPTER.
+    //
+    // Les compteurs sont bornés à zéro — sinon ils descendent indéfiniment sous
+    // zéro pendant que le lancier ne fait rien, et l'état devient illisible pour
+    // qui vient le lire. Mais borner efface l'image où la charge s'achève : elle
+    // passe de « un peu » à « zéro », donc `charge > 0` est déjà faux quand on
+    // voudrait tirer, et le rayon ne partait plus jamais. C'est la TRANSITION
+    // qu'on guette, pas l'instant.
+    const chargeait = (e.charge || 0) > 0;
+    e.tir = Math.max(0, (e.tir || 0) - dt);
+    e.repos = Math.max(0, (e.repos || 0) - dt);
+    e.charge = Math.max(0, (e.charge || 0) - dt);
+
+    if (e.tir > 0) {
+      this._poseRayon(e, game, 1, 1);
+      return;
+    }
+    if (chargeait) {
+      if (e.charge > 0) {
+        // Le télégraphe : le fil s'épaissit, de plus en plus vite. C'est la seule
+        // fenêtre où l'on peut encore décider.
+        const k = 1 - e.charge / LANCIER.charge;
+        // C'est CETTE largeur qui monte, pas seulement la lumière : un joueur ne
+        // lit pas une opacité, il lit une forme qui grossit.
+        this._poseRayon(e, game, 0.14 + k * 0.34, 0.18 + k * 0.5);
+        return;
+      }
+      // La charge vient de s'achever : il brûle, à partir de cette image.
+      e.tir = LANCIER.tir;
+      e.repos = LANCIER.repos + LANCIER.tir;
+      game.audio.enemyShoot?.();
+      this._poseRayon(e, game, 1, 1);
+      return;
+    }
+
+    // Ni charge ni tir : on vise, ou on refroidit.
+    if (!dans || e.repos > 0) {
+      e.visee = 0;
+      this._cacheRayon(e);
+      this._oeilLancier(e, 0);
+      return;
+    }
+    e.visee = (e.visee || 0) + dt;
+    this._oeilLancier(e, Math.min(1, e.visee / this._amorceLancier()));
+    // UN FIL, PAS UNE COLONNE. Pendant la visée il est mince — un sixième de sa
+    // largeur finale — pour dire « il te tient » sans rien cacher de l'arène.
+    // C'est l'épaississement qui annonce le coup, et il faut donc partir de peu.
+    this._poseRayon(e, game, 0.14, 0.16);
+    if (e.visee >= this._amorceLancier()) {
+      e.visee = 0;
+      e.charge = LANCIER.charge;
+    }
+  }
+
+  // La lentille s'allume à mesure que la visée mûrit : c'est le signal qu'on lit
+  // en vision périphérique, quand on regarde ailleurs.
+  _oeilLancier(e, k) {
+    const oeil = e.group.getObjectByName('lancierOeil');
+    if (!oeil) return;
+    oeil.scale.set(1 + k * 0.5, 1 + k * 0.5, 0.55 + k * 0.4);
+  }
+
+  // Le trait, dans le repère du monde. Une seule géométrie par lancier, réutilisée :
+  // rien ne s'alloue pendant qu'on joue.
+  _poseRayon(e, game, opacite, largeur = 1) {
+    if (!e.rayon) {
+      const geo = new THREE.PlaneGeometry(1, 1);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x6fd8ff,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      e.rayon = new THREE.Mesh(geo, mat);
+      e.rayon.rotation.x = -Math.PI / 2; // à plat : on regarde l'arène de haut
+      this.scene.add(e.rayon);
+    }
+    const z0 = e.group.position.z;
+    const z1 = ARENA.playerZ + 2;
+    e.rayon.visible = true;
+    e.rayon.material.opacity = opacite;
+    e.rayon.scale.set(LANCIER.demi * 2 * largeur, Math.max(0.1, z1 - z0), 1);
+    e.rayon.position.set(e.group.position.x, 0, (z0 + z1) / 2);
+    // Le rayon qui BRÛLE est blanc : la couleur, elle aussi, dit à quel temps on
+    // en est. Un joueur ne lit pas une opacité, il lit un changement de nature.
+    e.rayon.material.color.setHex(opacite > 0.6 ? 0xffffff : 0x6fd8ff);
+  }
+
+  _cacheRayon(e) {
+    if (e.rayon) e.rayon.visible = false;
+  }
+
+  // Le joueur est-il dans un rayon qui brûle EN CE MOMENT ? Appelée par les
+  // collisions : c'est la seule chose que le reste du jeu a besoin de savoir.
+  rayonTouche(pos) {
+    for (const e of this.list) {
+      if (!e.alive || e.type !== 'lancier' || !(e.tir > 0)) continue;
+      if (Math.abs(pos.x - e.group.position.x) > LANCIER.demi + PLAYER.radius) continue;
+      if (pos.z < e.group.position.z) continue; // derrière l'émetteur : rien
+      return true;
+    }
+    return false;
+  }
+
+  // ---- LE POSEUR ET SES MINES ----------------------------------------------
+
+  _poseur(e, dt, game) {
+    e.pose = (e.pose ?? MINE.poseInterval * 0.6) - dt;
+    if (e.pose > 0) return;
+    e.pose = MINE.poseInterval;
+    // Il ne remplit pas l'arène : au-delà de sa part, il garde ses mines.
+    const siennes = this.mines.filter((m) => m.par === e.id).length;
+    if (siennes >= MINE.maxParPoseur) return;
+    this._poseMine(e, game);
+  }
+
+  _poseMine(e, game) {
+    const g = createMine();
+    g.position.copy(e.group.position);
+    g.position.y -= 0.5;
+    this.scene.add(g);
+    this.mines.push({
+      group: g,
+      par: e.id,
+      hp: MINE.hp,
+      vie: MINE.vie,
+      amorce: 0,
+      time: 0,
+    });
+    game.audio.enemyShoot?.();
+  }
+
+  _updateMines(dt, game) {
+    const joueur = cible(game);
+    for (let i = this.mines.length - 1; i >= 0; i--) {
+      const m = this.mines[i];
+      m.time += dt;
+      m.vie -= dt;
+
+      if (m.amorce > 0) {
+        // Elle est amorcée : elle clignote et grossit avant de souffler. Cette
+        // demi-seconde est ce qui rend la mine JOUABLE — on peut encore fuir ce
+        // qu'on vient de faire sauter.
+        m.amorce -= dt;
+        const k = 1 - m.amorce / MINE.amorce;
+        m.group.scale.setScalar(1 + k * 0.9);
+        const halo = m.group.getObjectByName('mineHalo');
+        if (halo) halo.material.opacity = 0.2 + k * 0.7;
+        if (m.amorce <= 0) this._souffle(m, i, game);
+        continue;
+      }
+
+      // Elle descend, lentement, vers le joueur. Elle ne le poursuit pas : elle
+      // dérive dans sa direction, ce qui laisse toujours la possibilité de la
+      // contourner plutôt que de la tirer.
+      const p = m.group.position;
+      const dx = joueur.position.x - p.x;
+      p.x += THREE.MathUtils.clamp(dx, -1, 1) * MINE.vitesse * 0.35 * dt;
+      p.z += MINE.vitesse * dt;
+      p.y = Math.sin(m.time * 1.8) * 0.2;
+      m.group.rotation.x += dt * 0.9;
+      m.group.rotation.y += dt * 1.3;
+
+      // Trop vieille, ou sortie derrière le joueur : elle s'éteint sans souffler.
+      // Une mine qui explose hors de l'écran ne se comprendrait pas.
+      if (m.vie <= 0 || p.z > ARENA.playerZ + 6) {
+        this._retireMine(i);
+      }
+    }
+  }
+
+  // Le souffle : petit, mais il touche TOUT — le joueur comme les ennemis. C'est
+  // ce qui rend la mine intéressante et pas seulement gênante : bien placée, on la
+  // fait sauter au milieu d'une formation.
+  _souffle(m, i, game) {
+    const pos = m.group.position.clone();
+    this._retireMine(i);
+    game.fx.explosionSmall?.(pos);
+    game.fx.shockwave?.(pos, 0xd8ff6b, MINE.souffle);
+    game.audio.explosionSmall?.();
+
+    for (const e of this.list) {
+      if (!e.alive || e.type === 'boss') continue;
+      if (e.group.position.distanceTo(pos) > MINE.souffle + e.def.radius) continue;
+      if (this.damage(e, 2, game)) game._onEnemyKilled(e, 'mine');
+    }
+    this._souffleEnCours = { pos, rayon: MINE.souffle, temps: 0.12 };
+  }
+
+  _retireMine(i) {
+    const m = this.mines[i];
+    this.scene.remove(m.group);
+    this.mines.splice(i, 1);
+  }
+
+  // Une balle du joueur touche-t-elle une mine ? Renvoie la mine touchée, ou null.
+  mineSous(pos, rayon) {
+    for (const m of this.mines) {
+      if (m.amorce > 0) continue; // déjà amorcée : on ne la retire plus
+      if (m.group.position.distanceTo(pos) <= MINE.rayon + rayon) return m;
+    }
+    return null;
+  }
+
+  // Le tir a porté : la mine s'amorce plutôt que de disparaître.
+  amorceMine(m, game) {
+    if (m.amorce > 0) return;
+    m.amorce = MINE.amorce;
+    game.audio.hit?.();
+  }
+
+  // Le joueur est-il dans un souffle de mine, à cette image ?
+  souffleTouche(pos) {
+    const s = this._souffleEnCours;
+    if (!s || s.temps <= 0) return false;
+    return pos.distanceTo(s.pos) <= s.rayon;
+  }
+
+  // Le joueur touche-t-il une mine de plein fouet ?
+  mineHeurte(pos, rayon) {
+    for (const m of this.mines) {
+      if (m.group.position.distanceTo(pos) <= MINE.rayon + rayon) return m;
+    }
+    return null;
   }
 
   // Inflige des dégâts ; renvoie true si l'ennemi meurt.

@@ -26,6 +26,7 @@ import {
   FUREUR,
   GRAZE,
   OVERDRIVE,
+  MINE,
   PICKUPS,
   PLAYER,
   PRECISION,
@@ -4518,6 +4519,17 @@ export class Game {
     // maintenant le double, et le dit franchement, sinon personne ne remarquerait
     // jamais qu'il y a quelque chose à viser.
     const pierceMax = this.odTimer > 0 ? OVERDRIVE.odPierce : 1;
+    // UNE MINE SE TIRE. C'est ce qui la sépare d'un obstacle : elle pose une
+    // question — la dégager maintenant, ou la contourner et garder son tir — et
+    // une question à laquelle on ne peut pas répondre n'est qu'une gêne.
+    this.bullets.forEachActive((b) => {
+      const mine = this.enemies.mineSous(b.mesh.position, this.bullets.radius);
+      if (mine) {
+        this.enemies.amorceMine(mine, this);
+        this.bullets.kill(b);
+        this.score += MINE.score * this.combo.mult;
+      }
+    });
     this.bullets.forEachActive((b) => {
       for (const e of enemies) {
         if (!e.alive || b.hitIds.includes(e.id)) continue;
@@ -4588,6 +4600,31 @@ export class Game {
     const qui = bord === this ? this.player : this.joueur2;
     if (!qui?.alive) return;
     const pPos = qui.position;
+
+    // LE RAYON DU LANCIER, ET LA MINE.
+    //
+    // Ces deux-là ne sont pas des balles : ils occupent une ZONE, pas un point,
+    // et ils frappent donc avant la boucle des projectiles. Le tonneau ne les
+    // renvoie pas — on ne renvoie pas une colonne de lumière, et une mine qu'on
+    // traverse en tournant reste une mine. Le tonneau garde son invulnérabilité,
+    // rien de plus : c'est ce qui empêche la pirouette de devenir la réponse à
+    // tout.
+    if (!qui.rolling && qui.invulnTimer <= 0) {
+      if (this.enemies.rayonTouche(pPos)) {
+        this._playerHit(bord);
+        return;
+      }
+      if (this.enemies.souffleTouche(pPos)) {
+        this._playerHit(bord);
+        return;
+      }
+      const mine = this.enemies.mineHeurte(pPos, PLAYER.radius);
+      if (mine) {
+        this.enemies.amorceMine(mine, this);
+        this._playerHit(bord);
+        return;
+      }
+    }
 
     // Tirs ennemis → joueur. Pendant un tonneau, la balle est RENVOYÉE.
     //

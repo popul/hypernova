@@ -101,6 +101,28 @@ export function makeWave(n, opts = {}) {
     rows.push({ type: 'wasp', count: cols }, { type: 'wasp', count: cols - 2 });
   } else {
     if (n >= 2) rows.push({ type: 'brute', count: Math.min(cols - 2, 2 + Math.floor(n / 2)) });
+    // LES DEUX NOUVEAUX MÉTIERS ARRIVENT TARD, ET EN PETIT NOMBRE.
+    //
+    // Ils ne remplacent pas la piétaille, ils la compliquent : deux lanciers
+    // suffisent à interdire deux couloirs, et deux poseurs à encombrer le bas de
+    // l'arène. En mettre une rangée entière transformerait la vague en casse-tête
+    // statique — or ce qu'on veut, c'est que le joueur DÉPLACE le problème.
+    //
+    // Le lancier ouvre le bal à la vague 5, une fois que le joueur a pris
+    // l'habitude de se poser quelque part ; le poseur suit à la 8, quand il a
+    // appris à choisir sa cible et qu'on peut lui demander de choisir mieux.
+    if (n >= WAVES.lancierDepuis) {
+      rows.push({
+        type: 'lancier',
+        count: Math.min(3, 1 + Math.floor((n - WAVES.lancierDepuis) / 6)),
+      });
+    }
+    if (n >= WAVES.poseurDepuis) {
+      rows.push({
+        type: 'poseur',
+        count: Math.min(3, 1 + Math.floor((n - WAVES.poseurDepuis) / 7)),
+      });
+    }
     rows.push({ type: 'wasp', count: cols });
     if (n >= 4) rows.push({ type: 'wasp', count: cols });
     rows.push({ type: 'drone', count: cols });

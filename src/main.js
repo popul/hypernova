@@ -141,6 +141,10 @@ const game = new Game({
   overlayRoot: document.getElementById('overlay'),
 });
 game.arenaEdges = arenaEdges; // le vaisseau allume la couture qu'il franchit
+// EN DÉVELOPPEMENT SEULEMENT : de quoi inspecter la partie depuis la console.
+// `import.meta.env.DEV` est remplacé par `false` à la construction, donc ces deux
+// lignes disparaissent du bundle livré — le jeu publié n'expose rien.
+if (import.meta.env.DEV) window.jeu = game;
 
 if (isTouchDevice()) document.body.classList.add('touch');
 

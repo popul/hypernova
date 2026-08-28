@@ -588,6 +588,112 @@ function createWasp() {
   return g;
 }
 
+// LE LANCIER — une lentille, et rien d'autre.
+//
+// Sa silhouette doit dire ce qu'il fait AVANT qu'il l'ait fait. Il n'a donc ni
+// ailes ni canon : un anneau tenu de champ, avec une lentille au centre, posée
+// bien en évidence face au joueur. Quand elle s'allume, on comprend sans texte.
+function createLancier() {
+  const g = new THREE.Group();
+  const corps = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.34, 0.5, 0.9, 6),
+    mat(0x2f6fae, { metalness: 0.8, roughness: 0.3 })
+  );
+  corps.rotation.x = Math.PI / 2;
+  g.add(corps);
+
+  // L'anneau de champ : c'est lui qui fait lire « émetteur » plutôt que « chasseur ».
+  const anneau = new THREE.Mesh(
+    new THREE.TorusGeometry(0.62, 0.09, 6, 16),
+    mat(0x1b3f66, { metalness: 0.9, roughness: 0.35 })
+  );
+  anneau.position.z = 0.28;
+  g.add(anneau);
+
+  // LA LENTILLE. Nommée, parce que la logique du tir vient l'allumer : elle passe
+  // du bleu éteint au blanc brûlant pendant que le rayon se charge.
+  const lentille = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), glow(0x6fd8ff));
+  lentille.name = 'lancierOeil';
+  lentille.position.z = 0.42;
+  lentille.scale.set(1, 1, 0.55);
+  g.add(lentille);
+
+  for (const side of [-1, 1]) {
+    const bras = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.1, 0.34), mat(0x14283f));
+    bras.position.set(side * 0.6, 0, -0.16);
+    bras.rotation.z = side * 0.28;
+    g.add(bras);
+  }
+  return g;
+}
+
+// LE POSEUR — un ventre, et ce qu'il y a dedans.
+//
+// Il ne montre aucune arme, et c'est le propos : ce qui est dangereux chez lui
+// n'est pas sur sa coque, c'est ce qu'il laisse derrière. Le ventre ouvert et la
+// grappe visible disent « il en a encore ».
+function createPoseur() {
+  const g = new THREE.Group();
+  const coque = new THREE.Mesh(
+    new THREE.SphereGeometry(0.62, 10, 8),
+    mat(0x4a7a3c, { metalness: 0.55, roughness: 0.55 })
+  );
+  coque.scale.set(1.25, 0.8, 1);
+  g.add(coque);
+
+  // Le ventre ouvert, tourné vers le joueur : c'est de là que ça tombe.
+  const trappe = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.1, 0.5), mat(0x1e2f18));
+  trappe.position.set(0, -0.42, 0.1);
+  g.add(trappe);
+
+  // La grappe : trois mines encore accrochées, qu'on voit avant d'en manger une.
+  for (const [i, x] of [-0.28, 0, 0.28].entries()) {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 0), glow(0xd8ff6b));
+    m.position.set(x, -0.56, 0.06 + (i % 2) * 0.12);
+    g.add(m);
+  }
+  for (const side of [-1, 1]) {
+    const aile = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 0.42), mat(0x2c4a22));
+    aile.position.set(side * 0.82, 0.08, -0.2);
+    aile.rotation.z = side * -0.3;
+    g.add(aile);
+  }
+  return g;
+}
+
+// LA MINE elle-même. Elle vit hors de la formation : ce n'est pas un ennemi de la
+// liste, c'est un objet posé, avec sa propre horloge.
+export function createMine() {
+  const g = new THREE.Group();
+  const noyau = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.3, 0),
+    mat(0x3f5a26, { emissive: 0x2a3d18, emissiveIntensity: 0.6, roughness: 0.6 })
+  );
+  g.add(noyau);
+  // Les pointes : c'est ce qui fait lire « mine » et pas « caillou ».
+  for (const [dx, dy, dz] of [
+    [0.34, 0, 0],
+    [-0.34, 0, 0],
+    [0, 0.34, 0],
+    [0, -0.34, 0],
+    [0, 0, 0.34],
+    [0, 0, -0.34],
+  ]) {
+    const pointe = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.24, 4), glow(0xd8ff6b));
+    pointe.position.set(dx, dy, dz);
+    pointe.lookAt(dx * 3, dy * 3, dz * 3);
+    pointe.rotateX(Math.PI / 2);
+    g.add(pointe);
+  }
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), glow(0xd8ff6b));
+  halo.name = 'mineHalo';
+  halo.material = halo.material.clone();
+  halo.material.transparent = true;
+  halo.material.opacity = 0.18;
+  g.add(halo);
+  return g;
+}
+
 function createBrute() {
   const g = new THREE.Group();
   const body = new THREE.Mesh(
@@ -847,7 +953,14 @@ export function setBossPhase(group, phase) {
   }
 }
 
-const BUILDERS = { drone: createDrone, wasp: createWasp, brute: createBrute, boss: createBoss };
+const BUILDERS = {
+  drone: createDrone,
+  wasp: createWasp,
+  brute: createBrute,
+  lancier: createLancier,
+  poseur: createPoseur,
+  boss: createBoss,
+};
 const templates = new Map();
 
 // Les matériaux restent partagés par type (le flash de dégât est fait par un pop

@@ -111,7 +111,73 @@ export const ENEMY_TYPES = {
   // occupe un tiers de l'arène : assez pour être frappé, pas assez pour boucher
   // le champ (il patrouille jusqu'à x=8,5, donc son flanc s'arrête à 13,2 sur
   // 14,5 — il ne sort jamais du cadre).
+  // LE LANCIER. Il ne tire pas de balles : il PUNIT L'IMMOBILITÉ.
+  //
+  // Tous les autres ennemis récompensent le fait de bien se placer, puis de tenir
+  // ce placement. Celui-là interdit de tenir : rester dans son couloir finit
+  // toujours par coûter une vie. Il n'a donc pas de `shot` — sa fiche d'armement
+  // est LANCIER, plus bas, parce que ce qu'il fait ne se décrit pas en balles.
+  lancier: {
+    hp: 2,
+    radius: 0.9,
+    score: 140,
+    credits: 22,
+    gemCount: 2,
+    fireChance: 0, // il ne participe JAMAIS au tir de formation
+  },
+  // LE POSEUR. Il ne vise pas, il encombre.
+  //
+  // Sa mine descend lentement, se détruit au tir, et souffle une petite zone en
+  // sautant. C'est le seul ennemi dont la menace SURVIT à sa mort : le tuer ne
+  // retire pas ce qu'il a déjà posé, et l'arène se referme peu à peu si on le
+  // laisse travailler. Il change donc l'ordre des priorités, ce qu'aucun autre ne
+  // fait.
+  poseur: {
+    hp: 2,
+    radius: 0.95,
+    score: 130,
+    credits: 24,
+    gemCount: 2,
+    fireChance: 0,
+  },
   boss: { hp: 50, radius: 5.2, score: 1500, credits: 220, gemCount: 16, fireChance: 0 },
+};
+
+// LE RAYON DU LANCIER, ET LA SECONDE QU'ON NE LUI PREND PAS.
+//
+// La règle est celle que Paul a posée, et elle est absolue : l'amorçage raccourcit
+// avec la difficulté, mais IL NE DESCEND JAMAIS SOUS UNE SECONDE. En dessous, le
+// rayon cesse d'être une punition pour devenir un piège — le temps de voir le
+// télégraphe, de décider et de bouger, il faut une seconde pleine, et une vague 40
+// n'a pas le droit de la reprendre. `amorceMin` est donc un plancher, pas un
+// réglage : le Math.max qui l'applique est la promesse faite au joueur.
+//
+// Le tir se lit en trois temps, et c'est ce qui le rend juste : il VISE (un fil
+// mince suit le joueur), il CHARGE (le fil s'épaissit et bat — c'est là qu'on
+// s'écarte), puis il BRÛLE (le trait devient plein, et il est trop tard).
+export const LANCIER = {
+  couloir: 1.25, // demi-largeur du couloir où le lancier considère qu'il vous tient
+  amorceBase: 2.6, // temps de visée à la première vague
+  amorcePente: 0.075, // gagné par vague
+  amorceMin: 1.0, // LE PLANCHER. Jamais moins d'une seconde, quelle que soit la vague.
+  charge: 0.45, // le télégraphe : le fil bat, on a encore le temps de sortir
+  tir: 0.3, // le rayon brûle
+  repos: 1.7, // avant de pouvoir viser à nouveau
+  demi: 0.5, // demi-largeur du rayon qui touche
+  degatsMine: 1,
+};
+
+// LA MINE DU POSEUR. Lente, destructible, et dangereuse une seconde après sa mort.
+export const MINE = {
+  vitesse: 2.6, // unités par seconde vers le joueur : plus lente que tout le reste
+  hp: 1,
+  rayon: 0.42, // pour se faire tirer dessus
+  souffle: 3.1, // le rayon de l'explosion de zone
+  vie: 14, // au-delà, elle s'éteint d'elle-même plutôt que d'encombrer à jamais
+  amorce: 0.35, // le temps entre « elle est touchée » et « elle saute »
+  poseInterval: 3.4, // entre deux mines du même poseur
+  maxParPoseur: 3, // il ne remplit pas l'arène : trois à la fois, pas plus
+  score: 40,
 };
 
 export const ENEMY = {
@@ -408,6 +474,8 @@ export const PICKUPS = {
 
 export const WAVES = {
   bossEvery: 4,
+  lancierDepuis: 5, // le premier rayon, une fois qu'on a pris l'habitude de se poser
+  poseurDepuis: 8, // les premières mines, une fois qu'on sait choisir sa cible
   // La vague arrive en deux assauts au lieu d'un compte-gouttes : sans ça, la
   // formation ne se remplit jamais et tous les leviers de menace restent éteints.
   assaultGap: 2.8,
