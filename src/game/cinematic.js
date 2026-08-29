@@ -1,14 +1,13 @@
-// L'introduction : « Ce qu'il n'a jamais pu digérer ».
+// Le lecteur de cinématiques : il exécute des PARTITIONS (cine/sequences.js),
+// il n'en connaît aucune. Plans, répliques et temps forts sont des données ;
+// ici ne vivent que les capacités — caméra, lumière, voiles, gestes.
 //
-// Quatre actes, cinquante-deux secondes. L'ancienne version racontait une bataille
-// avec un ailier qui meurt — belle scène, mais sans le moindre rapport avec
-// l'histoire du jeu. Celle-ci ne raconte qu'une chose, et la raconte en images :
-// on a rempli un être d'un peuple entier, on l'a refermé, et on est parti sans lui.
-//
-//   ACTE I   LA TRAHISON      le chargement, la fuite, la couture qui se scelle
-//   ACTE II  LA RECHERCHE     dix mille ans de mondes ouverts, compressés
-//   ACTE III L'ARRIVÉE        notre système, l'épave, et nous qui portons leurs os
-//   ACTE IV  LE HANGAR        les trente-neuf dossiers, la quarantième ligne vide
+// La règle qui a coûté le plus cher à apprendre : AUCUN instant absolu dans ce
+// fichier. L'ancienne intro durait 52 s et ses horloges (vaisseau visible à
+// t ≥ 37,5, envol à 46, couture scellée à 18,4, mondes de 19,5 à 30) avaient
+// survécu à son remontage : l'intro de 18 s filmait un vaisseau invisible et le
+// scellement de « fuite » n'avait aucun effet visible. Chaque geste est donc
+// daté du moment où son beat le déclenche, jamais d'une seconde en dur.
 //
 // Choix de fond : les décors viennent de space/landmarks.js, ceux du JEU. ANDEL de
 // la cinématique est le KORN que le joueur affrontera, l'épave est celle qu'il
@@ -277,28 +276,47 @@ export class Cinematic {
   }
 
   _say(speaker, line) {
-    this.characters?.sayText(line.replace('{PSEUDO}', this.pilot), { speaker, priority: true });
+    // La balise des partitions est {PILOTE}, comme partout dans characters.js —
+    // l'ancien remplacement ne connaissait que {PSEUDO}, et la réplique du
+    // fleuve affichait littéralement « {PILOTE} » à l'écran.
+    this.characters?.sayText(line.replace('{PILOTE}', this.pilot), { speaker, priority: true });
   }
   // La timeline se DÉDUIT de la séquence : répliques et temps forts déclarés en
   // données, jamais en code. C'est ce qui permet d'ajouter un souvenir sans
-  // toucher au lecteur.
+  // toucher au lecteur. Chaque geste reçoit son beat entier : un carton porte
+  // son texte et sa tenue en données, pas en dur ici.
   _buildTimeline() {
     const A = this.audio;
     const gestes = {
       padDark: () => A.cinePad('dark', 7),
       padHope: () => A.cinePad('hope', 7),
+      padTension: () => A.cinePad('tension', 7),
       riser: () => A.cineRiser(2.4),
       impact: () => {
         A.cineImpact();
         this.fx.addShake(0.8);
       },
+      punch: () => this.veils.punch(0.25),
+      starDie: () => A.cineStarDie(),
       hero: () => A.cineHero(),
       title: () => this._titleCard(),
       seal: () => this._seal(),
+      carton: (b) => this._carton(b),
+      // L'envol du vaisseau : un instant de la séquence, plus une horloge du
+      // lecteur (il était câblé à t ≥ 46 s, vestige de l'intro de 52 s).
+      depart: () => {
+        this.departAt = this.time;
+      },
+      fleetGo: () => this.fleet.launch(),
+      // Le fleuve se tarit sur ~1 s : la dernière lumière entre, la fente
+      // reste seule. L'image ponctue la phrase qui vient d'être dite.
+      fleuveTarit: () => {
+        this.riverDryAt = this.time;
+      },
     };
     this.events = [
       ...(this.seq.lines || []).map((l) => ({ t: l.t, fn: () => this._say(l.who, l.text) })),
-      ...(this.seq.beats || []).map((b) => ({ t: b.t, fn: gestes[b.do] || (() => {}) })),
+      ...(this.seq.beats || []).map((b) => ({ t: b.t, fn: () => (gestes[b.do] || (() => {}))(b) })),
     ].sort((a, b) => a.t - b.t);
     this.eventIdx = 0;
   }
@@ -318,10 +336,39 @@ export class Cinematic {
   // s'ouvrir. On le marque d'un choc et d'un éclair bref — surtout pas d'une
   // explosion, il ne se passe rien de spectaculaire, c'est bien le problème.
   _seal() {
-    this.sealed = true;
+    // On date le geste : l'animation de la couture et du fleuve se réfère à
+    // CET instant, pas à un « t − 18,4 » figé sur l'ancien montage — sinon un
+    // seal joué à 9,6 s n'avait aucun effet visible pendant neuf secondes.
+    this.sealedAt = this.time;
     this.audio.cineImpact();
     this.fx.addShake(0.7);
     this.veils.punch(0.35);
+  }
+
+  // Le carton factuel : les chiffres se LISENT au lieu d'être prononcés.
+  // « 39 partis. 0 revenu. » tenu 4,8 s fait 4,2 caractères par seconde, trois
+  // fois sous le plafond de lecture — aucune voix ne va aussi lentement.
+  // Texte et tenue viennent du beat : le lecteur n'écrit rien en dur.
+  _carton({ text = '', hold = 4.8 } = {}) {
+    const el = document.createElement('div');
+    el.className = 'cine-carton';
+    el.textContent = text;
+    this.dom.appendChild(el);
+    // Reflux forcé, sinon la transition d'opacité ne part pas (même astuce que
+    // l'allumage du panneau de comm dans characters.js).
+    void el.offsetWidth;
+    el.classList.add('visible');
+    // LA TENUE SE COMPTE EN TEMPS DE SÉQUENCE, PAS EN TEMPS D'HORLOGE.
+    //
+    // Un setTimeout la comptait en secondes murales, alors que toute la
+    // cinématique — plans, répliques, lumière — avance sur `this.time`. Les deux
+    // dérivent dès que l'appareil ralentit : sur un téléphone qui tombe à trente
+    // images par seconde, le carton s'effaçait pendant que la séquence, elle,
+    // n'avait pas fini son plan. C'est la même famille de défauts que les
+    // horloges absolues qu'on vient de sortir du lecteur — celle-ci était née
+    // dans le correctif.
+    this._cartons ||= [];
+    this._cartons.push({ el, fin: this.time + hold });
   }
 
   // La carte de titre porte la phrase du récit, pas un slogan.
@@ -346,6 +393,11 @@ export class Cinematic {
 
     this._updateActors(dt);
     this._updateLights();
+    // Les cartons expirent sur l'horloge de la séquence, comme tout le reste.
+    if (this._cartons) {
+      for (const c of this._cartons) if (this.time >= c.fin) c.el.classList.remove('visible');
+      this._cartons = this._cartons.filter((c) => this.time < c.fin);
+    }
 
     if (this.time >= this.duration) {
       this._finish();
@@ -356,20 +408,27 @@ export class Cinematic {
   _updateActors(dt) {
     const t = this.time;
 
-    // ACTE I — l'étoile gonfle pendant tout l'acte : c'est le compte à rebours.
-    const swell = 1 + THREE.MathUtils.clamp(t / 19, 0, 1) * 0.75;
+    // L'étoile gonfle sur l'AVANCEMENT de la séquence, pas sur des secondes
+    // absolues : c'est le compte à rebours, et il doit aller au bout aussi bien
+    // dans un souvenir de douze secondes que dans une intro de trente.
+    const swell = 1 + THREE.MathUtils.clamp(t / Math.max(1, this.duration), 0, 1) * 0.75;
     this.star.setSwell(swell);
     this.star.update(dt);
 
-    // Le fleuve coule tant que la couture n'est pas fermée, puis se tarit d'un coup.
-    this.river.setFlow(this.sealed ? Math.max(0, 1 - (t - 18.4) * 3) : 1);
+    // Le fleuve coule, puis se tarit : d'un coup au scellement de la couture,
+    // ou en ~1 s sur le beat fleuveTarit — dans les deux cas daté du GESTE,
+    // jamais d'une seconde absolue de l'ancien montage.
+    let flow = 1;
+    if (this.sealedAt != null) flow = Math.max(0, 1 - (t - this.sealedAt) * 3);
+    else if (this.riverDryAt != null) flow = Math.max(0, 1 - (t - this.riverDryAt));
+    this.river.setFlow(flow);
     this.river.update(dt);
     this.fleet.update(dt);
 
     // ANDEL respire, et sa couture se referme sur le geste central du film.
     this.andel.update(dt);
-    if (this.sealed) {
-      const k = THREE.MathUtils.clamp((t - 18.4) / 1.1, 0, 1);
+    if (this.sealedAt != null) {
+      const k = THREE.MathUtils.clamp((t - this.sealedAt) / 1.1, 0, 1);
       this.andel.group.traverse((o) => {
         if (o.material && o.material.color && o.material.blending === THREE.AdditiveBlending) {
           o.material.opacity = Math.max(0.06, (o.material.opacity ?? 1) * (1 - k * 0.06));
@@ -377,10 +436,12 @@ export class Cinematic {
       });
     }
 
-    // ACTE II — les mondes s'ouvrent l'un après l'autre.
-    if (t >= 19.5 && t < 30) {
+    // Les mondes déchirés n'existent que si la séquence les déclare : la plage
+    // 19,5–30 s venait de l'ancienne intro de 52 s, et toute séquence plus
+    // longue que 19,5 s voyait surgir des planètes à cœur orange dans ses plans.
+    if (this.seq.show?.worlds) {
       this.worlds.group.visible = true;
-      this.worlds.setProgress(THREE.MathUtils.clamp((t - 19.8) / 8.4, 0, 1));
+      this.worlds.setProgress(THREE.MathUtils.clamp(t / Math.max(1, this.duration), 0, 1));
     }
 
     // ACTE III — le décor du jeu.
@@ -399,14 +460,16 @@ export class Cinematic {
       this.andel.group.scale.setScalar(0.9 + k * 0.35);
     }
 
-    // Le vaisseau du joueur : immobile jusqu'au dernier acte, puis il part.
+    // Le vaisseau du joueur suit show.ship, et part sur le beat depart. Les
+    // anciens seuils (visible à t ≥ 37,5, envol à t ≥ 46) dataient de l'intro
+    // de 52 s : toute intro plus courte filmait un vaisseau INVISIBLE.
     const p = this.player.group;
-    if (t < 46) {
-      p.visible = t >= 37.5;
+    if (this.departAt == null) {
+      p.visible = !!this.seq.show?.ship;
       p.position.set(2.0, 0.4, 6.0);
       p.rotation.set(0, Math.PI, 0);
     } else {
-      const k = THREE.MathUtils.clamp((t - 49.5) / 2.5, 0, 1);
+      const k = THREE.MathUtils.clamp((t - this.departAt) / 2.5, 0, 1);
       p.visible = true;
       p.rotation.set(-0.2 * k, Math.PI, 0);
       p.position.set(2.0, 0.4 + k * 3, 6.0 - k * 40);
@@ -488,8 +551,11 @@ export class Cinematic {
 
   stop() {
     this.active = false;
+    this._cartons = [];
     this.turning = null;
-    this.sealed = false;
+    this.sealedAt = null;
+    this.departAt = null;
+    this.riverDryAt = null;
     this.kornHere = false;
 
     if (this.root) {
