@@ -35,8 +35,22 @@ body {
      chose qu'il respecte est touch-action, et il faut la poser sur TOUT ce qu'un
      doigt peut atteindre — pas seulement sur le canevas.
      C'est d'autant plus vrai ici que la pirouette EST un double-appui : le geste
-     qu'on vient d'ajouter déclenchait le zoom du navigateur. */
-  touch-action: none;
+     qu'on vient d'ajouter déclenchait le zoom du navigateur.
+
+     `pan-y` PLUTÔT QUE `none`, et ce n'est pas un relâchement. Le touch-action
+     qu'un navigateur applique est l'INTERSECTION de celui de l'élément touché et
+     de ceux de tous ses ancêtres : un `none` posé sur body ne se rattrape pas
+     plus bas. La liste blanche écrite plus loin — `.shop-scroll`,
+     `.screen.gameover`, `.pilot-grid`… en `pan-y` — ne pouvait donc rien
+     accorder du tout, et aucun écran de menu ne défilait au doigt. Ça ne se
+     voyait pas tant qu'aucun menu ne dépassait la fenêtre ; les cibles portées à
+     44 px dans ce fichier les font dépasser, et un « ← Retour » sous le bord
+     sans défilement, c'est un enfant coincé sur l'écran des copains.
+     Ce que `pan-y` laisse passer : le glissé vertical, et lui seul. Le pincement,
+     le double-appui qui zoome et le balayage horizontal de navigation restent
+     interdits — c'est-à-dire tout ce que la règle défendait. Et l'aire de jeu,
+     elle, garde `none` : voir la section tactile plus bas. */
+  touch-action: pan-y;
   /* Pas de loupe ni de menu contextuel sur appui long. */
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
@@ -284,11 +298,26 @@ body {
 }
 
 /* Taillée pour « MAINTIENS ». C'est le mot le plus long que la jauge affiche, et
-   en corps 10 il dépassait de la colonne des deux côtés : au moment précis où
-   l'Overdrive est prêt, l'étiquette allait toucher la fenêtre de dialogue. */
+   c'est lui qui dit quoi faire du gros bouton rond au moment précis où il faut
+   décider en une demi-seconde — « BOMBE » à mi-jauge, « MAINTIENS » quand
+   l'Overdrive est prêt. À 9 px, deux crans sous le plancher de lisibilité, une
+   consigne n'en est plus une. Le corps monte à 11.
+
+   La colonne reste à 64 px. L'élargir à 78 avec une marge négative de 7 ne
+   déplaçait rien du tout — mesuré, l'étiquette occupe 287,8..362,1 px sur iPhone
+   SE avec, 287,9..362,2 sans : une boîte centrée sur le rail et un mot centré
+   dans la boîte ne bougent pas quand on tire les deux bords ensemble. La seule
+   chose que la marge changeait, c'était le bord droit de la boîte, ramené de 18 à
+   11 px du bord de l'écran, soit 7 px pris sur la réserve d'encoche pour rien.
+
+   Le prix du corps 11, lui, est réel et se lit ainsi : le mot déborde de sa
+   colonne de 5,2 px de chaque côté et passe à 4,8 px de la fenêtre de dialogue,
+   contre 11,6 auparavant. Un écart, pas un recouvrement, sur les cinq gabarits —
+   et #hud est en pointer-events: none, donc l'étiquette ne prend le clic de
+   personne. */
 .energy-label {
   font-family: var(--display);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.05em;
   white-space: nowrap;
   color: var(--text-dim);
@@ -1141,6 +1170,23 @@ body.touch .btn-energy-touch {
   margin-top: 6px;
 }
 
+/* LA CLASSE ÉTAIT ÉCRITE, MAIS PAS ICI.
+
+   `.rangee` n'existait que dans src/admin/admin.css, que le jeu ne charge pas.
+   Trois règles du jeu la supposaient pourtant flex et ne faisaient donc rien :
+   le `flex-wrap` et le `justify-content` de `.amis-actes`, le
+   `flex-direction: column` du salon, et le `justify-content:flex-end` de la
+   fenêtre « Ajouter un copain ». Mesuré sur iPhone SE, les deux boutons d'action
+   des copains se posaient à 18 px du bord gauche pendant que « ← Retour », juste
+   dessous, était centré à 133. Copie exacte de la définition d'admin.css, pour
+   que les deux ne divergent pas. */
+.rangee {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .btn-secondary {
   position: relative;
   font-family: var(--display);
@@ -1181,6 +1227,17 @@ body.touch .btn-energy-touch {
   background: none;
   border: 1px solid rgba(207, 230, 245, 0.25);
   padding: 8px 14px;
+  /* 108×35 mesurés sur les cinq gabarits : 13 px de corps, 8 px de marge
+     intérieure de chaque côté, 1 px de trait. Neuf de moins que les
+     quarante-quatre d'un pouce, sur le bouton de sortie de presque tous les
+     écrans — #pilots-back, #profil-back, #amis-back, #variante-back, #entr-back,
+     #coques-back, #salon-back, #btn-menu — c'est-à-dire celui qu'on cherche vite
+     et sans regarder quand on s'est trompé de menu. Un <button> recentre son
+     libellé tout seul quand la boîte grandit (mesuré : 13,5 px au-dessus, 13,5
+     en dessous), donc le dessin ne change pas d'allure.
+     Les deux boutons fantômes de l'écran d'accueil font exception et gardent
+     leurs 35 px : voir « ÉCRAN D'ACCUEIL » plus bas. */
+  min-height: 44px;
   cursor: pointer;
   transition:
     color 0.15s,
@@ -1327,6 +1384,36 @@ button.lb-ligne:hover {
   transform: translateX(2px);
 }
 
+/* UNE LIGNE QUI OUVRE UNE PARTIE EST UN BOUTON, ET ELLE FAISAIT 28 PX DE HAUT —
+   moins des deux tiers de la pulpe d'un pouce. On visait juste et on croyait
+   avoir raté. C'est pourtant le geste qui suit immédiatement la défaite : on
+   regarde qui est au-dessus de soi et on ouvre sa partie.
+
+   `button.lb-ligne` et pas `.lb-ligne` : le gabarit sort un <div> quand la partie
+   ne se rejoue pas (game.js, `balise = revoyable ? 'button' : 'div'`), et
+   allonger une ligne qu'on ne peut pas ouvrir coûte de la hauteur sans rendre de
+   cible. Mesuré sur dix lignes dont trois rejouables : 48 px de plus pour le bloc
+   au lieu de 160, et « Rejouer » reste au-dessus de la ligne de flottaison sur
+   390, 430 et 360 au lieu d'en sortir sur les trois.
+
+   Bornée à l'écran de fin, où le classement est le sujet. Sur l'accueil,
+   `.title-lb` est plafonné à 22vh et défile chez lui : des lignes de 44 px n'y
+   allongeraient rien, elles y feraient passer le tableau de quatre lignes
+   visibles à deux, et à une sur iPhone SE — contre l'intention écrite du plafond.
+   L'accueil serre déjà ses lignes exprès, voir `.screen.title .lb-row`.
+
+   `align-content` n'est pas décoratif : sans lui la piste de grille reste collée
+   en haut de la ligne agrandie (5 px au-dessus du texte, 21 en dessous). Et
+   `align-items: baseline` doit rester dans `.lb-ligne` — c'est lui qui pose le
+   rang, le nom et le score sur la même ligne de base malgré leurs trois corps.
+
+   Une jupe transparente était exclue : les lignes sont contiguës, et la zone
+   débordante aurait recouvert la ligne voisine, elle aussi cliquable. */
+.screen.gameover button.lb-ligne {
+  min-height: 44px;
+  align-content: center;
+}
+
 .lb-play {
   font-size: 11px;
   color: var(--cyan);
@@ -1410,6 +1497,23 @@ button.lb-ligne:hover {
 .lb-form .btn-launch {
   font-size: 14px;
   padding: 10px 22px;
+  /* 38 px de haut mesurés en portrait sur quatre gabarits sur cinq. C'est le tout
+     premier bouton du jeu : celui de l'écran-porte, qui débloque le son et lance
+     l'introduction, sur un écran où il n'y a rien d'autre à toucher. En paysage
+     il atteignait 43 px, mais par l'étirement du formulaire (`align-items:
+     stretch` sur la hauteur du champ), pas par une règle — donc par accident. */
+  min-height: 44px;
+}
+
+/* UN PIXEL SOUS LA CIBLE, ce qui est peu mais se corrige pour rien. #gate-name
+   mesurait 300×43 en portrait et 210×43 en paysage ; #dt-champ, le champ de la
+   fenêtre « Ajouter un copain » — le seul moyen d'ajouter quelqu'un par son
+   pseudo —, 289×43. La taille du texte, elle, était déjà bonne : 16 px sur les
+   cinq gabarits, donc iOS ne zoome pas à la mise au point et la page ne se
+   décale pas. */
+.lb-form input,
+#dt-champ {
+  min-height: 44px;
 }
 
 /* ---------- Victoire de mission ---------- */
@@ -1651,16 +1755,29 @@ button.lb-ligne:hover {
 
 /* ---------- Tactile & responsive ---------- */
 
+/* L'AIRE DE JEU ET LES COMMANDES : rien n'y bouge sous le doigt. C'est ici que
+   vit la pirouette, qui EST un double-appui, et le glissé de pilotage, qui part
+   dans tous les sens. */
 #scene,
-#app,
 #hud,
-#overlay,
 .comm,
 .hud-touch button,
 .btn-energy-touch,
 .btn-call-touch,
 .rejeu-boutons button {
   touch-action: none;
+}
+
+/* LES DEUX COUCHES QUI PORTENT LES MENUS, elles, laissent passer le glissé
+   vertical — sans quoi rien de ce qui est déclaré plus bas ne s'applique : le
+   touch-action effectif est l'intersection avec celui des ancêtres, et un `none`
+   posé ici rendait muette toute la liste `pan-y` qui suit. #overlay est le père
+   de tous les écrans (game.js, `_screen()`), #app le sien. Ils ne contiennent
+   aucune commande de vol : celles-ci sont dans #hud et sur #scene, qui gardent
+   `none` juste au-dessus. */
+#app,
+#overlay {
+  touch-action: pan-y;
 }
 
 /* Les autres boutons vivent DANS des listes qui défilent — une carte de boutique,
@@ -1784,9 +1901,20 @@ body.touch .key-hint {
     font-size: 19px;
   }
 
+  /* 9 px, c'est-à-dire sous le plancher de lisibilité, et sur les trois seuls
+     mots que l'on ne lit jamais en s'arrêtant : SCORE, VAGUE et CRÉDITS
+     s'attrapent du coin de l'œil pendant qu'on esquive. À neuf, un enfant de
+     douze ans ne lit pas « CRÉDITS » : il reconnaît une tache grise et devine.
+     L'interlettrage descend de 0,22 à 0,18 em pour rendre la largeur que le
+     corps prend : « CRÉDITS », le plus long des trois, mesure 57 px au lieu de
+     49,2 et reste sous les 84 px de min-width du bloc — les trois colonnes ne
+     bougent donc pas d'un pixel, et l'écart le plus serré entre deux blocs vaut
+     34,9 px sur un écran de 360, avant comme après.
+     La même règle habille .go-stats sur les écrans de fin : la rangée y passe de
+     274 à 280,1 px de large, sans changer de hauteur. */
   .hud-label {
-    font-size: 9px;
-    letter-spacing: 0.22em;
+    font-size: 11px;
+    letter-spacing: 0.18em;
   }
 
   .hud-combo {
@@ -1810,16 +1938,33 @@ body.touch .key-hint {
   }
 
   .boss-bar {
-    top: calc(max(10px, env(safe-area-inset-top)) + 56px);
+    /* 58 et non plus 56, et c'est le corps du HUD ci-dessus qui l'exige : le bas
+       de la ligne « Record » et le haut de cette barre étaient au même pixel —
+       mesuré, y = 66 tous les deux, sur les quatre gabarits portrait. Deux pixels
+       de plus au bandeau, et la ligne passait 2 px SOUS le bord de la barre, sur
+       64 px de largeur commune : c'est la panne racontée juste en dessous, en
+       plus petit. La barre descend d'autant, l'écart redevient nul, et comme elle
+       est en position absolue rien ne la suit. */
+    top: calc(max(10px, env(safe-area-inset-top)) + 58px);
     /* En portrait, 60vw ne laissaient que 234 px : le titre du boss passait sur
        deux lignes et l'acte tombait tout seul à la ligne suivante. La barre prend
        la largeur disponible, et l'interlettrage cède avant le texte. */
     width: min(420px, 88vw);
   }
 
+  /* 10 px sur le nom de ce qu'on est en train d'affronter, c'est un cran sous le
+     plancher — et c'est le seul endroit qui distingue KORN d'une ombre. Depuis
+     qu'on affronte des ombres, ce nom annonce le jeu de phases qu'on va subir ;
+     il se lit une fois, au début du combat, dans la seconde.
+     L'interlettrage tombe de 0,16 à 0,08 em et paie le corps : à 11 px, le
+     libellé de KORN mesure 288,0 px, soit 1,8 px de MOINS qu'en corps 10, et il
+     tient donc encore sur une ligne dans les 316,8 px de la barre sur un écran de
+     360. Sans cette moitié d'interlettrage il passait sur deux lignes et l'acte
+     tombait tout seul à la suivante — la panne que le réglage précédent (0,3 →
+     0,16) avait déjà corrigée une fois, pour la même raison. */
   .boss-label {
-    font-size: 10px;
-    letter-spacing: 0.16em;
+    font-size: 11px;
+    letter-spacing: 0.08em;
   }
 
   .title-logo {
@@ -2356,6 +2501,29 @@ body.touch .key-hint {
   background: rgba(255, 77, 109, 0.14);
 }
 
+/* LA CROIX GRANDIT, MAIS PAS SUR L'AVATAR.
+
+   Elle est mesurée à 26 × 26 sur les cinq gabarits : sur une tablette partagée,
+   retirer un pseudo demande de viser un ✕ posé dans un coin biseauté, et rater
+   c'est ouvrir le pilote du frère. On la vise deux fois avant de l'atteindre.
+
+   La porter à 44 × 44 lui ferait mordre onze pixels dans l'avatar de 52 px, donc
+   dans la carte elle-même — et cette croix retire un pilote de l'appareil. On
+   s'arrête à 40 × 40, ce qui ramène la morsure à sept pixels de large dans le
+   coin de l'avatar. Les quatre pixels manquants sont assumés : une cible plus
+   large qu'un geste destructeur ne le mérite serait le défaut suivant.
+   Le rond, son opacité et sa place ne bougent pas — c'est la prise qu'on
+   agrandit, pas le dessin, comme le voulait le commentaire d'origine.
+   Décalages pris depuis la boîte de 26 px posée à top: 4 / right: 6, pour que la
+   zone épouse exactement le coin de la carte : 0 → 40 en hauteur, 78 → 118 en
+   largeur. Le biseau du clip-path de .pilot-card en rogne un triangle de 12 × 12
+   dans l'angle ; il reste environ 1 530 px² utiles au lieu de 676. */
+.pilot-oublie::after {
+  content: '';
+  position: absolute;
+  inset: -4px -6px -10px -8px;
+}
+
 .pilot-card {
   /* Repère du ✕ « retirer de cet appareil », qui se pose dans le coin. Sans lui,
      l'absolu remonterait au premier ancêtre positionné et sortirait de la carte. */
@@ -2548,8 +2716,13 @@ body.touch .key-hint {
   box-shadow: 0 0 26px rgba(255, 200, 87, 0.3);
 }
 
+/* « Direct » et « Détour » sont les deux mots qui résument la décision, posés en
+   tête de carte avant le nom et avant les effets : c'est le premier repère qu'on
+   lit en comparant. Ils étaient à 10 px, un cran sous le plancher, par
+   décoration. Il n'y a aucune contrainte de largeur ici — la carte fait 338 px
+   au plus serré pour 56,4 px de texte — et la carte grandit d'un pixel. */
 .route-kind {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -3620,24 +3793,55 @@ body.touch .btn-call-touch {
   opacity: 0.85;
 }
 
+/* CE QUE LE DOIGT ATTRAPE N'EST PAS CE QUE L'ŒIL VOIT.
+
+   Les pastilles étaient des cibles de 8 × 8 px : 64 px², là où un pouce en
+   demande 1 936. La sonde ne les comptait pas — un <i> n'est ni un bouton ni un
+   [role=button] — mais elles sont bien cliquables (game.js, `points.forEach(...)`
+   sur `click`), et ce sont le seul moyen d'aller droit à la troisième coque sans
+   passer par la deuxième. À côté, on tombait sur le glissé du carrousel ou sur
+   rien.
+   On garde le point dessiné à 8 px ; c'est la case autour qui passe à 44 × 44.
+   Les marges négatives rendent au panneau l'essentiel des 36 px gagnés : il ne
+   grandit que de douze.
+   -16 en haut, et le chiffre n'est pas un réglage au jugé : c'est la valeur pour
+   laquelle le point ne bouge pas D'UN PIXEL. Le centre d'une case de 44 est à 22
+   de son bord ; l'ancien point avait son centre à 6 (2 de marge, 4 de rayon) ;
+   6 − 22 = −16. Essayé d'abord à −26, ce qui remontait les trois points de dix
+   pixels : ils venaient se poser SUR la dernière ligne de la jauge, en travers
+   des mots. Vu à l'écran, refusé.
+   En bas -6 : sous la rangée il y a LANCER, et l'air qui subsiste — écart du
+   panneau moins six, plus la marge haute de LANCER — vaut 6 px en portrait, 1 px
+   en paysage une fois le panneau resserré, et ZÉRO sur iPhone SE, où les deux
+   boîtes se touchent sans se mordre. Ne plus rien reprendre de ce côté. */
 .coque-points {
   display: flex;
-  gap: 8px;
-  margin-top: 2px;
+  gap: 0;
+  margin-top: -16px;
+  margin-bottom: -6px;
 }
 
 .coque-points i {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.coque-points i::after {
+  content: '';
   width: 8px;
   height: 8px;
   border: 1px solid var(--cyan-dim);
   border-radius: 50%;
-  cursor: pointer;
   transition:
     background 0.2s,
     border-color 0.2s;
 }
 
-.coque-points i.on {
+.coque-points i.on::after {
   background: var(--cyan);
   border-color: var(--cyan);
 }
@@ -3668,6 +3872,13 @@ body.touch .btn-call-touch {
   justify-content: stretch;
   gap: 0 16px;
   padding-inline: clamp(12px, 3vw, 30px);
+  /* Le `clamp(14px, 4vh, 34px)` de l'écran vaut 15,6 px sur 390 de haut, en haut
+     comme en bas, autour d'un panneau qui n'a plus où aller : mesuré sur VULCAIN,
+     dont la phrase passe sur deux lignes, il dépassait de 10 px et le bas du
+     « ← Retour » partait sous le bord d'un écran en `overflow: hidden`. Ces dix
+     pixels-là sont pris sur l'air autour du panneau, pas dans le panneau : c'est
+     le seul endroit de cet écran où il n'y a ni mot ni cible. */
+  padding-block: 8px;
 }
 
 .coques-cote .coque-haut {
@@ -3675,16 +3886,44 @@ body.touch .btn-call-touch {
   grid-row: 1;
 }
 
+/* Le panneau de paysage n'a aucune marge, et il vit dans un écran en
+   `overflow: hidden` : ce qui dépasse ne se rattrape pas, il disparaît. Avec le
+   bouton Retour à 44 px il mesurait 394 px pour 390 de fenêtre, et le bas du
+   « ← Retour » partait sous le bord.
+   On reprend seize pixels sur les écarts entre les cinq lignes du panneau (5 → 3,
+   quatre fois) et sur ses marges intérieures haute et basse, jamais sur le
+   texte : c'est la fiche qu'on est venu lire. Il en faut encore huit pour la
+   troisième coque — voir juste en dessous. */
 .coques-cote .coque-bas {
   grid-column: 2;
   grid-row: 2;
   width: 100%;
-  gap: 5px;
-  padding: 10px 13px 9px;
+  gap: 3px;
+  padding: 6px 13px 5px;
 }
 
 .coques-cote .coque-nom {
   font-size: 21px;
+}
+
+/* HUIT PIXELS DE PLUS, ET ILS SONT POUR VULCAIN.
+
+   La sonde n'avait mesuré que la première coque, ORION, dont la phrase tient sur
+   une ligne. Celle de VULCAIN en fait deux : mesuré en paysage 844×390 sur la
+   troisième coque, le panneau dépassait de 9 px AVANT toute correction, et il en
+   dépassait encore 8 après le resserrement ci-dessus — c'est-à-dire que le bas du
+   « ← Retour » partait sous le bord, dans un écran en `overflow: hidden` qui ne
+   rend rien.
+   Quatre de ces huit pixels viennent du filet qui sépare la jauge du reste de la
+   fiche, les quatre autres de l'air autour du panneau (voir `padding-block` plus
+   haut). Le texte n'est pas touché.
+   PAS la marge haute de LANCER, essayée et retirée : entre lui et la rangée de
+   pastilles il ne reste qu'un pixel, et la lui prendre a produit un recouvrement
+   mesuré de 44 × 3 px entre trois cibles tactiles.
+   Après quoi, mesuré sur les cinq gabarits et sur les trois coques : le panneau
+   descend à 379,3 px pour 390 de fenêtre, plus rien n'est rogné. */
+.coques-cote .coque-jauge {
+  padding-top: 3px;
 }
 
 /* Portrait court — un iPhone SE, la tablette la moins haute. Le vaisseau tombe à
@@ -3705,9 +3944,15 @@ body.touch .btn-call-touch {
     font-size: 18px;
   }
 
+  /* Cette règle-ci ne s'applique qu'à l'iPhone SE — le seul gabarit à la fois
+     sous 720 px de haut et en portrait — et elle y descendait la flèche à 40 px
+     pour rendre quatre pixels au panneau. Ces quatre-là manquaient au pouce, sur
+     la commande principale du carrousel : celle qu'on presse trois fois de suite
+     pour faire le tour des coques. Le panneau remonte donc de 4 px vers le
+     vaisseau, ce que le commentaire au-dessus tenait pour compté. */
   .coque-fleche {
     font-size: 25px;
-    min-height: 40px;
+    min-height: 44px;
   }
 
   .coque-go {
@@ -3804,6 +4049,106 @@ body.touch .btn-call-touch {
   }
 }
 
+/* ---- ÉCRAN D'ACCUEIL : LA ZONE DU DOIGT DESCEND, LE TRAIT NE BOUGE PAS ----
+
+   Quatre cibles mesurées sous le seuil ici : « ◈ Histoire » 115 × 35,
+   « ☍ Mes copains » 158 × 36, et les deux onglets du panthéon, 92 × 28 et
+   99 × 28. Les largeurs vont toutes ; c'est la hauteur qui manque, de neuf à
+   seize pixels.
+
+   L'accueil est le seul écran où l'on ne peut pas payer en hauteur : logo,
+   accroche, menu, commandes, histoire, panthéon, pastille de pilote, invitation
+   à installer — c'est l'écran le plus chargé du jeu et le plus près de déborder
+   en paysage. Chaque pixel donné à un bouton y est un pixel repris au logo. On
+   agrandit donc la surface qui répond, pas le dessin.
+
+   Le chiffre à ne pas rater : une jupe en position absolue se cale sur la boîte
+   de REMPLISSAGE de son ancêtre, pas sur sa boîte de bordure. Le trait d'un pixel
+   n'en fait pas partie, et il faut donc toujours deux pixels de plus qu'on ne
+   croit. */
+
+/* `.btn-ghost` porte désormais min-height: 44px pour tous les « ← Retour » du
+   jeu. Ces deux-là s'y soustraient nommément : les prendre aurait rallongé la
+   colonne de l'accueil de neuf pixels par bouton, ce que les jupes ci-dessous
+   obtiennent pour zéro.
+   `auto` et non `0` : c'est la valeur d'origine, et sur un élément flex elle vaut
+   « pas plus petit que ton contenu ». Écrit `0`, le bouton se laissait au
+   contraire écraser dès que la colonne manquait de place — mesuré, « ◈ Histoire »
+   tombait à 32 px sur iPhone SE et à 16 px en paysage, soit moins qu'avant la
+   correction. */
+.screen.title #btn-story,
+.title-amis {
+  min-height: auto;
+}
+
+.screen.title #btn-story {
+  position: relative;
+}
+
+.screen.title #btn-story::after {
+  content: '';
+  position: absolute;
+  /* Verticalement seulement : 115 px de large dépassent déjà le seuil, et élargir
+     irait chercher du vide plutôt qu'un besoin.
+     Six pixels et non cinq : la boîte de remplissage fait 33 px, donc -5px
+     n'aurait donné que 43 — un pixel encore sous le seuil, pour une correction
+     censée le franchir. À -6, la zone fait 45.
+     Elle déborde de 5 px du trait de chaque côté ; la colonne en laisse 7 (gap
+     14) sur quatre gabarits et 11 sur l'iPhone Max, qui dépasse les 900 px de la
+     règle média et garde le gap 22. Aucun recouvrement avec .title-lb, ni avec
+     les onglets ou les lignes du panthéon, qui sont eux aussi cliquables. */
+  inset: -6px 0;
+}
+
+/* « ☍ Mes copains » est le bouton par lequel on rejoint ses copains, et il est
+   posé dans un coin — l'endroit du pouce le moins précis. Il est en absolu, donc
+   ce qu'on lui ajoute ne coûterait rien à la colonne ; mais son tracé est calé
+   sur les 62 px que `.screen.title` réserve en haut, et un bouton plus épais
+   viendrait s'y coller. On garde le tracé, on n'étend que la prise.
+   Cinq pixels et non quatre, pour la même raison qu'au-dessus : la boîte de
+   remplissage fait 34 px, pas 36 — c'est la pastille des demandes, haute de 18,
+   qui fixe cette hauteur-là. -5 donne 44, -4 n'aurait donné que 42.
+   Le bord haut de la zone tombe à 13 px du haut du cadre, encore dans la bande
+   réservée ; sur un iPhone, `top: max(18px, env(safe-area-inset-top))` la repousse
+   plus bas encore. Rien horizontalement : le badge du pilote occupe le coin
+   opposé et les deux se sont déjà chevauchés une fois. */
+.title-amis::after {
+  content: '';
+  position: absolute;
+  inset: -5px 0;
+}
+
+/* Les onglets décident de ce que l'enfant lit dans le classement — Arcade ou
+   Survie. À 28 px de haut, dans un bloc qui défile sous le doigt, on déclenche un
+   défilement au lieu d'un changement d'onglet.
+   Ils vivent DANS le bloc plafonné à 22vh, donc les grandir ne rallonge pas
+   l'accueil : ça ne coûte que des lignes visibles, et le reste est sous le doigt.
+   On paie quand même le moins possible — le trait passe de 27 à 37 px, une jupe
+   transparente de sept pixels finit le travail à 44. Sur un iPhone SE, la liste
+   perd environ un cinquième de ligne.
+   Règle nouvelle et plus spécifique plutôt qu'édition sur place : le bloc
+   `.lb-onglet` est écrit DEUX FOIS dans ce fichier, à l'identique, et modifier le
+   premier n'aurait aucun effet. (0-2-0) passe devant les deux. Les onglets
+   n'existent que sur l'accueil, la portée `.screen.title` ne retire donc rien. */
+.screen.title .lb-onglet {
+  position: relative;
+  padding: 10px 14px;
+}
+
+.screen.title .lb-onglet::after {
+  content: '';
+  position: absolute;
+  /* Vers le bas uniquement : au-dessus, le bloc défilant coupe (overflow-y), donc
+     une jupe qui monterait ne serait pas cliquable ; et plus bas encore
+     commencent les lignes du panthéon, qui sont des boutons de rejeu.
+     La jupe part de la boîte de REMPLISSAGE, un pixel au-dessus du bas du trait :
+     -8 rend donc 7 px sous le bouton, pas 8. Trait 37 + 7 = 44, mesuré sur les
+     cinq gabarits, et les sept pixels tombent dans le `margin-bottom: 8px` de
+     `.lb-onglets` — au-delà il n'y a que le titre du bloc, qui ne prend aucun
+     clic. */
+  inset: 0 0 -8px;
+}
+
 /* ---- Le menu des variantes, et l'entraînement ---------------------------- */
 
 /* Trois façons de jouer le même mode. Des cartes hautes plutôt que des boutons :
@@ -3815,8 +4160,27 @@ body.touch .btn-call-touch {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* CE BLOC REJOUAIT `justify-content` ET LE PADDING PAR-DESSUS LA RÈGLE COMMUNE
+     DES ÉCRANS, ET LUI REPRENAIT DEUX CHOSES AU PASSAGE.
+     Le centrage nu : mesuré en paysage 844×390, les variantes font 427 px de
+     contenu pour 390 de fenêtre et l'entraînement dépassait de 83,8 px vers le
+     HAUT — or on ne remonte pas au-dessus d'un contenu centré. Le titre et le
+     premier réglage étaient hors d'atteinte, pas seulement hors de vue. `safe
+     center` centre tant que ça tient et cale en haut sinon ; c'est ce que
+     `.screen` déclarait déjà. La ligne au-dessus reste comme repli pour les
+     moteurs qui ignorent le mot-clé, exactement comme `.screen` l'écrit. */
+  justify-content: safe center;
   gap: 18px;
-  padding: 24px 18px;
+  /* Le jeu s'affiche bord à bord (viewport-fit=cover) : ces 24 px écrasaient la
+     réserve d'encoche déclarée pour ces deux écrans plus haut dans le fichier.
+     C'est le BAS qui compte pour le cas mesuré — en paysage la réserve du haut
+     vaut zéro sur un iPhone, l'encoche passant sur le côté, tandis que la barre
+     d'accueil prend ses vingt et un pixels en bas. Le haut est là pour le
+     portrait, où l'entraînement tient à moins d'un pixel près depuis que ses
+     curseurs sont attrapables.
+     `max()` et non `calc(env + 24px)` : il s'agit de réserver l'encoche, pas
+     d'empiler une marge par-dessus, sur des écrans qui n'ont rien à donner. */
+  padding: max(24px, env(safe-area-inset-top, 0px)) 18px max(24px, env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
 }
 
@@ -3906,8 +4270,18 @@ body.touch .btn-call-touch {
   min-height: 2.4em;
 }
 
+/* Le curseur se prend au pouce, et sa boîte ne faisait que 16 px de haut sur les
+   cinq gabarits mesurés (largeurs 286 à 482) — un huitième de pulpe, à tenir
+   pendant tout le glissé. Pour changer de vague ou d'équipement, il fallait poser
+   le pouce sur une bande de seize pixels et y rester. Le rail dessiné garde son
+   épaisseur : c'est la boîte qui reçoit le doigt qui passe à 44.
+   La police héritée de 13,3 px reste telle quelle. Une sonde de cibles la compte
+   parmi les champs que iOS agrandit à la mise au point ; un `range` n'ouvre aucun
+   clavier et n'affiche aucun texte, donc rien n'est agrandi et l'écrire à 16 px
+   ne déplacerait aucun pixel. */
 .entr-bloc input[type='range'] {
   width: 100%;
+  height: 44px;
   accent-color: var(--cyan);
 }
 
@@ -4156,6 +4530,36 @@ body.touch .btn-call-touch {
   gap: 6px;
 }
 
+/* DEUX ANCRES EN HAUT, ET RIEN QUI LES EMPÊCHAIT DE SE RENCONTRER.
+   « ☍ Mes copains » est collé en haut à gauche, la pastille du pilote en haut à
+   droite, et l'une comme l'autre prend la largeur de son texte. Mesuré sur un
+   écran de 360 px avec le pseudo « LOUIS » : les copains vont de 20 à 177,5, le
+   pilote de 155,3 à 348 — vingt-deux pixels où DEUX cibles se disputent le même
+   doigt, et où l'on ouvre l'écran qu'on ne visait pas. Sept pixels sur un
+   iPhone SE, vingt-deux sur un téléphone étroit ; plus le pseudo est long, pire
+   c'est.
+   Chacune s'arrête donc à la moitié de l'écran moins une gouttière, et le nom
+   s'abrège plutôt que de pousser. Deux ancres opposées ne peuvent alors plus se
+   croiser, quel que soit le pseudo et quelle que soit la largeur. */
+.title-amis,
+.pilot-badge {
+  max-width: calc(50% - 12px);
+  min-width: 0;
+}
+
+.title-amis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pilot-badge-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 /* Le seul chiffre qui doit se voir depuis l'accueil : combien de demandes
    attendent une réponse. Le reste est à un clic. */
 .amis-pastille {
@@ -4177,23 +4581,66 @@ body.touch .btn-call-touch {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* `center` tout court perd le haut. Mesuré avec quatre copains sur iPhone SE,
+     une fois les lignes rendues à leur vraie hauteur : 819 px de contenu pour 667
+     de fenêtre, le débordement se répartit des deux côtés et les 76 px du haut
+     sortent de la zone défilable — le titre « Mes copains » disparaît et rien ne
+     permet d'y remonter. `safe center` centre tant que ça tient et cale en haut
+     sinon ; c'est ce que `.screen` déclarait déjà et que cette règle-ci écrasait.
+     La ligne au-dessus reste comme repli pour les moteurs qui ignorent le
+     mot-clé. */
+  justify-content: safe center;
   gap: 16px;
-  padding: 24px 18px;
+  /* Le jeu s'affiche bord à bord. Les 24 px posés ici écrasaient la réserve
+     d'encoche déclarée pour cet écran plus haut dans le fichier : sur un
+     iPhone 14 la barre d'état en prend 59 et le titre passait dessous dès que la
+     liste faisait défiler la page. Le +62px de la règle commune n'est pas repris,
+     il réservait les deux boutons de coin qui n'existent que sur l'accueil. */
+  padding: max(24px, env(safe-area-inset-top, 0px)) 18px max(24px, env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
 }
 
+/* LA LISTE NE SE LAISSE PLUS ÉCRASER.
+
+   Les 80 px ci-dessous réservent la place quand la liste est vide — mais un
+   `min-height` explicite désactive la taille minimale automatique d'un élément
+   flex. La liste se laissait donc comprimer jusqu'à 80 px et ses lignes
+   retombaient sur les boutons du bas : mesuré en paysage 844×390 avec cinq
+   copains, la boîte faisait 150 px de haut pour 290 px de lignes, et
+   « ★ Ses parties » du dernier copain recouvrait « ✉ Envoyer un lien » sur 73 px
+   par 11, le « ✕ » sur 32 par 9. Deux cibles tactiles l'une sur l'autre : on vise
+   « retirer » et on ouvre la feuille de partage du téléphone, ou l'inverse. C'est
+   le pire des défauts tactiles — la cible touchée n'est pas celle qu'on voit.
+   `flex: none` lui rend sa hauteur, et l'écran défile. */
 .amis-corps {
   display: flex;
   flex-direction: column;
+  flex: none;
   gap: 8px;
   width: min(520px, 100%);
   min-height: 80px;
 }
 
+/* LA LIGNE D'UN COPAIN NE PASSAIT PAS À LA LIGNE.
+
+   Un copain en partie porte quatre boutons — parler, regarder, ses parties,
+   retirer — et la ligne était en flex sans retour. Mesuré sur iPhone SE avec un
+   pseudo de dix caractères (le maximum autorisé) : le bord droit du dernier
+   bouton tombait à 490 px pour une ligne large de 357. « ★ Ses parties »
+   commençait à 375 px et « ✕ » à 458 : hors de l'écran tous les deux,
+   atteignables seulement par un balayage latéral que rien n'annonce, puisque
+   l'écran devenait large de 474 px pour une fenêtre de 375. Ce qui restait
+   visible était comprimé sous sa largeur naturelle et « 🎙 Parler » se cassait en
+   deux lignes.
+   Les boutons descendent maintenant d'eux-mêmes sur une seconde ligne. Le
+   centrage remplace l'alignement sur la ligne de base : une fois les boutons
+   passés à la ligne, la ligne de base ne relie plus rien. */
 .ami-ligne {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
+  row-gap: 8px;
   padding: 10px 14px;
   border-radius: 8px;
   border: 1px solid var(--cyan-dim);
@@ -4218,7 +4665,15 @@ body.touch .btn-call-touch {
   font-family: var(--display);
   font-size: 15px;
   color: var(--cyan);
-  flex: 1;
+  /* `flex: 1` posait une base de zéro : au moment de décider ce qui tient sur la
+     première ligne, le pseudo comptait pour rien et les quatre boutons s'y
+     entassaient. Avec `auto`, il compte pour sa largeur réelle et pousse le
+     surplus à la ligne suivante. Sur le gabarit le plus étroit, 360 px, la
+     première ligne reçoit le pseudo, l'état et « 🎙 Parler » — 285 px pour 296
+     disponibles — et les trois autres descendent. Une fois seul à grandir, il
+     occupe la même largeur qu'avec `flex: 1` : rien ne change sur les lignes sans
+     bouton. */
+  flex: 1 1 auto;
 }
 
 .ami-etat {
@@ -4235,6 +4690,21 @@ body.touch .btn-call-touch {
 .btn-ghost.petit {
   font-size: 11px;
   padding: 5px 10px;
+  /* Quarante-quatre pixels, comme la flèche du hangar. La hauteur viendrait déjà
+     de `.btn-ghost` ; on la répète parce que cette règle-ci redéfinit `padding`,
+     et qu'une hauteur qui dépend en silence d'une règle située trois mille lignes
+     plus haut se perd au premier réglage.
+     Mesurés ici : 26 px de haut pour « Accepter » (86 × 26) et « Refuser »
+     (79 × 26), et 32 × 26 pour la croix « retirer » — posée à dix pixels de
+     « ★ Ses parties », donc une chance réelle de retirer un copain en voulant
+     regarder ses parties, et sans confirmation. La croix est la seule que
+     `min-width` élargit vraiment, de 32 à 44 ; les autres y étaient déjà.
+     La règle touche aussi les boutons du bandeau d'appel — « Décrocher »,
+     « Refuser », « 🎙 Micro », « Raccrocher ». Le bandeau passe d'environ 42 à
+     environ 60 px de haut et mange d'autant le haut de l'écran pendant une vague :
+     c'est le prix pour que « Décrocher » ne fasse plus 26 px. */
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .amis-actes {
