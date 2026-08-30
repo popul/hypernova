@@ -695,7 +695,18 @@ export class Game {
 
   // Un module ramassé. C'est LE moment de la boucle en survie : il doit s'entendre,
   // se voir sur la coque, et se lire sans quitter l'action des yeux.
-  _prendModule(id, pos) {
+  // Un module ramassé par un copain ne change pas MON vaisseau : il change le
+  // sien. On ne garde ici que l'effet visuel — l'objet disparaît partout, mais
+  // seul son propriétaire en profite.
+  _prendModule(id, pos, numero = null) {
+    if (numero !== null && numero !== this.duoMoi && this.bordsDistants.length) {
+      this.fx.burst(pos, 0x9ad5ff, { count: 8, speed: 6, life: 0.35 });
+      return;
+    }
+    return this._prendModuleLocal(id, pos);
+  }
+
+  _prendModuleLocal(id, pos) {
     if (id === 'surcharge') {
       this.surcharge = Math.min(SURVIE.surchargeMax, this.surcharge + 1);
       this.stats = computeStats(this.levels, this.surcharge);
@@ -1998,7 +2009,7 @@ export class Game {
     // photos de frontière s'éteignait avec la partie de l'hôte, et les
     // survivants finissaient chacun dans leur monde.
     if (this.variante === 'duo' && !this.duo.direct && this.duo.etat === 'partie') {
-      this.duo.fin(this.score, this.wave);
+      this.duo.annonceFin(this.score, this.wave);
     }
     // Ceux qui regardaient n'ont plus rien à voir : on les libère.
     for (const qui of this._regardeurs || []) this.duo.signale(qui, 'regard-fin', null);
@@ -2543,7 +2554,7 @@ export class Game {
     // La vague, elle, diffère légitimement : on peut arriver en cours de route,
     // ou avoir été resynchronisé après un retard. Seule elle ne prouve rien.
     const cles = Object.keys(ecarts).filter((c) => c !== 'vague');
-    if (!cles.length) return;
+    if (!cles.length) return 0;
     note('desynchro', {
       ou: `vague ${vue.w}`,
       quoi: cles.join(','),
@@ -2552,6 +2563,7 @@ export class Game {
       variante: this.variante,
       ecarts,
     });
+    return cles.length;
   }
 
   // ---- LA VÉRIFICATION CROISÉE, À DEUX ---------------------------------------
@@ -2639,6 +2651,10 @@ export class Game {
     const cles = Object.keys(ecarts);
     if (!cles.length) return;
 
+    // LE SEUL SIGNAL FIABLE DE DIVERGENCE. Ces deux empreintes-là décrivent la
+    // MÊME image chez les deux machines : ce qu'elles disent est vrai. C'est
+    // donc lui, et lui seul, qui autorise une réparation au prochain tableau.
+    this._divergenceVue = true;
     note('desynchro', {
       ou: `vague ${this.wave} image ${d.f}`,
       quoi: cles.join(','),
@@ -2698,11 +2714,38 @@ export class Game {
     const d = m?.d;
     if (!d || (d.w || 0) < this.wave) return;
     const hote = this.bordsDistants.find((b) => b.numero === m.j)?.nom || '?';
-    // La télémétrie d'abord : c'est le seul moment où l'on connaît la vérité de
-    // l'autre machine, et c'est elle qui dira si les vagues divergent encore.
+    // ON COMPARE D'ABORD, ET ON NE RESTAURE QUE SI L'ON A VRAIMENT DIVERGÉ.
+    //
+    // Restaurer à chaque tableau était une fausse bonne idée, et le banc l'a
+    // montré : la photo est prise à l'image N chez le photographe et appliquée
+    // à l'image N + k chez moi — le temps du réseau. Poser un état vieux de
+    // quelques images DÉCALE ma partie de ces quelques images, et tout le
+    // tableau se joue ensuite en retard. Mesuré : vague 1 identique à l'image
+    // près, puis mille cent quatre-vingt-sept images divergentes à partir du
+    // premier recalage. La réparation était devenue la maladie.
+    //
+    // Depuis que chaque commande, la mienne comprise, passe par la file du pas
+    // verrouillé, les deux machines simulent vraiment la même partie : il n'y a
+    // plus rien à recoller en temps normal. La photo redevient ce qu'elle aurait
+    // toujours dû être — un filet, tendu seulement quand la chute a eu lieu.
+    // ON NE COMPARE PAS LA PHOTO À MON ÉTAT — CE SERAIT COMPARER DEUX CHOSES
+    // DIFFÉRENTES. Elle a été prise chez le photographe à SON image de départ de
+    // vague et m'arrive quelques images plus tard ; et l'empreinte que j'en
+    // tirais opposait SON vaisseau au MIEN, deux vaisseaux qui ne sont jamais au
+    // même endroit. Elle criait donc l'écart à tous les tableaux, je restaurais à
+    // tous les tableaux, et chaque restauration me coûtait une image de retard —
+    // définitive. Mesuré : les deux machines se suivaient à l'image près jusqu'au
+    // premier recalage, puis une image d'écart pour le reste de la partie.
+    //
+    // Ce qui dit la vérité, c'est l'empreinte croisée : elle compare la même
+    // image des deux côtés. Tant qu'elle n'a rien signalé, il n'y a rien à
+    // réparer, et la meilleure réparation est de ne pas y toucher.
+    if (!this._divergenceVue) return;
+    this._divergenceVue = false;
     this._verifieSynchro(d, hote);
     this._restaure(d);
     this._resyncDemande = false;
+    this.hud.announce('Resynchronisé', hote, 1600);
   }
 
   // Le numéro de joueur d'un pair, par son nom. -1 s'il n'est pas de la partie.
@@ -2858,6 +2901,7 @@ export class Game {
     this.nJoueursPartie = 2;
     this._peintBordsHud();
     this._attenteDuoDepuis = 0;
+    this._divergenceVue = false;
     // IL NE REGARDE PLUS, IL JOUE. Le laisser dans la liste des spectateurs lui
     // enverrait encore l'instantané complet de l'hôte à chaque vague — qui
     // écraserait son propre vaisseau par celui de l'hôte, en pleine partie.
@@ -3834,6 +3878,22 @@ export class Game {
     return this._postes;
   }
 
+  // LES AIMANTS DE LA VAGUE : tous les vaisseaux en vol, ordonnés par numéro.
+  //
+  // Les gemmes et les modules sont un état PARTAGÉ — mêmes objets, mêmes
+  // positions sur toutes les machines. Les faire suivre le seul joueur local
+  // faisait diverger le tas restant d'une machine à l'autre, et c'est ce tas qui
+  // décide de la fin de vague : les tableaux ne commençaient pas à la même
+  // image. En solo, la liste n'a qu'un élément et rien ne change.
+  _aimants() {
+    const out = [];
+    for (const p of this._postesOrdonnes()) {
+      if (!p.vaisseau?.alive) continue;
+      out.push({ pos: p.vaisseau.position, rayon: p.bord.stats.magnetRadius, numero: p.numero });
+    }
+    return out;
+  }
+
   // Le HUD du jeu en réseau : la liste des autres pilotes, nom et vies.
   _peintBordsHud() {
     this.hud.setBords(this.bordsDistants.map((b) => ({ nom: b.nom, vies: b.lives })));
@@ -3898,8 +3958,15 @@ export class Game {
       this._duoAttend = false;
       // Ma commande part avec de l'avance ; celles des autres arrivent pour
       // MAINTENANT, ordonnées par numéro de joueur comme les bords distants.
+      // JE LIS MON MANCHE, JE PUBLIE — PUIS JE JOUE CE QUE J'AI PUBLIÉ IL Y A
+      // QUATRE IMAGES. Ma commande fait le même trajet que celle des copains :
+      // elle part pour l'image `f + DELAI`, et c'est la file qui me la rend le
+      // moment venu. Sans ce détour, mon vaisseau bougeait chez moi quatre
+      // images avant de bouger chez eux — voir `Duo.publie`.
       this._construitCommande(PAS_DUO);
       d.publie(commandeVersTableau(this.cmd));
+      const mienne = d.mienne();
+      if (mienne) tableauVersCommande(mienne, this.cmd);
       const commandes = d.consomme();
       // Un pair parti dont la réserve est épuisée rend null : son bord se retire
       // ICI, à la même image chez tous les survivants — ses commandes relayées
@@ -3922,7 +3989,26 @@ export class Game {
       }
       this.enregistreur.frame(this.cmd, this._controle());
       d.frame++;
-      this._updatePlaying(PAS_DUO);
+      // UNE ERREUR CHEZ MOI NE DOIT PAS FIGER LES COPAINS.
+      //
+      // Le pas verrouillé fait de chaque joueur le maillon des autres : si ma
+      // simulation lève une exception, je cesse de publier, et les deux autres
+      // m'attendent pour toujours. C'est arrivé — un nom de méthode fautif dans
+      // l'écran de fin de partie a suffi à figer une table entière, et le seul
+      // recours était de recharger la page. L'image en cours peut être perdue ;
+      // la table, non. On note, on continue, et la photo de frontière remettra
+      // tout le monde d'accord au prochain tableau.
+      try {
+        this._updatePlaying(PAS_DUO);
+      } catch (e) {
+        this._imagesPerdues = (this._imagesPerdues || 0) + 1;
+        if (this._imagesPerdues <= 3) {
+          note('erreur', {
+            ou: `vague ${this.wave} image ${d.frame}`,
+            quoi: String(e?.message || e).slice(0, 200),
+          });
+        }
+      }
       // Une empreinte par seconde, croisée avec celles des autres : c'est tout
       // ce qui sépare une divergence silencieuse d'une divergence mesurée.
       this._croiseEmpreintes(d.frame);
@@ -5507,9 +5593,8 @@ export class Game {
       // La boutique reste vivante : les gemmes restantes finissent d'arriver.
       this.pickups.update(
         dt,
-        this.player.position,
-        999,
-        (v, p, big) => this._collectCredit(v, p, big),
+        this._aimants().map((a) => ({ ...a, rayon: 999 })),
+        (v, p, big, numero) => this._collectCredit(v, p, big, numero),
         true
       );
     }
@@ -5666,18 +5751,17 @@ export class Game {
     } else if (!vacuum) {
       this._cieDegage = false;
     }
+    const aimants = this._aimants();
     this.modules.update(
       dt,
-      this.player.position,
-      this.stats.magnetRadius,
-      (id, pos) => this._prendModule(id, pos),
+      aimants,
+      (id, pos, numero) => this._prendModule(id, pos, numero),
       vacuum
     );
     this.pickups.update(
       dt,
-      this.player.position,
-      this.stats.magnetRadius,
-      (v, p, big) => this._collectCredit(v, p, big),
+      aimants,
+      (v, p, big, numero) => this._collectCredit(v, p, big, numero),
       vacuum
     );
 
@@ -6266,7 +6350,22 @@ export class Game {
     if (alea() < chance) this.pickups.dropBig(e.group.position);
   }
 
-  _collectCredit(value, pos3d, big = false) {
+  // `numero` : le poste qui a ramassé. Chez moi c'est mon compte et mes effets ;
+  // pour un copain, ce sont SES crédits — la gemme est prise une seule fois, par
+  // un seul pilote, sur toutes les machines à la fois.
+  _collectCredit(value, pos3d, big = false, numero = null) {
+    if (numero !== null && numero !== this.duoMoi && this.bordsDistants.length) {
+      const bord = this.bordsDistants.find((b) => b.numero === numero);
+      if (bord) {
+        bord.credits += value;
+        this.fx.burst(pos3d, 0x9ad5ff, { count: 4, speed: 4, life: 0.3 });
+        return;
+      }
+    }
+    return this._collectCreditLocal(value, pos3d, big);
+  }
+
+  _collectCreditLocal(value, pos3d, big = false) {
     // Le score grimpe jusqu'à ×8 mais les crédits plafonnent à ×3 : le combo
     // récompense le panache sans emballer l'économie.
     // Le bonus de combo sur les crédits se mérite : il faut avoir frôlé dans la vague.

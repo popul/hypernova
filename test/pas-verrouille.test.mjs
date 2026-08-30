@@ -37,7 +37,7 @@ function duoEnPartie(moi = 1) {
 // Un message serveur, tel qu'il arriverait sur la socket.
 const arrive = (duo, m) => duo._recois(JSON.stringify(m));
 
-test('à trois, l’image n’est prête qu’avec la commande de CHAQUE pair', () => {
+test('à trois, l’image n’est prête qu’avec la commande de CHAQUE poste — la mienne comprise', () => {
   const { duo } = duoEnPartie(1);
   assert.deepEqual(
     duo.pairs.map((p) => p.numero),
@@ -50,7 +50,26 @@ test('à trois, l’image n’est prête qu’avec la commande de CHAQUE pair', 
   // simulé avec une commande de retard — et sa machine, elle, ne l'aura pas fait.
   assert.equal(duo.pret(), false, 'il manque encore la commande du pair 2');
   arrive(duo, { t: 'c', j: 2, f: 0, d: [2] });
+  // ET LA MIENNE. Elle passe par la même file que les leurs depuis qu'on a
+  // mesuré le contraire : sans elle, l'image se jouerait chez moi avec une
+  // commande que personne d'autre n'a encore appliquée.
+  assert.equal(duo.pret(), false, 'ma propre commande ne compte pas dans l’attente');
+  duo.amorce([0]);
   assert.equal(duo.pret(), true);
+});
+
+test('ma commande passe par la file comme celle des autres, pas par un raccourci', () => {
+  // LE BUG QUI COÛTAIT TOUTES LES DÉSYNCHRONISATIONS. Ma commande partait pour
+  // l'image `f + DELAI` chez les copains, mais ma simulation l'appliquait à
+  // l'image `f` : mon vaisseau bougeait quatre images plus tôt chez moi que
+  // chez eux. Mesuré au banc — appui à l'image 150, vu à l'image 154 en face.
+  const { duo } = duoEnPartie(1);
+  duo.amorce([0]); // les DELAI premières images, pour moi comme pour eux
+  duo.frame = 0;
+  duo.publie([9, 9]); // publiée à l'image 0, donc POUR l'image DELAI
+  assert.deepEqual(duo.mienne(), [0], 'à l’image 0 je dois jouer l’amorce, pas ce que je viens de lire');
+  duo.frame = DELAI;
+  assert.deepEqual(duo.mienne(), [9, 9], 'ma commande ne me revient pas à l’image publiée');
 });
 
 test('les commandes se consomment dans l’ordre des numéros, pas dans l’ordre d’arrivée', () => {
@@ -89,12 +108,14 @@ test('un pair parti se consomme jusqu’au bout, puis rend null — à la même 
   // relayées sont les mêmes chez tous les survivants : les consommer jusqu'au
   // bout donne à tous le MÊME instant de retrait. Les jeter à réception du
   // « parti » couperait à des images différentes selon la latence de chacun.
+  duo.amorce([0]); // ma file part de l'amorce, comme celle de tout le monde
   arrive(duo, { t: 'c', j: 0, f: 0, d: [10] });
   arrive(duo, { t: 'parti', cause: 'deconnexion', slot: 0, hote: false });
   assert.equal(duo.etat, 'partie', 'le départ d’un pair ne coupe pas la partie');
 
   arrive(duo, { t: 'c', j: 2, f: 0, d: [20] });
   assert.equal(duo.pret(), true);
+  duo.mienne(); // je consomme la mienne comme le fait la boucle de jeu
   assert.deepEqual(duo.consomme(), [[10], [20]], 'ce qu’il a laissé se joue encore');
   duo.frame++;
 
@@ -102,6 +123,7 @@ test('un pair parti se consomme jusqu’au bout, puis rend null — à la même 
   // null — le signal, identique chez tous, que son bord se retire ici.
   arrive(duo, { t: 'c', j: 2, f: 1, d: [21] });
   assert.equal(duo.pret(), true, 'un pair parti ne bloque plus le pas');
+  duo.mienne();
   assert.deepEqual(duo.consomme(), [null, [21]]);
 
   // Le jeu retire alors son bord : le pair sort pour de bon.
@@ -197,4 +219,33 @@ test('un joueur parti ne garde pas l’appareil, et le dernier seul ne photograp
   assert.equal(estPhotographe(2, vuDuDeux, new Set([1])), true, 'un parti bloque l’appareil');
   // Plus personne en face : plus de table à recaler, donc plus de photo.
   assert.equal(estPhotographe(0, [], new Set()), false, 'on photographie une table vide');
+});
+
+// --- LES APPELS AU DUO EXISTENT-ILS VRAIMENT ? -------------------------------
+//
+// Une faute de frappe sur un nom de méthode ne se voit pas en JavaScript : elle
+// attend la ligne d'exécution. Celle-ci était `this.duo.fin(...)` au lieu de
+// `annonceFin`, dans l'écran de fin de partie d'une partie en réseau — donc sur
+// un chemin qu'aucune épreuve ne traversait. Résultat en vrai : le joueur qui
+// tombait levait une exception, cessait de publier ses commandes, et FIGEAIT
+// toute la table jusqu'au rechargement de la page. Un caractère, une partie
+// perdue pour trois enfants.
+//
+// On ne peut pas importer game.js sous Node — il touche `window` — mais on peut
+// lire son texte et vérifier que chaque `duo.machin(` correspond à une méthode
+// qui existe. C'est grossier, et ça aurait suffi.
+test('tout appel de méthode sur le duo correspond à une méthode qui existe', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
+  const appeles = new Set();
+  for (const m of source.matchAll(/\bduo(?:\?\.|\.)([a-zA-Zé_$][\w$]*)\s*\(/g)) appeles.add(m[1]);
+  assert.ok(appeles.size > 5, `on n’a trouvé que ${appeles.size} appels : la lecture a raté`);
+
+  const connues = new Set(Object.getOwnPropertyNames(Duo.prototype));
+  const manquantes = [...appeles].filter((n) => !connues.has(n));
+  assert.deepEqual(
+    manquantes,
+    [],
+    `game.js appelle des méthodes qui n’existent pas sur Duo : ${manquantes.join(', ')}`
+  );
 });

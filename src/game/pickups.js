@@ -10,6 +10,33 @@ import { entre, ecart } from '../core/rng.js';
 
 const POOL_SIZE = 60;
 
+// LE POSTE LE PLUS PROCHE D'UNE GEMME, ET CELUI QUI LA PREND.
+//
+// Les gemmes et les modules sont un état PARTAGÉ : les mêmes objets, aux mêmes
+// endroits, sur toutes les machines de la table. Ils ne suivaient pourtant que
+// le joueur local — chacun aimantait et ramassait chez lui, donc le tas restant
+// différait d'une machine à l'autre. Or c'est ce tas qui décide de la fin de
+// vague : les tableaux ne commençaient pas à la même image, et toute la vague
+// suivante se jouait décalée. Mesuré sur le banc : vague 1 identique à l'image
+// près, vague 2 divergente d'un bout à l'autre.
+//
+// Les aimants sont donc TOUS les postes, ordonnés par numéro. La gemme suit le
+// plus proche ; à égalité parfaite, le plus petit numéro l'emporte — il faut
+// une règle, et il faut qu'elle soit la même partout. Celui qui la touche la
+// prend, et lui seul : en coopération, une gemme se dispute.
+function plusProche(aimants, cible, tmp) {
+  let best = null;
+  let bestD = Infinity;
+  for (const a of aimants) {
+    const d = tmp.copy(a.pos).sub(cible).length();
+    if (d < bestD) {
+      bestD = d;
+      best = a;
+    }
+  }
+  return { aimant: best, dist: bestD };
+}
+
 export class Pickups {
   constructor(scene) {
     this.entries = [];
@@ -67,7 +94,9 @@ export class Pickups {
   }
 
   // vacuum=true : tout aspirer vers le joueur (fin de vague).
-  update(dt, playerPos, magnetRadius, onCollect, vacuum = false) {
+  // `aimants` : les postes, ORDONNÉS PAR NUMÉRO — `{ pos, rayon, numero }`.
+  // `onCollect(valeur, position, grosse, numero)` crédite le poste qui prend.
+  update(dt, aimants, onCollect, vacuum = false) {
     for (const e of this.entries) {
       if (!e.active) continue;
       e.age += dt;
@@ -83,7 +112,11 @@ export class Pickups {
         e.mesh.visible = false;
         continue;
       }
-      const dist = this._tmp.copy(playerPos).sub(e.mesh.position).length();
+      const proche = plusProche(aimants, e.mesh.position, this._tmp);
+      if (!proche.aimant) continue;
+      const dist = proche.dist;
+      const magnetRadius = proche.aimant.rayon;
+      // `this._tmp` porte déjà le vecteur qui va de la gemme vers ce poste.
       // Une gemme APPELÉE rentre, quoi qu'il arrive et d'où qu'elle soit : c'est
       // toute la différence avec l'aimant, qui ne fait qu'élargir une zone.
       if (e.called) {
@@ -116,10 +149,15 @@ export class Pickups {
       const remaining = PICKUPS.lifetime - e.age;
       e.mesh.visible = remaining > 2.5 || Math.sin(e.age * 18) > -0.2;
 
-      if (dist < PICKUPS.collectRadius) {
+      // QUI LA PREND : le premier poste, dans l'ordre des numéros, qui la
+      // touche. Pas forcément le plus proche — l'ordre des numéros est le seul
+      // départage que toutes les machines partagent.
+      for (const a of aimants) {
+        if (this._tmp.copy(a.pos).sub(e.mesh.position).length() >= PICKUPS.collectRadius) continue;
         e.active = false;
         e.mesh.visible = false;
-        onCollect(e.value, e.mesh.position, e.big);
+        onCollect(e.value, e.mesh.position, e.big, a.numero);
+        break;
       }
     }
   }
@@ -243,7 +281,8 @@ export class Modules {
     return true;
   }
 
-  update(dt, playerPos, magnetRadius, onCollect, vacuum = false) {
+  // Mêmes aimants que les gemmes, même raison : c'est de l'état partagé.
+  update(dt, aimants, onCollect, vacuum = false) {
     for (const e of this.entries) {
       if (!e.active) continue;
       e.age += dt;
@@ -254,7 +293,10 @@ export class Modules {
         e.mesh.visible = false;
         continue;
       }
-      const dist = this._tmp.copy(playerPos).sub(e.mesh.position).length();
+      const proche = plusProche(aimants, e.mesh.position, this._tmp);
+      if (!proche.aimant) continue;
+      const dist = proche.dist;
+      const magnetRadius = proche.aimant.rayon;
       if (e.called) {
         this._tmp.normalize();
         e.vel.lerp(this._tmp.multiplyScalar(PICKUPS.callPull), Math.min(1, 9 * dt));
@@ -272,10 +314,13 @@ export class Modules {
       e.mesh.rotation.z = Math.sin(e.age * 3) * 0.25;
       const reste = PICKUPS.lifetime * 1.6 - e.age;
       e.mesh.visible = reste > 3 || Math.sin(e.age * 16) > -0.3;
-      if (dist < PICKUPS.collectRadius * 1.5) {
+      for (const a of aimants) {
+        const d = this._tmp.copy(a.pos).sub(e.mesh.position).length();
+        if (d >= PICKUPS.collectRadius * 1.5) continue;
         e.active = false;
         e.mesh.visible = false;
-        onCollect(e.id, e.mesh.position);
+        onCollect(e.id, e.mesh.position, a.numero);
+        break;
       }
     }
   }

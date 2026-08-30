@@ -405,6 +405,9 @@ export class Duo {
     // s'arrêtaient là. Mesuré sur le banc : cent soixante-dix-neuf attentes de
     // chaque côté, image zéro, plus rien qui avance.
     for (let f = 0; f < DELAI; f++) {
+      // Pour moi comme pour eux : ma file part de la même amorce, sans quoi mes
+      // DELAI premières images n'auraient aucune commande à consommer.
+      this.recoisCommande(this.moi, f, neutre);
       if (this.direct) this.signale(this.direct, 'c', { f, d: neutre });
       else this._envoie({ t: 'c', j: this.moi, f, d: neutre });
     }
@@ -430,8 +433,37 @@ export class Duo {
     // salon passe les octets tels quels, sans savoir de qui ils viennent : à
     // trois, c'est cette signature qui range chaque commande dans la bonne
     // besace chez ceux qui la reçoivent.
+    //
+    // ET ELLE ENTRE DANS MA PROPRE FILE, exactement comme celle d'un pair.
+    //
+    // C'est LE point qui manquait, et il coûtait toutes les désynchronisations
+    // du jeu en réseau. Ma commande partait pour l'image `f + DELAI` chez les
+    // autres, mais ma simulation à moi l'appliquait tout de suite, à l'image
+    // `f` : mon vaisseau tournait quatre images plus tôt chez moi que chez le
+    // copain. Mesuré sur le banc, sans ambiguïté — appui à l'image 150, vu à
+    // l'image 154 en face. Deux machines qui n'appliquent pas les mêmes
+    // commandes aux mêmes images ne simulent pas la même partie, et aucune
+    // réparation en aval ne rattrape ça : elle recolle un écart qui renaît à
+    // l'image suivante.
+    //
+    // Le pas verrouillé veut que TOUT LE MONDE, moi compris, soit servi par la
+    // même file. Le prix est un délai d'entrée de quatre images — soixante-six
+    // millisecondes, uniquement en réseau — et c'est le prix normal du genre :
+    // mieux vaut un manche qui répond un souffle plus tard que deux parties qui
+    // divergent.
+    this.recoisCommande(this.moi, this.frame + DELAI, donnees);
     if (this.direct) return this.signale(this.direct, 'c', { f: this.frame + DELAI, d: donnees });
     this._envoie({ t: 'c', j: this.moi, f: this.frame + DELAI, d: donnees });
+  }
+
+  // MA commande pour l'image courante — celle que j'ai publiée DELAI images
+  // plus tôt, et que les autres appliquent à cette image-ci. `null` si elle
+  // manque, ce qui ne doit pas arriver : l'amorçage remplit les premières.
+  mienne() {
+    const parImage = this.recues.get(this.moi);
+    const d = parImage?.get(this.frame);
+    parImage?.delete(this.frame);
+    return d || null;
   }
 
   // Une commande arrive d'un pair — par le salon ou par le canal des amis. `de`
@@ -490,6 +522,9 @@ export class Duo {
   // parti n'est plus attendu : ce qu'il a laissé se consomme, et c'est tout.
   pret() {
     if (this.etat !== 'partie') return true;
+    // La mienne d'abord : depuis qu'elle passe par la file comme les autres,
+    // son absence arrête l'image aussi sûrement que celle d'un pair.
+    if (!this.recues.get(this.moi)?.has(this.frame)) return false;
     for (const p of this.pairs) {
       if (this.partis.has(p.numero)) continue;
       if (!this.recues.get(p.numero)?.has(this.frame)) return false;
