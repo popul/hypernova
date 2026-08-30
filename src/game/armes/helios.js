@@ -9,13 +9,20 @@
 // CHAUFFE ») : le même contact tenu fait monter les dégâts ET remplit la jauge de
 // furie. Le joueur n'a pas deux objectifs à tenir, il en a un seul, très exigeant.
 //
-// Deux contraintes ont dicté l'écriture du fichier :
+// Trois contraintes ont dicté l'écriture du fichier :
 //  · aucune allocation par frame — meshes, géométries et matières sont fabriqués
 //    au constructeur puis recyclés ; rien n'est créé une fois la partie lancée ;
 //  · aucun hasard dans la simulation. L'arme n'en a en fait besoin d'aucun : un
 //    rayon continu et des satellites à cadence fixe sont entièrement déterministes,
 //    ce qui rend le replay gratuit. Seules les étincelles décoratives, confiées à
-//    fx, puisent encore dans Math.random — et elles n'ont aucun effet sur l'issue.
+//    fx, puisent encore dans Math.random — et elles n'ont aucun effet sur l'issue ;
+//  · UN EXEMPLAIRE PAR POSTE DE PILOTAGE. L'arme ne suppose plus qu'elle sert le
+//    joueur local : `update` reçoit le BORD qu'elle sert et lit tout chez lui —
+//    son vaisseau, ses modules, sa jauge, sa commande. Elle ne servait que le
+//    mien, et le rayon d'un copain ne brûlait donc rien chez moi : les ennemis
+//    qu'il tuait restaient vivants sur mon écran. Ce qu'elle continue de partager
+//    avec tout le monde, ce sont les ennemis, les particules et l'arène — c'est
+//    la même partie, vue de trois endroits.
 
 import * as THREE from 'three';
 import { ARENA, FUREUR, PLAYER } from '../constants.js';
@@ -161,6 +168,13 @@ const ECLATS_POOL = 40;
 // stellaire : quand elle chauffe, elle vire à la couleur de ce qu'elle regardait.
 const FROID = 0x6fe8ff;
 const CHAUD = 0xffe6a0;
+
+// Ce qu'il reste de la secousse quand c'est le rayon d'un COPAIN qui gronde. Le
+// partage est celui que game.js applique déjà à la bombe : l'arène est à tout le
+// monde, la caméra est à moi. À trois pilotes tenant leur rayon, trois
+// ronronnements à plein régime feraient trembler mon écran en permanence pour un
+// combat auquel je ne participe pas.
+const SECOUSSE_DISTANTE = 0.4;
 
 export class ArmeHelios {
   constructor(scene) {
@@ -353,19 +367,41 @@ export class ArmeHelios {
     this._chaud = new THREE.Color(CHAUD);
     this._tmp = new THREE.Vector3();
     // clear() n'a pas de `game` sous la main, et c'est très bien : c'est un
-    // extincteur, pas une frame. On retient donc l'audio de la dernière frame.
+    // extincteur, pas une frame. On retient donc l'audio de la dernière frame —
+    // et seulement si cette frame servait MON poste (voir `update`).
     this._audio = null;
   }
 
-  update(dt, game) {
-    this._audio = game.audio;
+  // `bord` : le poste de pilotage servi. Le jeu lui-même quand c'est moi, un
+  // objet de `game.bordsDistants` quand c'est un copain — il porte sa commande,
+  // ses modules, ses stats, sa jauge et son numéro. `bord = game` par défaut,
+  // c'est-à-dire le solo, et rien n'y change.
+  update(dt, game, bord = game) {
+    const vaisseau = game._vaisseauDu(bord);
+    // Un poste peut se fermer entre deux images — un copain qui quitte la partie.
+    // On ne dessine alors rien plutôt que de lire une position sur personne ;
+    // c'est à game.js d'éteindre l'arme, comme il le fait déjà à la mort du
+    // pilote (sans quoi le rayon reste tendu en travers de l'écran).
+    if (!vaisseau) return;
+    // CE QUI NE CONCERNE QUE MOI, relevé une fois par image comme `_boucle` : le
+    // HUD, le son du rayon et la caméra sont réservés au poste local ; l'arène —
+    // le trait, les impacts, les ondes, les étincelles — est à tout le monde,
+    // sans quoi on ne verrait pas le rayon du copain. La frontière se tranche à
+    // quatre endroits : le carillon de saturation, la surchauffe, `_son`, et la
+    // secousse dans `_rendu`.
+    this._local = bord === game;
+    // On ne retient l'audio que pour le poste local, et c'est ce qui rend `clear`
+    // inoffensif ailleurs : `laserBoucle` entretient UN oscillateur pour tout le
+    // jeu, si bien que l'extincteur d'un copain couperait mon rayon.
+    this._audio = this._local ? game.audio : null;
     this.horloge += dt;
     // Relevé une fois par image : `_ecartX` est appelé une fois par ennemi, et il
-    // n'a pas à retrouver le jeu depuis le fond de sa boucle.
-    this._boucle = boucleActive(game);
+    // n'a pas à retrouver le jeu depuis le fond de sa boucle. C'est la couture de
+    // CE pilote-là qui décide si SON rayon franchit le bord, pas la mienne.
+    this._boucle = boucleActive(bord);
 
-    const levels = game.levels || {};
-    const stats = game.stats || {};
+    const levels = bord.levels || {};
+    const stats = bord.stats || {};
     const niveauCanons = Math.max(0, Math.min(DEMI_LARGEUR.length - 1, levels.cannons | 0));
     const demi = DEMI_LARGEUR[niveauCanons];
     const niveauCone = Math.max(0, Math.min(CONE_EVASEMENT.length - 1, levels.cone | 0));
@@ -380,9 +416,9 @@ export class ArmeHelios {
     // Le repos court même détente relâchée : on ne triche pas avec la surchauffe en
     // coupant l'émetteur une frame. Il se décompte AVANT `actif`, qui en dépend.
     if (this.repos > 0) this.repos = Math.max(0, this.repos - dt);
-    const actif = (game.cmd ? game.cmd.tir !== false : true) && this.repos <= 0;
+    const actif = (bord.cmd ? bord.cmd.tir !== false : true) && this.repos <= 0;
 
-    const p = game.player.position;
+    const p = vaisseau.position;
     const nezZ = p.z + NEZ_Z;
 
     // --- Ce que la colonne laboure, et qui l'on tient ---
@@ -400,9 +436,9 @@ export class ArmeHelios {
       // plus fidèle à la coque, qui ne sait faire qu'une chose. Et la fureur
       // majore le débit du rayon comme elle majore une balle.
       const orbes = 1 + 0.16 * (levels.missiles | 0);
-      const fureur = game.odTimer > 0 ? 1 + 0.5 * (FUREUR.degats[game.levels?.fureur | 0] || 0) : 1;
+      const fureur = bord.odTimer > 0 ? 1 + 0.5 * (FUREUR.degats[levels.fureur | 0] || 0) : 1;
       const dps = DPS_BASE * this._ratioCadence(stats) * this._montee(duree) * orbes * fureur;
-      this._brule(dt, game, p.x, nezZ, demi, dps, evase);
+      this._brule(dt, game, bord, p.x, nezZ, demi, dps, evase);
       // La cible tenue est celle qui est la PLUS PROCHE du vaisseau : celle qu'on
       // va tuer, donc celle dont la mort remettra tout à zéro. Le piège de la
       // coque est là, et il doit être exactement là.
@@ -450,14 +486,22 @@ export class ArmeHelios {
     // --- LA CHAUFFE ---
     if (this.tenu > 0) {
       const t = Math.min(CHAUFFE_PLAFOND, this.tenu);
-      game._addEnergy(CHAUFFE_PAR_SEC * Math.pow(t, CHAUFFE_EXP) * dt);
+      // La jauge remplie est celle de CELUI qui tient son rayon. Sans le bord, la
+      // chauffe d'un copain montait sur mon compteur : je gagnais des bombes en
+      // regardant, et lui n'avait jamais de quoi tirer les siennes chez moi.
+      game._addEnergy(CHAUFFE_PAR_SEC * Math.pow(t, CHAUFFE_EXP) * dt, bord);
     }
 
     // La saturation s'annonce UNE fois. C'est le seul instant où le joueur apprend
     // que tenir plus longtemps ne rapportera plus rien de plus.
     if (!this.sature && this.tenu >= duree) {
       this.sature = true;
-      game.audio?.laserSature?.();
+      // Le carillon ne sonne que pour le pilote concerné : « tenir plus longtemps
+      // ne rapportera plus rien » ne veut rien dire venant du rayon d'un copain,
+      // et à trois postes ce ne serait plus qu'un bruit. L'onde de choc, elle,
+      // reste pour tout le monde — elle est dans l'arène, et voir le rayon du
+      // voisin atteindre sa pleine puissance fait partie de la partie.
+      if (this._local) game.audio?.laserSature?.();
       game.fx.shockwave(this._tmp.set(p.x, 0, nezZ), CHAUD, 3.4);
     }
 
@@ -470,14 +514,19 @@ export class ArmeHelios {
       this.grace = 0;
       this.sature = false;
       this.enAttente.clear();
-      game.audio?.laserCoupe?.();
       game.fx.shockwave(this._tmp.set(p.x, 0, nezZ), CHAUD, 5.2);
-      // Court et sans sous-titre : c'est une information de combat, pas une leçon.
-      game.hud?.announce?.('SURCHAUFFE', '', 900);
+      // Le décrochage s'adresse à celui qui vient de perdre sa montée, et à lui
+      // seul : afficher « SURCHAUFFE » quand c'est le rayon d'un copain qui lâche
+      // ferait chercher au mien une panne qu'il n'a pas.
+      if (this._local) {
+        game.audio?.laserCoupe?.();
+        // Court et sans sous-titre : c'est une information de combat, pas une leçon.
+        game.hud?.announce?.('SURCHAUFFE', '', 900);
+      }
     }
 
     this._satellites(dt, game, p, levels, stats);
-    this._eclats(dt, game);
+    this._eclats(dt, game, bord);
     // Le cône du moment. C'est la seule géométrie qui change en cours de partie,
     // et elle ne change qu'à l'achat d'un module — donc jamais pendant une vague.
     this._rendu(dt, game, p, nezZ, demi, duree, actif, this.tubes[niveauCanons][niveauCone], evase);
@@ -524,7 +573,7 @@ export class ArmeHelios {
     return demi + evase * u;
   }
 
-  _brule(dt, game, bx, nezZ, demi, dps, evase = 0) {
+  _brule(dt, game, bord, bx, nezZ, demi, dps, evase = 0) {
     const enemies = game.enemies.list;
     let n = 0;
     let meilleure = null;
@@ -554,8 +603,11 @@ export class ArmeHelios {
         if (game.enemies.damage(e, entier, game)) {
           this.enAttente.delete(e.id);
           // Même protocole que _collisions() dans game.js : c'est lui qui compte
-          // le combo, le score et les drops, et lui seul.
-          game._onEnemyKilled(e, 'cannon');
+          // le combo, le score et les drops, et lui seul. Le numéro du bord dit à
+          // QUI ils reviennent — sans lui, la chaîne et la jauge d'un copain
+          // montaient sur mon compte, et sa bombe lui était refusée chez moi
+          // faute d'énergie alors qu'elle partait chez lui.
+          game._onEnemyKilled(e, 'cannon', bord.numero);
         }
       } else {
         this.enAttente.set(e.id, du);
@@ -643,7 +695,7 @@ export class ArmeHelios {
     game.audio?.eclatSatellite?.();
   }
 
-  _eclats(dt, game) {
+  _eclats(dt, game, bord) {
     const enemies = game.enemies.list;
     for (const e of this.eclats) {
       if (!e.actif) continue;
@@ -671,7 +723,7 @@ export class ArmeHelios {
         e.mesh.visible = false;
         game.fx.burst(pos, CHAUD, { count: 4, speed: 6, life: 0.25 });
         if (game.enemies.damage(cible, ECLAT_DEGATS, game)) {
-          game._onEnemyKilled(cible, 'cannon');
+          game._onEnemyKilled(cible, 'cannon', bord.numero);
         }
         break;
       }
@@ -810,8 +862,11 @@ export class ArmeHelios {
     this._impacts(dt, game, p.x, nezZ, demi, charge, evase);
 
     // Un tremblement continu, proportionnel à la charge. Il ne doit jamais gêner
-    // la lecture : c'est un ronronnement, pas un impact.
-    if (this._contacts > 0) game.fx.addShake(0.28 * charge * dt);
+    // la lecture : c'est un ronronnement, pas un impact. Celui d'un copain se
+    // sent de loin, sans plus — voir SECOUSSE_DISTANTE.
+    if (this._contacts > 0) {
+      game.fx.addShake(0.28 * charge * dt * (this._local ? 1 : SECOUSSE_DISTANTE));
+    }
   }
 
   // Les tubes sont couchés : leur Y local est la LONGUEUR, leur X et leur Z les
@@ -881,7 +936,14 @@ export class ArmeHelios {
   // oscillateur et on lui envoie une intensité. On la lui envoie à vingt hertz et
   // non soixante — chaque appel pose une automation dans le graphe WebAudio, et il
   // n'y a rien à gagner à en poser trois fois plus que l'oreille n'en distingue.
+  //
+  // ET IL NE SONNE QUE POUR SON PILOTE. L'oscillateur entretenu est UNIQUE dans
+  // tout le jeu : trois postes qui le pilotent se le disputent, et le
+  // `laserCoupe` de celui qui relâche sa détente couperait le rayon des deux
+  // autres. Le grondement d'un copain se voit dans l'arène — son trait, ses
+  // impacts, ses étincelles — il ne s'entend pas.
   _son(dt, game, p, actif, duree) {
+    if (!this._local) return;
     this.audioTimer -= dt;
     if (this.audioTimer > 0) return;
     this.audioTimer = 0.05;
@@ -932,6 +994,11 @@ export class ArmeHelios {
   // l'instantané est pris au début d'une vague, quand le ciel vient d'être vidé.
   // Les dégâts fractionnaires en attente non plus, pour la même raison — à cet
   // instant il n'y a personne dans la colonne, donc rien à retenir.
+  //
+  // Rien de ce qui sert le multi-poste n'y entre non plus, et c'est voulu : le
+  // bord, son vaisseau, sa couture et le fait que le poste soit le mien se
+  // relisent à chaque image au début d'`update`. L'instantané ne décrit que la
+  // CHAUFFE, qui est la seule chose que l'arme sache d'elle-même.
   instantane() {
     return [
       this.tenu,

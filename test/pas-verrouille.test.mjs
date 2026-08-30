@@ -10,7 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Duo, DELAI, estPhotographe } from '../src/game/duo.js';
+import { Duo, DELAI, DELAI_MIN, DELAI_MAX, estPhotographe } from '../src/game/duo.js';
 
 // Trois pilotes à table, et nous sommes le numéro `moi`. La fausse socket note
 // ce que le client PUBLIE : c'est là qu'on vérifie la signature des commandes.
@@ -302,4 +302,275 @@ test('les pouvoirs prennent le bord qui les exerce, jamais le joueur local seul'
   assert.ok(source.includes('this.callWaves.push('), 'les ondes d’Appel doivent s’empiler');
   assert.ok(!/this\.bombFront\b(?!s)/.test(source), 'il reste un front de bombe unique');
   assert.ok(!/this\.callWave\b(?!s)/.test(source), 'il reste une onde d’Appel unique');
+});
+
+// --- LE BUDGET RÉSEAU S'ADAPTE, SANS SE CONCERTER ----------------------------
+//
+// Le délai d'entrée est le nombre d'images dont je postdate ma commande : le
+// budget que je laisse au réseau pour la livrer avant que les autres n'en aient
+// besoin. Quatre images (66 ms) suffisent sur un même wifi et pas du tout en 4G,
+// où chaque image se paie d'une attente de toute la table.
+//
+// La propriété qui rend l'adaptation possible : le délai est PROPRE À CHAQUE
+// JOUEUR. Ma commande porte l'image pour laquelle elle vaut ; que je la poste
+// avec quatre ou dix images d'avance, tout le monde l'applique à l'image
+// inscrite dessus. Deux pilotes vivent donc avec deux budgets différents sans
+// rien faire diverger — et c'est ce qu'on épingle ici.
+test('monter le délai ne laisse aucune image sans commande', () => {
+  const { duo, envoyes } = duoEnPartie(1);
+  duo.amorce([0]);
+  duo.frame = 10;
+  envoyes.length = 0;
+  duo.changeDelai(6, [0]); // 6 + marge → 8
+
+  // Les images entre l'ancien budget et le nouveau n'avaient encore été
+  // publiées par personne : sans ce remplissage, la table s'arrête dessus.
+  const pour = envoyes
+    .filter((m) => m.t === 'c')
+    .map((m) => m.f)
+    .sort((a, b) => a - b);
+  const attendu = [];
+  for (let f = 10 + DELAI; f < 10 + duo.delai; f++) attendu.push(f);
+  assert.deepEqual(pour, attendu, 'le trou entre l’ancien et le nouveau délai n’est pas comblé');
+  for (const f of attendu) {
+    assert.ok(duo.recues.get(1)?.has(f), `l’image ${f} manque dans ma propre file`);
+  }
+});
+
+test('le délai reste entre ses bornes, quelle que soit la mesure', () => {
+  const { duo } = duoEnPartie(1);
+  duo.amorce([0]);
+  assert.equal(duo.changeDelai(999, [0]), DELAI_MAX, 'un réseau catastrophique doit plafonner');
+  assert.equal(duo.changeDelai(-50, [0]), DELAI_MIN, 'un réseau parfait garde un minimum');
+  assert.ok(
+    DELAI_MIN < DELAI && DELAI < DELAI_MAX,
+    'le délai de départ doit être entre les bornes'
+  );
+});
+
+test('la commande porte l’image pour laquelle elle vaut, pas le délai de son auteur', () => {
+  // C'est CE fait qui autorise deux budgets différents à la même table : le
+  // destinataire n'a pas besoin de connaître mon délai, il lit l'estampille.
+  const { duo, envoyes } = duoEnPartie(1);
+  duo.amorce([0]);
+  duo.frame = 20;
+  duo.changeDelai(8, [0]); // délai porté à 10
+  envoyes.length = 0;
+  duo.publie([7]);
+  const c = envoyes.filter((m) => m.t === 'c').at(-1);
+  assert.equal(c.f, 20 + duo.delai, 'l’estampille doit suivre le délai en vigueur');
+  // Et je joue la mienne à l'image estampillée, pas à celle où je l'ai lue.
+  duo.frame = 20 + duo.delai;
+  assert.deepEqual(duo.mienne(), [7], 'ma commande ne me revient pas à l’image estampillée');
+});
+
+test('la montée est immédiate, la descente attend une frontière de vague', () => {
+  const { duo } = duoEnPartie(1);
+  duo.amorce([0]);
+  let horloge = 100000;
+  duo._maintenant = () => horloge;
+
+  // Le réseau se dégrade : on monte tout de suite, une image d'attente coûte à
+  // toute la table.
+  duo.pireRetard = 9;
+  const monte = duo.ajusteDelai([0], false);
+  assert.ok(monte > DELAI, `le délai devrait monter, il vaut ${monte}`);
+
+  // Mais pas deux fois dans la même seconde : un hoquet isolé ne doit pas
+  // grimper marche après marche jusqu'au plafond.
+  duo.pireRetard = 20;
+  assert.equal(duo.ajusteDelai([0], false), monte, 'deux montées dans la même seconde');
+
+  // Le réseau va mieux : hors frontière, on ne descend pas.
+  horloge += 5000;
+  duo.pireRetard = 0;
+  assert.equal(duo.ajusteDelai([0], false), monte, 'on est descendu en pleine vague');
+
+  // À la frontière, on descend — d'un cran, pas d'un coup.
+  const apres = duo.ajusteDelai([0], true);
+  assert.ok(apres < monte, 'la frontière devrait permettre de descendre');
+  assert.ok(apres >= DELAI_MIN, 'la descente doit rester au-dessus du plancher');
+  assert.equal(duo.pireRetard, 0, 'la mesure doit s’oublier à chaque vague');
+});
+
+// --- UNE BALLE APPARTIENT À QUELQU'UN ----------------------------------------
+//
+// Sans propriétaire, chaque machine calculait les dégâts avec SA propre furie et
+// SES propres niveaux, quel que soit l'auteur du tir : les ennemis n'avaient pas
+// les mêmes points de vie d'un écran à l'autre — donc un ennemi qui meurt ici et
+// survit là. Et la récompense du kill allait au joueur local, si bien qu'un
+// copain n'avait jamais d'énergie chez moi et que ses pouvoirs y étaient refusés
+// alors qu'ils partaient chez lui. Mesuré au banc : jauge 580 chez lui, 0 chez
+// moi, à l'image 117.
+test('une balle et un missile portent le numéro de leur tireur', async () => {
+  const THREE = await import('three');
+  const { PlayerBullets, Missiles } = await import('../src/game/bullets.js');
+  const scene = new THREE.Scene();
+  const pos = new THREE.Vector3(0, 0, 0);
+  const vel = new THREE.Vector3(0, 0, -1);
+
+  const balles = new PlayerBullets(scene);
+  assert.equal(balles.spawn(pos, vel, 2)?.proprio, 2, 'la balle doit porter son tireur');
+  assert.equal(balles.spawn(pos, vel)?.proprio, 0, 'sans précision, c’est le numéro zéro (solo)');
+
+  const missiles = new Missiles(scene);
+  assert.equal(missiles.launch(pos, null, 1)?.proprio, 1, 'le missile doit porter son tireur');
+
+  // Et la trace de frôlement est PAR PILOTE : une seule pour toute la table
+  // faisait qu'un frôlement en effaçait un autre, donc des jauges différentes.
+  const b = balles.spawn(pos, vel, 0);
+  assert.ok(Array.isArray(b.minDistSq), 'la distance minimale doit être tenue par pilote');
+  assert.equal(b.grazePar, 0, 'aucun pilote n’a encore frôlé cette balle');
+});
+
+test('les dégâts et la récompense se lisent sur le TIREUR, pas sur moi', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
+  const debut = source.indexOf('const perforation =');
+  assert.ok(debut > 0, 'la perforation ne se calcule plus par tireur');
+  const bloc = source.slice(debut, debut + 4000);
+
+  assert.match(
+    bloc,
+    /const tireur = this\._bordDuNumero\(b\.proprio/,
+    'la balle doit désigner son tireur'
+  );
+  assert.match(
+    bloc,
+    /tireur\.odTimer > 0 \? FUREUR\.degats\[tireur\.levels/,
+    'la fureur doit être celle du tireur'
+  );
+  assert.ok(
+    !/this\.odTimer > 0 \? FUREUR\.degats\[this\.levels/.test(bloc),
+    'la fureur locale décide encore des dégâts'
+  );
+  assert.match(
+    bloc,
+    /_onEnemyKilled\(e, critique \? 'precision' : 'cannon', tireur\.numero\)/,
+    'le kill doit revenir au tireur'
+  );
+
+  // Et la récompense se pose sur le bord du tueur, pas sur `this`.
+  const recompense = source.slice(
+    source.indexOf("_onEnemyKilled(e, source = 'cannon', numero = null)")
+  );
+  const corps = recompense.slice(0, recompense.indexOf('\n  _dropCredits('));
+  assert.match(corps, /bord\.combo\.chain\+\+/, 'la chaîne doit être celle du tueur');
+  assert.match(corps, /bord\.score \+=/, 'le score doit être celui du tueur');
+  assert.ok(!/\n\s*this\.combo\.chain\+\+/.test(corps), 'la chaîne locale est encore créditée');
+});
+
+// --- L'ARÈNE EST COMMUNE, LES PILOTES SONT DISTINCTS -------------------------
+//
+// Un audit du code a trouvé quatorze endroits où de l'état PARTAGÉ — les
+// ennemis, les balles, les gemmes, la position des vaisseaux — était modifié à
+// partir de l'état du seul joueur LOCAL. Chacun sépare les deux parties en
+// quelques secondes de jeu. On épingle ici les règles, pas les lignes : elles
+// doivent survivre au prochain qui touchera ces fichiers.
+test('rien de partagé ne se décide sur le seul joueur local', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const lis = (f) => readFile(new URL(`../src/game/${f}`, import.meta.url), 'utf8');
+  const jeu = await lis('game.js');
+  const pilote = await lis('player.js');
+  const arene = await lis('arena.js');
+  const ennemis = await lis('enemies.js');
+
+  // La furie de CHACUN s'éteint : un copain restait en Overdrive pour toujours
+  // chez moi, tirant une fois et demie plus vite jusqu'à la fin de la partie.
+  assert.match(jeu, /p\.bord\.odTimer -= dt/, 'l’Overdrive des autres ne s’éteint pas');
+  // Le ralenti des tirs ennemis est un fait de l'arène, pas de mon écran.
+  assert.match(
+    jeu,
+    /const odActive = this\._postesOrdonnes\(\)\.some\(\(p\) => p\.bord\.odTimer > 0\)/,
+    'le ralenti des balles suit encore ma seule furie'
+  );
+  // Le Colosse écrase tout le monde.
+  assert.ok(
+    !/this\.player\.alive &&\s*!this\.player\.rolling/.test(jeu),
+    'le Colosse n’écrase encore que le vaisseau local'
+  );
+  // La grosse pièce se tire sur le combo du TUEUR : ce tirage consomme le
+  // générateur semé, et un tirage de plus d'un côté décale tout le hasard commun.
+  assert.match(jeu, /_dropCredits\(e, bord = this\)/, 'la grosse pièce suit encore mon combo');
+  assert.match(jeu, /const mult = bord\.combo\.mult;/, 'la grosse pièce suit encore mon combo');
+
+  // L'échelle de temps et la couture appartiennent au pilote, pas au jeu.
+  assert.match(
+    pilote,
+    /bord\.cmd\?\.echelle/,
+    'le ralenti local déplace encore tous les vaisseaux'
+  );
+  // Et `game.timeScale` ne décide plus du déplacement de personne : il ne
+  // subsiste que comme repli pour le poste local, à côté de l'échelle du bord.
+  assert.ok(
+    !/game\.timeScale \? dt \//.test(pilote),
+    'le déplacement se calcule encore sur le ralenti du joueur local'
+  );
+  assert.match(pilote, /boucleActive\(bord\)/, 'la couture lue sur le jeu, pas sur le pilote');
+  assert.match(arene, /export function boucleActive\(porteur\)/, 'boucleActive lit encore le jeu');
+
+  // Aucun tirage aléatoire DANS un comparateur de tri : le nombre d'appels
+  // dépendrait de l'algorithme de tri du navigateur, donc du navigateur.
+  const lignes = ennemis.split('\n');
+  for (let i = 0; i < lignes.length; i++) {
+    if (!lignes[i].includes('.sort(')) continue;
+    // La fenêtre couvre le comparateur, qu'il tienne sur une ligne ou sur cinq.
+    const fenetre = lignes.slice(i, i + 5).join('\n');
+    const depuis = fenetre.slice(fenetre.indexOf('.sort('));
+    const fin = depuis.indexOf('});') >= 0 ? depuis.indexOf('});') + 3 : depuis.indexOf(';') + 1;
+    assert.ok(
+      !/\b(alea|ecart)\s*\(/.test(depuis.slice(0, fin)),
+      `un comparateur de tri consomme le hasard, ligne ${i + 1} : ${lignes[i].trim()}`
+    );
+  }
+});
+
+test('les améliorations d’un pilote voyagent avec sa commande', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const jeu = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
+
+  // Les postes distants restaient aux valeurs de départ : un copain qui achetait
+  // des Propulseurs volait plus vite chez lui que chez moi, et son bouclier
+  // n'existait pas ici — il encaissait là-bas ce qui lui coûtait une vie ici.
+  assert.match(
+    jeu,
+    /d\.publie\(commandeVersTableau\(this\.cmd\), this\._bordSale/,
+    'les achats ne voyagent pas'
+  );
+  assert.match(jeu, /_poseBordage\(numero, b\)/, 'rien ne pose les améliorations reçues');
+  assert.match(
+    jeu,
+    /bord\.stats = computeStats\(bord\.levels, bord\.surcharge\)/,
+    'les stats d’un bord se calculent sur autre chose que lui'
+  );
+
+  // Et la trajectoire est une décision commune : sinon l'un affronte un boss
+  // pendant que l'autre traverse un champ de débris.
+  assert.match(jeu, /_jeChoisisLaRoute\(\)/, 'la trajectoire reste un choix personnel');
+  assert.match(jeu, /this\.duo\.route\(\{/, 'la trajectoire choisie ne part pas aux autres');
+});
+
+test('une estampille de commande ne recule jamais, même quand le délai baisse', () => {
+  // EN BAISSANT LE DÉLAI, on se met à publier pour une image plus proche — donc
+  // possiblement pour une image que les autres ont DÉJÀ jouée avec la valeur
+  // d'avant. Leur simulation est faite, ma vraie commande arrive dans le vide,
+  // et mon vaisseau bouge chez moi une image avant chez eux. Mesuré au banc :
+  // divergence à l'image 3, après une descente de quatre à trois au premier
+  // tableau. Une baisse doit se traduire par un rattrapage, jamais par un saut
+  // en arrière.
+  const { duo, envoyes } = duoEnPartie(1);
+  duo.amorce([0]);
+  envoyes.length = 0;
+  duo.delai = DELAI_MIN; // le réseau va mieux : on veut publier plus près
+  const vues = [];
+  for (let f = 0; f < 8; f++) {
+    duo.frame = f;
+    duo.publie([f]);
+    vues.push(envoyes.filter((m) => m.t === 'c').at(-1).f);
+  }
+  for (let i = 1; i < vues.length; i++) {
+    assert.ok(vues[i] > vues[i - 1], `l’estampille recule : ${vues[i - 1]} puis ${vues[i]}`);
+  }
+  // Et aucune ne retombe sur une image déjà couverte par l'amorce.
+  assert.ok(vues[0] >= DELAI, `la première publication écrase l’amorce (image ${vues[0]})`);
 });

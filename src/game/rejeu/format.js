@@ -74,7 +74,19 @@ import {
 //       La même version couvre l'entrée PAR-DERRIÈRE : à partir de la difficulté
 //       neuf, le tirage des trajectoires en compte une quatrième, et toute la
 //       composition des vagues concernées change avec lui.
-export const VERSION = 17;
+//  18 — chaque bord porte son ÉCONOMIE dans l'instantané : chaîne de combo,
+//       Appels restants, recharge de bombe, meilleur palier et frôlements de la
+//       vague. Sans eux, une réparation recollait les vaisseaux et laissait
+//       diverger le pouvoir suivant. Les balles portent aussi le numéro de leur
+//       tireur, et la trace de frôlement est devenue une par pilote : un
+//       enregistrement d'avant décrit des projectiles sans propriétaire, donc
+//       des dégâts calculés sur le mauvais poste.
+//  19 — l'instantané porte les armes de TOUS les postes (`armes[]`, indexé par
+//       numéro, chaque entrée avec sa coque) au lieu de la seule mienne, et les
+//       améliorations de chacun voyagent avec sa commande. Un enregistrement de
+//       la version 18 décrit une partie où le rayon d'un copain ne brûlait rien
+//       et où ses achats n'existaient pas : il ne se rejoue pas ici.
+export const VERSION = 19;
 
 // --- Écriture ---------------------------------------------------------------
 

@@ -276,7 +276,14 @@ export class Player {
     //
     // Seul le déplacement en profite : cadence de tir, bouclier et invulnérabilité
     // restent en temps de jeu. Le Réflexe sauve une vie, il ne fait pas de dégâts.
-    const pdt = game.timeScale ? dt / game.timeScale : dt;
+    // L'ÉCHELLE DE TEMPS EST CELLE DE CE PILOTE. On lisait `game.timeScale`,
+    // c'est-à-dire le ralenti du joueur LOCAL : à chaque Réflexe Chrono, à
+    // chaque bombe et à chaque Overdrive chez moi, TOUS les vaisseaux — le sien
+    // compris — avançaient deux à sept fois plus loin en une image sur ma seule
+    // machine. L'échelle voyage pourtant dans la commande, quantifiée : chacun a
+    // la sienne, et elle est la même partout.
+    const echelle = bord.cmd?.echelle || (bord === game ? game.timeScale : 0);
+    const pdt = echelle ? dt / echelle : dt;
     const maxSpeed = stats.speed;
 
     // Déplacement avec accélération/friction pour un feeling précis mais vivant.
@@ -320,7 +327,7 @@ export class Player {
 
     let nx = this.group.position.x + this.vx * pdt;
     // La couture s'achète : sans le module, les bords sont des murs.
-    if (boucleActive(game)) {
+    if (boucleActive(bord)) {
       const span = ARENA.playerXMax * 2;
       if (nx > ARENA.playerXMax) {
         nx -= span;
@@ -380,7 +387,10 @@ export class Player {
     if (coque !== 'helios' && cmd.tir && this.fireCooldown <= 0) {
       const rate = stats.fireRate * cadenceCoque * (bord.odTimer > 0 ? OVERDRIVE.odFireMul : 1);
       this.fireCooldown = 1 / rate;
-      this._shoot(stats, bullets, audio, fx);
+      // LA BALLE PORTE LE NUMÉRO DE SON TIREUR. C'est ce qui permet, plus loin,
+      // de la faire frapper avec la fureur de CE pilote et de lui rendre le
+      // kill — au lieu de tout calculer avec l'état du joueur local.
+      this._shoot(stats, bullets, audio, fx, bord.numero ?? 0);
     }
 
     // Missiles auto — la signature d'ORION. Sur les deux autres coques, le module
@@ -391,7 +401,11 @@ export class Player {
         this.missileTimer = stats.missileInterval;
         const targets = enemies.pickTargets(stats.missileCount);
         for (const t of targets) {
-          missiles.launch(this._tmp.copy(this.group.position).add({ x: 0, y: 0.2, z: -0.5 }), t);
+          missiles.launch(
+            this._tmp.copy(this.group.position).add({ x: 0, y: 0.2, z: -0.5 }),
+            t,
+            bord.numero ?? 0
+          );
         }
         audio.missile();
       }
@@ -434,13 +448,14 @@ export class Player {
     return this._aim;
   }
 
-  _shoot(stats, bullets, audio, fx) {
+  _shoot(stats, bullets, audio, fx, proprio = 0) {
     const p = this.group.position;
     const speed = PLAYER.bulletSpeed;
     const spawn = (dx, angle = 0) => {
       bullets.spawn(
         this._tmp.set(p.x + dx, 0, p.z - 1.2),
-        new THREE.Vector3(Math.sin(angle) * speed, 0, -Math.cos(angle) * speed)
+        new THREE.Vector3(Math.sin(angle) * speed, 0, -Math.cos(angle) * speed),
+        proprio
       );
     };
     if (stats.streams === 1) {

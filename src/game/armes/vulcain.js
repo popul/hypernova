@@ -32,6 +32,16 @@
 //
 // Les charges ne blessent jamais le joueur : décision tranchée à la conception.
 // Ce serait réaliste, et détestable.
+//
+// UN EXEMPLAIRE PAR POSTE DE PILOTAGE. La forge ne suppose plus qu'elle est la
+// mienne : `update` reçoit le BORD qu'elle sert et lit tout chez lui — son
+// vaisseau, ses modules, sa jauge, son numéro. Elle ne posait que MES charges, et
+// c'est le hasard commun qui en souffrait le plus : chaque missile tire sa vitesse
+// dans le générateur semé (voir ECART_MOTEUR), si bien qu'une salve partie chez un
+// copain y puisait un tirage que ma machine ne puisait pas. À partir de là nos deux
+// suites étaient décalées d'un cran et TOUT le hasard partagé décrochait —
+// plongées, cibles, dispersion, trajectoires. Le défaut ne se voyait pas : les deux
+// parties restaient plausibles, elles n'étaient simplement plus la même.
 
 import * as THREE from 'three';
 import { ARENA, FUREUR } from '../constants.js';
@@ -220,6 +230,13 @@ const ETEINT = 0x46626f;
 const C_INERTE = new THREE.Color(INERTE);
 const C_CHAUDE = new THREE.Color(CHAUDE);
 const C_ETEINT = new THREE.Color(ETEINT);
+
+// Ce qu'il reste de la secousse quand c'est la salve d'un COPAIN qui tombe. Le
+// partage est celui que game.js applique déjà à la bombe : le souffle est dans
+// l'arène et appartient à tout le monde, la caméra est à moi. Un tapis de cinq
+// salves lâché à l'autre bout de l'aire n'a pas à m'arracher l'écran des mains
+// pendant que j'esquive.
+const SECOUSSE_DISTANTE = 0.45;
 
 export class ArmeVulcain {
   constructor(scene) {
@@ -410,33 +427,49 @@ export class ArmeVulcain {
   }
 
   // ---- Les modules, tels qu'ils agissent SUR CETTE COQUE ----
+  //
+  // Les modules du BORD servi, et non les miens : chaque pilote a payé les siens,
+  // et deux forges réglées sur le même achat poseraient les mêmes missiles au même
+  // endroit sur deux machines qui ne le voient pas pareil.
 
-  _montee(game) {
-    return MONTEE * Math.pow(MONTEE_PAR_MOTEUR, game.levels?.engine || 0);
+  _montee(bord) {
+    return MONTEE * Math.pow(MONTEE_PAR_MOTEUR, bord.levels?.engine || 0);
   }
 
-  _rayon(game) {
-    return RAYON * Math.pow(RAYON_PAR_MISSILE, game.levels?.missiles || 0);
+  _rayon(bord) {
+    return RAYON * Math.pow(RAYON_PAR_MISSILE, bord.levels?.missiles || 0);
   }
 
-  _intervalle(game) {
-    return INTERVALLE * Math.pow(INTERVALLE_PAR_CADENCE, game.levels?.firerate || 0);
+  _intervalle(bord) {
+    return INTERVALLE * Math.pow(INTERVALLE_PAR_CADENCE, bord.levels?.firerate || 0);
   }
 
-  update(dt, game) {
-    this._produit(dt, game);
-    this._lance(dt, game);
-    this._avanceCharges(dt, game);
+  // `bord` : le poste de pilotage servi. Le jeu lui-même quand c'est moi, un objet
+  // de `game.bordsDistants` quand c'est un copain. `bord = game` par défaut,
+  // c'est-à-dire le solo, et rien n'y change.
+  update(dt, game, bord = game) {
+    const vaisseau = game._vaisseauDu(bord);
+    // Un poste peut se fermer entre deux images — un copain qui quitte la partie.
+    // On ne pose alors rien plutôt que de lire une position sur personne ; c'est à
+    // game.js d'éteindre la forge, comme il le fait déjà à la mort du pilote.
+    if (!vaisseau) return;
+    // LA FRONTIÈRE, dans cette arme, ne passe qu'à un seul endroit : la caméra.
+    // Le reste — le souffle, les étincelles, le grondement, les braises du ventre
+    // sous la coque — se passe dans l'arène et appartient à tout le monde.
+    this._local = bord === game;
+    this._produit(dt, bord);
+    this._lance(dt, game, bord, vaisseau);
+    this._avanceCharges(dt, game, bord);
     this._avanceSouffles(dt);
-    this._montreReserve(game);
+    this._montreReserve(bord, vaisseau);
   }
 
   // La forge tourne toute seule, à son rythme, et se tait quand le ventre est
   // plein. La minuterie reste alors armée sur un intervalle COMPLET : sans ça, la
   // première charge dépensée serait remplacée dans la frame suivante et la réserve
   // n'aurait plus de fond — on ne pourrait plus jamais la vider.
-  _produit(dt, game) {
-    const intervalle = this._intervalle(game);
+  _produit(dt, bord) {
+    const intervalle = this._intervalle(bord);
     if (this.reserve >= RESERVE_MAX) {
       this.tProduction = intervalle;
       return;
@@ -447,13 +480,13 @@ export class ArmeVulcain {
     this.reserve++;
   }
 
-  _lance(dt, game) {
+  _lance(dt, game, bord, vaisseau) {
     if (this.tSalve > 0) this.tSalve -= dt;
     if (this.reserve <= 0 || this.tSalve > 0) return;
-    if (!this._quelqueChoseAuDessus(game)) return;
+    if (!this._quelqueChoseAuDessus(game, bord, vaisseau)) return;
     this.reserve--;
     this.tSalve = DELAI_SALVE;
-    this._pose(game);
+    this._pose(game, bord, vaisseau);
   }
 
   // VULCAIN ne tire pas sous un ciel vide : « j'y ai déjà mis ce qu'il faut »
@@ -464,9 +497,9 @@ export class ArmeVulcain {
   // Pas de bouclage de l'arène dans le calcul, alors que le vaisseau, lui, boucle.
   // C'est volontaire : le missile ne boucle pas non plus, et une veille qui verrait
   // plus loin que la portée promettrait des salves qui n'atteindraient rien.
-  _quelqueChoseAuDessus(game) {
-    const p = game.player.position;
-    const portee = this._montee(game) * PORTEE;
+  _quelqueChoseAuDessus(game, bord, vaisseau) {
+    const p = vaisseau.position;
+    const portee = this._montee(bord) * PORTEE;
     for (const e of game.enemies.list) {
       if (!e.alive) continue;
       const q = e.group.position;
@@ -479,22 +512,32 @@ export class ArmeVulcain {
     return false;
   }
 
-  _pose(game) {
-    const p = game.player.position;
-    const nb = 1 + (game.levels?.cannons || 0);
-    const montee = this._montee(game);
-    const rayon = this._rayon(game);
+  _pose(game, bord, vaisseau) {
+    const p = vaisseau.position;
+    const nb = 1 + (bord.levels?.cannons || 0);
+    const montee = this._montee(bord);
+    const rayon = this._rayon(bord);
     for (let i = 0; i < nb; i++) {
       const c = this.charges.find((x) => !x.active);
       if (!c) break;
       c.active = true;
       c.x = p.x + (i - (nb - 1) / 2) * ECART_SALVE;
       c.z = p.z - 1.4; // devant les bras de lancement, jamais dans la coque
+      // LE SEUL TIRAGE SEMÉ DE L'ARME, et il décide bel et bien : la vitesse fixe
+      // l'instant du contact, donc qui est pris, donc l'issue. Il reste donc dans
+      // le générateur commun — et il se consomme maintenant pour CHAQUE poste, un
+      // par missile réellement sorti, dans l'ordre où game.js sert les postes.
+      // C'est à cette condition, et à elle seule, que toutes les machines puisent
+      // le même nombre de fois.
       c.v = montee * (1 + ecart(ECART_MOTEUR));
       c.vol = PORTEE;
       c.rayon = rayon;
       this._reposeVisuel(c);
     }
+    // Le départ de la salve s'entend chez tout le monde, comme le canon d'un
+    // vaisseau ou l'explosion d'une bombe : c'est un événement de l'ARÈNE, calé
+    // sur son abscisse. Le taire pour un copain retirerait le seul indice qui
+    // dise que quelque chose vient de partir sur le côté.
     game.audio?.chargePosee?.(p.x);
     game.fx.burst(this._tmp.set(p.x, 0, p.z - 0.9), INERTE, {
       count: 5,
@@ -523,7 +566,7 @@ export class ArmeVulcain {
     c.apercu.material.opacity = 0;
   }
 
-  _avanceCharges(dt, game) {
+  _avanceCharges(dt, game, bord) {
     for (const c of this.charges) {
       if (!c.active) continue;
       c.z -= c.v * dt;
@@ -554,7 +597,7 @@ export class ArmeVulcain {
       // LE CONTACT L'EMPORTE SUR TOUT, y compris sur la frame où le vol s'achève :
       // un missile qui touche à bout de course a touché.
       if (cible) {
-        this._detonne(c, game, cible);
+        this._detonne(c, game, bord, cible);
         continue;
       }
 
@@ -634,7 +677,7 @@ export class ArmeVulcain {
   // 'charge' et pas 'cannon' — délibérément : la prime au plongeur abattu au canon
   // ne doit pas s'ajouter à la SALVE, sinon la coque toucherait deux fois pour le
   // même geste et son économie ne serait plus la sienne.
-  _detonne(c, game, cible) {
+  _detonne(c, game, bord, cible) {
     c.active = false;
     c.groupe.visible = false;
 
@@ -673,16 +716,21 @@ export class ArmeVulcain {
       // La fureur majore le souffle comme elle majore une balle : sans ça, la
       // Chambre de fureur ne servait à VULCAIN que pour son canon d'appoint, qui
       // n'est pas son arme — on payait pour presque rien.
-      const bonus = game.odTimer > 0 ? 1 + 0.45 * (FUREUR.degats[game.levels?.fureur | 0] || 0) : 1;
+      const bonus = bord.odTimer > 0 ? 1 + 0.45 * (FUREUR.degats[bord.levels?.fureur | 0] || 0) : 1;
       const degats = Math.round((e.type === 'boss' ? DEGATS_BOSS : DEGATS) * bonus);
-      if (game.enemies.damage(e, degats, game)) game._onEnemyKilled(e, 'charge');
+      // Le numéro du bord dit à QUI revient la mort — combo, score, pièces. Sans
+      // lui, tout retombait sur le joueur local : la salve d'un copain nourrissait
+      // ma chaîne, et la sienne restait à zéro sur ma machine.
+      if (game.enemies.damage(e, degats, game)) game._onEnemyKilled(e, 'charge', bord.numero);
     }
     this._pris.length = 0;
 
     // LA SALVE. Un seul ennemi ne paie rien, et ce zéro est le cœur de la coque.
+    // Elle remplit la jauge de celui qui a posé la charge, la seule qui autorisera
+    // sa bombe — et sa bombe, elle, se simule chez tout le monde.
     if (poids >= 2) {
       const gain = SALVE_CINQ * Math.pow((poids - 1) / 4, SALVE_COURBE);
-      game._addEnergy(Math.min(SALVE_MAX, gain));
+      game._addEnergy(Math.min(SALVE_MAX, gain), bord);
     }
 
     this._allumeSouffle(pos, c.rayon, poids);
@@ -706,7 +754,7 @@ export class ArmeVulcain {
       life: 1.0,
       spread: c.rayon * 0.55,
     });
-    game.fx.addShake(Math.min(0.7, 0.16 + poids * 0.09));
+    game.fx.addShake(Math.min(0.7, 0.16 + poids * 0.09) * (this._local ? 1 : SECOUSSE_DISTANTE));
     // L'onde du jeu par-dessus la nôtre, mais seulement quand le coup a porté : le
     // pool d'anneaux n'a que six places et une salve ratée n'a rien à annoncer.
     if (poids >= 2) game.fx.shockwave(pos, SOUFFLE, c.rayon);
@@ -751,13 +799,13 @@ export class ArmeVulcain {
     }
   }
 
-  _montreReserve(game) {
-    const p = game.player.position;
+  _montreReserve(bord, vaisseau) {
+    const p = vaisseau.position;
     this.ventre.visible = true;
     // Sous la coque et un peu en arrière : de face on ne verrait rien, et la
     // caméra regarde le plan de jeu à trente-huit degrés au-dessus de l'horizon.
     this.ventre.position.set(p.x, -0.2, p.z + 1.2);
-    const intervalle = this._intervalle(game);
+    const intervalle = this._intervalle(bord);
     for (let i = 0; i < this.braises.length; i++) {
       let force = 0;
       if (i < this.reserve) force = 1;
@@ -799,6 +847,11 @@ export class ArmeVulcain {
   // est : c'est la raison pour laquelle l'annonce se déduit de la DISTANCE aux
   // ennemis et le battement de l'ALTITUDE, et non d'un compteur qu'il faudrait
   // sérialiser.
+  //
+  // Rien de ce qui sert le multi-poste n'y entre non plus : le bord, son vaisseau
+  // et le fait que le poste soit le mien se relisent à chaque image au début
+  // d'`update`. Ce format décrit UNE forge — celle d'un poste — et c'est à game.js
+  // de collectionner celles de tous les postes dans son propre instantané.
   instantane() {
     const etat = [this.reserve, this.tProduction, this.tSalve, 0];
     let n = 0;

@@ -175,10 +175,15 @@ export class Game {
     // tout — ses meshes, ses dégâts, sa source d'énergie, son instantané de replay.
     // Le jeu ne fait que lui passer la main quand c'est sa coque qui vole. ORION n'a
     // pas d'entrée ici : son armement EST celui du vaisseau, depuis toujours.
-    this.armes = {
-      helios: new ArmeHelios(scene),
-      vulcain: new ArmeVulcain(scene),
-    };
+    // UNE ARME PAR POSTE, PAS UNE PAR COQUE. Il n'y en avait qu'un exemplaire de
+    // chaque, et seule celle de MA coque tournait : le rayon d'un copain sous
+    // HÉLIOS ne brûlait rien chez moi — les ennemis qu'il tuait restaient vivants
+    // sur mon écran et continuaient de plonger. Pire avec VULCAIN, dont chaque
+    // charge consomme un tirage du générateur semé : sa forge en consommait chez
+    // lui et pas chez moi, et tout le hasard commun décrochait pour le reste de
+    // la partie. Indexées par NUMÉRO de poste, construites à l'ouverture du bord
+    // et refaites si la coque change.
+    this.armes = new Map();
     // Le bombardement en escadrille : la bombe lâchée EN PLEINE FURIE n'est plus
     // une bombe, c'est un appel aux deux autres coques.
     this.soutien = new SoutienAerien(scene);
@@ -684,9 +689,10 @@ export class Game {
     }
   }
 
-  _addEnergy(amount) {
-    if (this.odTimer > 0) return; // gain gelé pendant l'Overdrive : pas de boucle infinie
-    this.energy = Math.min(OVERDRIVE.max, this.energy + amount);
+  _addEnergy(amount, bord = this) {
+    if (bord.odTimer > 0) return; // gain gelé pendant l'Overdrive : pas de boucle infinie
+    bord.energy = Math.min(OVERDRIVE.max, bord.energy + amount);
+    if (bord !== this) return; // la jauge d'un copain ne s'affiche pas chez moi
     this.hud.setEnergy(this.energy / OVERDRIVE.max);
     // NOVA explique la bombe et l'Overdrive à la première occasion réelle de s'en servir.
     if (this.energy >= OVERDRIVE.odCost) this.characters.teachOnce('odReady', IS_TOUCH);
@@ -701,11 +707,26 @@ export class Game {
     // Même filtre qu'en boutique : un module qui ne sert pas à la coque pilotée ne
     // doit pas non plus TOMBER en survie, où il n'y a pas de boutique pour le
     // refuser — le joueur le ramasserait sans pouvoir dire non.
-    const dispo = UPGRADES.filter(
-      (u) => (this.levels[u.id] || 0) < u.maxLevel && (!u.coques || u.coques.includes(this.coque))
-    );
-    // Plus rien à améliorer : place aux surcharges, tant qu'il en reste à prendre.
-    if (!dispo.length) return this.surcharge < SURVIE.surchargeMax ? 'surcharge' : null;
+    // LE FILTRE REGARDE TOUT L'ÉQUIPAGE, PAS MOI SEUL. Un module tombe dans
+    // l'arène et n'importe qui le ramasse : le trier sur MES améliorations et MA
+    // coque faisait tomber deux objets différents au même endroit sur deux
+    // machines — et quand mon arbre était fini d'un seul côté, le tirage n'était
+    // même pas consommé du même nombre de fois, ce qui décalait tout le hasard
+    // commun pour le reste de la partie.
+    const postes = this._postesOrdonnes();
+    const utile = (u) =>
+      postes.some(
+        (p) =>
+          ((p.bord.levels || {})[u.id] || 0) < u.maxLevel &&
+          (!u.coques || u.coques.includes(p.bord.coque || 'orion'))
+      );
+    const dispo = UPGRADES.filter(utile);
+    // Plus rien à améliorer pour personne : place aux surcharges, tant qu'il en
+    // reste à prendre. Le seuil se juge sur l'équipage, comme le reste.
+    if (!dispo.length) {
+      const place = postes.some((p) => (p.bord.surcharge || 0) < SURVIE.surchargeMax);
+      return place ? 'surcharge' : null;
+    }
     let total = 0;
     for (const u of dispo) total += MODULE_RARETE[u.id] || 0.002;
     let r = alea() * total;
@@ -730,8 +751,11 @@ export class Game {
   }
 
   _prendModuleLocal(id, pos) {
+    // Un module ramassé modifie mes améliorations : même chemin qu'un achat.
+    this._bordSale = true;
     if (id === 'surcharge') {
       this.surcharge = Math.min(SURVIE.surchargeMax, this.surcharge + 1);
+      this._bordSale = true; // la surcharge change ma cadence : les autres doivent le savoir
       this.stats = computeStats(this.levels, this.surcharge);
       this.audio.moduleRamasse?.(1) ?? this.audio.buy();
       this.fx.burst(pos, 0xff3df0, { count: 22, speed: 11, life: 0.55 });
@@ -861,7 +885,10 @@ export class Game {
       for (const e of this.enemies.list) {
         if (!e.alive) continue;
         if (e.group.position.distanceToSquared(pos) > r2) continue;
-        if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e, 'colosse');
+        // LE COLOSSE N'EST À PERSONNE. Il écrase, il ne tue pour le compte de
+        // personne — donc aucune chaîne, aucune jauge : le numéro -1 ne désigne
+        // aucun bord, et le crédit part dans le vide, identiquement partout.
+        if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e, 'colosse', -1);
       }
       // …leurs tirs…
       this.enemyBullets.forEachActive((b) => {
@@ -871,13 +898,15 @@ export class Game {
       });
       // …et le joueur, qui n'a aucun privilège ici. C'est ce qui donne son poids à
       // l'annonce : un danger dont on serait exempté n'apprendrait rien.
-      if (
-        this.player.alive &&
-        !this.player.rolling &&
-        this.player.invulnTimer <= 0 &&
-        this.player.position.distanceToSquared(pos) < r2
-      ) {
-        this._playerHit();
+      // …et les pilotes, qui n'ont aucun privilège ici. TOUS les pilotes : le
+      // bloc n'écrasait que le vaisseau local, donc un copain broyé mourait chez
+      // lui et continuait de voler chez moi — ses vies, la chaleur du directeur
+      // et l'équilibrage de la vague en cours divergeaient d'un coup.
+      for (const poste of this._postesOrdonnes()) {
+        const v = poste.vaisseau;
+        if (!v?.alive || v.rolling || v.invulnTimer > 0) continue;
+        if (v.position.distanceToSquared(pos) >= r2) continue;
+        this._playerHit(poste.bord);
       }
     });
   }
@@ -909,7 +938,9 @@ export class Game {
           if (e.group.position.distanceToSquared(pos) > r2) continue;
           deja.add(e);
           const d = e.type === 'boss' ? OVERDRIVE.bombBossDamage : OVERDRIVE.bombDamage;
-          if (this.enemies.damage(e, d, this)) this._onEnemyKilled(e, 'bomb');
+          // Le tapis rapporte AU BOMBARDIER. Sans numéro, la récompense retombait
+          // sur le joueur local : ma jauge montait sur la bombe d'un copain.
+          if (this.enemies.damage(e, d, this)) this._onEnemyKilled(e, 'bomb', bord.numero);
         }
         // Les projectiles pris dans le souffle disparaissent aussi : un tapis de
         // bombes qui laisserait passer les balles serait incompréhensible.
@@ -1442,7 +1473,7 @@ export class Game {
     this.soutien?.annule();
     this.aura?.clear();
     this.arrivee?.annule();
-    for (const a of Object.values(this.armes)) a.clear();
+    this._effaceArmes();
     this.characters.taisToi();
     this.characters.muet = false;
     this.player.reset();
@@ -2468,7 +2499,8 @@ export class Game {
       // canal l'émetteur est un NOM (celui de l'ami) : on le traduit vers son
       // numéro de joueur, l'identité que le pas verrouillé comprend.
       case 'c':
-        if (this.duo.direct === de) this.duo.recoisCommande(this.duo.pairs[0]?.numero, d.f, d.d);
+        if (this.duo.direct === de)
+          this.duo.recoisCommande(this.duo.pairs[0]?.numero, d.f, d.d, d.b);
         return;
       // La pause du copain, en liaison directe : ici l'émetteur est son nom.
       case 'pause':
@@ -2653,8 +2685,51 @@ export class Game {
   // divergences. Pas les positions de chaque ennemi non plus — ce serait plus
   // sûr et cent fois plus cher, alors qu'un compte qui diverge suffit à dire que
   // le reste a divergé.
+  // CE QU'ON COMPARE ENTRE MACHINES, TOUTES LES SOIXANTE IMAGES.
+  //
+  // Elle ne portait que le numéro de vague et le nombre d'ennemis : deux
+  // simulations pouvaient se séparer profondément — points de vie différents,
+  // vaisseaux ailleurs, projectiles absents — sans que rien ne le voie, tant
+  // que le compte des ennemis restait le même. Une divergence non détectée est
+  // pire qu'une divergence : le filet ne se déclenche pas.
+  //
+  // On y met donc tout ce qui décide de la partie, réduit à des ENTIERS — les
+  // flottants au centième près, sinon le bruit de la virgule crierait au loup.
+  // C'est trente octets par seconde et par pair, sur un canal qui en porte cent
+  // fois plus.
   _empreinteDuo() {
-    return [this.wave, this.enemies.list.length];
+    let pv = 0;
+    let posX = 0;
+    let posZ = 0;
+    let vivants = 0;
+    for (const e of this.enemies.list) {
+      if (!e.alive) continue;
+      vivants++;
+      pv += e.hp;
+      posX += e.group.position.x;
+      posZ += e.group.position.z;
+    }
+    const bords = [];
+    for (const p of this._postesOrdonnes()) {
+      bords.push(
+        Math.round(p.vaisseau.position.x * 100),
+        Math.round(p.vaisseau.position.z * 100),
+        p.bord.lives,
+        Math.round((p.bord.energy || 0) * 10)
+      );
+    }
+    return [
+      this.wave,
+      this.enemies.list.length,
+      vivants,
+      Math.round(pv * 100),
+      Math.round(posX * 100),
+      Math.round(posZ * 100),
+      this.bullets.activeCount(),
+      this.enemyBullets.activeCount(),
+      this.pickups.activeCount(),
+      ...bords,
+    ];
   }
 
   // Appelée à chaque image du pas verrouillé, chez tous les joueurs.
@@ -2695,10 +2770,29 @@ export class Game {
     const sienne = d.e;
     if (!Array.isArray(sienne) || sienne.length !== mienne.length) return;
 
-    const NOMS = ['vague', 'ennemis'];
+    const NOMS = [
+      'vague',
+      'ennemis',
+      'vivants',
+      'pointsDeVie',
+      'positionX',
+      'positionZ',
+      'ballesAlliées',
+      'ballesEnnemies',
+      'gemmes',
+    ];
+    // Au-delà des champs communs, l'empreinte décrit les postes, quatre nombres
+    // chacun : le journal doit dire LEQUEL diverge, sinon on lit « quelque chose
+    // a changé » et l'on n'en sait pas plus.
+    const CHAMPS_BORD = ['x', 'z', 'vies', 'énergie'];
+    const nomDe = (i) => {
+      if (i < NOMS.length) return NOMS[i];
+      const r = i - NOMS.length;
+      return `poste${Math.floor(r / CHAMPS_BORD.length)}.${CHAMPS_BORD[r % CHAMPS_BORD.length]}`;
+    };
     const ecarts = {};
     for (let i = 0; i < mienne.length; i++) {
-      if (mienne[i] !== sienne[i]) ecarts[NOMS[i]] = { lui: sienne[i], moi: mienne[i] };
+      if (mienne[i] !== sienne[i]) ecarts[nomDe(i)] = { lui: sienne[i], moi: mienne[i] };
     }
     const cles = Object.keys(ecarts);
     if (!cles.length) return;
@@ -2933,7 +3027,8 @@ export class Game {
       bord.score = this.score;
       bord.lives = this.lives;
       bord.levels = { ...this.levels };
-      bord.stats = computeStats(bord.levels, this.surcharge);
+      bord.surcharge = this.surcharge;
+      bord.stats = computeStats(bord.levels, bord.surcharge);
       // ET ON REPREND SA PROPRE COQUE. Elle avait été remplacée par celle de
       // l'hôte au premier instantané restauré, puisqu'on rejouait sa partie.
       this.coque = this._coqueAMoi || 'orion';
@@ -3726,6 +3821,7 @@ export class Game {
       onGo: (m) => this._lanceDuo(m, mode),
       onPause: (m) => this._pauseDistante(m.oui, m.nom),
       onFinAutre: (m) => this._finDunAutre(m),
+      onRoute: (m) => this._surRoute(m),
       onEtatVague: (m) => this._surEtatVague(m),
       onEmpreinte: (m) => {
         const b = this.bordsDistants.find((x) => x.numero === m.j);
@@ -3865,6 +3961,9 @@ export class Game {
       // Chaque joueur a ses propres améliorations, donc ses propres stats.
       // Elles partent de zéro comme les nôtres et suivent SES achats.
       levels: emptyLevels(),
+      // La surcharge de survie est à lui aussi : sans ce champ, `computeStats`
+      // la lisait sur MOI et son vaisseau tirait à ma cadence.
+      surcharge: 0,
       stats: computeStats(emptyLevels(), 0),
       coque,
       odTimer: 0,
@@ -3877,6 +3976,13 @@ export class Game {
       // pas chez moi — ses ennemis mouraient chez lui et pas chez moi.
       bombCooldown: 0,
       callLeft: 0,
+      // L'ÉCONOMIE EST À CHACUN, ET ELLE SE SIMULE PARTOUT. La chaîne nourrit la
+      // jauge, la jauge autorise les pouvoirs, et les pouvoirs touchent l'arène :
+      // sans ces trois compteurs chez moi, la bombe d'un copain n'a pas de quoi
+      // partir, et nos deux parties se séparent.
+      combo: { chain: 0, mult: 1, timer: 0 },
+      waveBestTier: 1,
+      waveGrazes: 0,
       // Sa partie à LUI est-elle terminée ? Pas la même chose que « il n'a plus
       // de vies » : entre deux vagues, un pilote à zéro vie revient (voir
       // startWave). `fini` ne se pose qu'à son annonce de fin, et c'est lui qui
@@ -3894,6 +4000,12 @@ export class Game {
   }
 
   _fermeBordDistant(bord) {
+    // SON ARME S'ÉTEINT AVEC LUI. Sans ça, le rayon d'un copain qui quitte reste
+    // tendu en travers de l'écran : `update` ne tourne plus, et une arme qui
+    // n'est plus mise à jour ne s'efface pas, elle se fige.
+    const entree = this.armes.get(bord.numero);
+    entree?.arme?.clear?.();
+    this.armes.delete(bord.numero);
     const i = this.bordsDistants.indexOf(bord);
     if (i === -1) return;
     const vaisseau = this.joueursDistants[i];
@@ -3941,6 +4053,106 @@ export class Game {
       this._postesSales = false;
     }
     return this._postes;
+  }
+
+  // LE NUMÉRO DE MON POSTE. Le jeu lui-même sert de « bord » au joueur local :
+  // pour que le reste du code puisse traiter tous les postes de la même façon —
+  // signer une balle, retrouver un tireur — il lui faut ce numéro comme aux
+  // autres. En solo, c'est zéro.
+  get numero() {
+    return this.duoMoi || 0;
+  }
+
+  // LA TRAJECTOIRE EST UNE DÉCISION COMMUNE, et c'est l'hôte qui la prend.
+  //
+  // Elle était purement locale : à chaque changement de palier, si l'un prenait
+  // le Détour et l'autre le Direct, les deux machines ne jouaient plus la même
+  // vague du tout — l'un affrontait un boss, l'autre un champ de débris, avec
+  // des ennemis d'endurance différente. Ce n'était plus une divergence, c'étaient
+  // deux parties.
+  //
+  // Le plus petit numéro encore en course choisit, les autres regardent. Et
+  // personne ne passe cet écran sans la décision : elle est donc acquise partout
+  // avant que la vague suivante ne commence, sans qu'on ait à l'estampiller.
+  _jeChoisisLaRoute() {
+    if (this.variante !== 'duo' || !this.bordsDistants.length) return true;
+    return estPhotographe(this.duoMoi, this.bordsDistants, this.duo.partis);
+  }
+
+  // Le nom de celui qui choisit, pour le dire à ceux qui attendent.
+  _quiChoisitLaRoute() {
+    const enCourse = this.bordsDistants
+      .filter((b) => !b.fini && !this.duo.partis.has(b.numero))
+      .sort((a, z) => a.numero - z.numero);
+    return enCourse[0]?.nom || 'Votre copain';
+  }
+
+  // La décision de l'hôte arrive : on l'applique telle quelle. Les crédits de la
+  // route sont pour tout le monde — c'est une récompense d'équipage, pas un butin.
+  _surRoute(m) {
+    if (this.state !== 'route' || !m?.d) return;
+    this._appliqueRoute(m.d);
+  }
+
+  // L'arme d'un poste, construite à la demande pour SA coque. ORION n'en a pas :
+  // son armement est celui du vaisseau, depuis toujours.
+  _armeDe(bord) {
+    const coque = (bord === this ? this.coque : bord.coque) || 'orion';
+    const entree = this.armes.get(bord.numero);
+    if (entree && entree.coque === coque) return entree.arme;
+    // La coque a changé (ou le poste vient d'ouvrir) : on éteint l'ancienne
+    // avant d'en poser une neuve, sinon son rayon reste tendu à l'écran.
+    entree?.arme?.clear?.();
+    const arme =
+      coque === 'helios'
+        ? new ArmeHelios(this.scene)
+        : coque === 'vulcain'
+          ? new ArmeVulcain(this.scene)
+          : null;
+    this.armes.set(bord.numero, { coque, arme });
+    return arme;
+  }
+
+  // Toutes les armes en service, celles des postes partis comprises : c'est la
+  // liste qu'il faut pour éteindre, jamais une liste de coques.
+  _effaceArmes() {
+    for (const e of this.armes.values()) e.arme?.clear?.();
+  }
+
+  // Ce que mes achats changent chez les autres : les améliorations, la
+  // surcharge, la coque, et les vies gagnées HORS COMBAT — celles du combat sont
+  // déjà simulées partout.
+  _monBordage() {
+    return { n: { ...this.levels }, s: this.surcharge, v: this.lives, c: this.coque };
+  }
+
+  // Poser l'état d'un poste, à l'image où il a été estampillé. Le mien compris :
+  // un achat qui prendrait effet chez moi une image avant chez les autres
+  // suffirait à séparer les deux parties.
+  _poseBordage(numero, b) {
+    const bord = this._bordDuNumero(numero);
+    if (!bord || !b) return;
+    if (bord === this) {
+      this.levels = { ...b.n };
+      this.surcharge = b.s;
+      this.lives = b.v;
+      this.stats = computeStats(this.levels, this.surcharge);
+      this.hud.setLives(this.lives);
+      this._refreshShip();
+      return;
+    }
+    bord.levels = { ...b.n };
+    bord.surcharge = b.s;
+    bord.lives = b.v;
+    bord.coque = b.c || bord.coque;
+    bord.stats = computeStats(bord.levels, bord.surcharge);
+    this._peintBordsHud();
+  }
+
+  // Le bord qui porte un numéro donné, moi compris. `null` s'il a quitté.
+  _bordDuNumero(numero) {
+    if (numero === this.numero) return this;
+    return this.bordsDistants.find((b) => b.numero === numero) || null;
   }
 
   // LES AIMANTS DE LA VAGUE : tous les vaisseaux en vol, ordonnés par numéro.
@@ -4028,8 +4240,20 @@ export class Game {
       // elle part pour l'image `f + DELAI`, et c'est la file qui me la rend le
       // moment venu. Sans ce détour, mon vaisseau bougeait chez moi quatre
       // images avant de bouger chez eux — voir `Duo.publie`.
+      // Le budget réseau se réajuste ici, avant de publier : si la latence a
+      // grimpé, on postdate un peu plus au lieu de faire attendre la table.
+      d.ajusteDelai(commandeVersTableau(commandeVide()), this._frontiereDelai);
+      this._frontiereDelai = false;
       this._construitCommande(PAS_DUO);
-      d.publie(commandeVersTableau(this.cmd));
+      // MES AMÉLIORATIONS VOYAGENT AVEC MA COMMANDE quand elles viennent de
+      // changer. Les postes distants restaient aux valeurs de départ : un copain
+      // qui achetait des Propulseurs volait plus vite chez lui que chez moi, ses
+      // trois flux de tir n'en faisaient qu'un ici, et son bouclier n'existait
+      // pas — il encaissait un coup là-bas et perdait une vie ici.
+      d.publie(commandeVersTableau(this.cmd), this._bordSale ? this._monBordage() : null);
+      this._bordSale = false;
+      const bordages = d.bordagesDeLImage();
+      if (bordages) for (const [numero, b] of bordages) this._poseBordage(numero, b);
       const mienne = d.mienne();
       if (mienne) tableauVersCommande(mienne, this.cmd);
       const commandes = d.consomme();
@@ -4461,10 +4685,19 @@ export class Game {
     this.bombCooldown = 0;
     this.waveDeath = false;
     this.waveBestTier = 1;
+    // Une frontière de vague : c'est là, et seulement là, qu'on s'autorise à
+    // RÉDUIRE le budget réseau — voir `Duo.ajusteDelai`.
+    this._frontiereDelai = true;
     // L'Appel se recharge à chaque vague, jamais entre-temps.
     this.callLeft = this.stats.callCharges;
-    // Chaque pilote retrouve ses Appels au début de la vague, pas seulement moi.
-    for (const b of this.bordsDistants) b.callLeft = b.stats.callCharges;
+    // Chaque pilote retrouve ses Appels au début de la vague, pas seulement moi
+    // — et ses compteurs de vague avec, sinon son palier de combo resterait
+    // acquis d'une vague à l'autre chez moi et pas chez lui.
+    for (const b of this.bordsDistants) {
+      b.callLeft = b.stats.callCharges;
+      b.waveGrazes = 0;
+      b.waveBestTier = 1;
+    }
     this.callWaves = [];
     this.hud.setCall(this.callLeft, this.stats.callCharges);
     this._energyPressStart = 0;
@@ -4485,7 +4718,7 @@ export class Game {
     this.missiles.clear();
     this.pickups.clear();
     this.modules.clear();
-    for (const a of Object.values(this.armes)) a.clear();
+    this._effaceArmes();
     this.modules.clear();
     this.enemies.clear();
     this.player.shieldUp = false;
@@ -4586,7 +4819,7 @@ export class Game {
     this.bullets.clear();
     this.enemyBullets.clear();
     this.missiles.clear();
-    for (const a of Object.values(this.armes)) a.clear();
+    this._effaceArmes();
     this.aura?.clear();
     this.soutien?.annule();
     this.colosse?.annule();
@@ -4635,8 +4868,17 @@ export class Game {
     this.waveBestTier = 1;
     // L'Appel se recharge à chaque vague, jamais entre-temps.
     this.callLeft = this.stats.callCharges;
-    // Chaque pilote retrouve ses Appels au début de la vague, pas seulement moi.
-    for (const b of this.bordsDistants) b.callLeft = b.stats.callCharges;
+    // CHAQUE PILOTE RETROUVE SES COMPTEURS DE VAGUE, pas seulement moi. Le
+    // palier de combo déjà payé (`waveBestTier`) restait acquis d'une vague à
+    // l'autre pour un copain vu de MA machine, alors qu'il repartait à un chez
+    // lui : sa prime de palier tombait chez lui et pas chez moi, quatre points
+    // d'énergie d'écart — de quoi autoriser une bombe d'un côté seulement.
+    // Mesuré au banc, image 1172.
+    for (const b of this.bordsDistants) {
+      b.callLeft = b.stats.callCharges;
+      b.waveGrazes = 0;
+      b.waveBestTier = 1;
+    }
     this.callWaves = [];
     this.hud.setCall(this.callLeft, this.stats.callCharges);
 
@@ -4855,7 +5097,7 @@ export class Game {
     // Les armes aussi : sans ça, le rayon d'HÉLIOS et les charges de VULCAIN
     // traversaient le saut, la boutique et l'écran de trajectoire — le combat
     // était fini depuis longtemps, l'arme tirait encore.
-    for (const a of Object.values(this.armes)) a.clear();
+    this._effaceArmes();
     this.aura.clear();
     // ET LE BOMBARDEMENT. Le cas se produit tout le temps : le tapis nettoie la
     // vague entière, la partie enchaîne sur le saut, et `_updatePlaying` cesse
@@ -5007,14 +5249,30 @@ export class Game {
         </div>
       </div>
     `);
+    // QUI DÉCIDE. À plusieurs, un seul choisit — sinon les deux machines partent
+    // sur deux trajectoires et ne jouent plus la même partie. Les autres voient
+    // les mêmes cartes, apprennent qui tranche, et attendent : leur écran se
+    // ferme tout seul quand la décision arrive.
+    const aMoiDeChoisir = this._jeChoisisLaRoute();
     for (const b of el.querySelectorAll('.route')) {
+      if (!aMoiDeChoisir) {
+        b.disabled = true;
+        b.classList.add('route-attente');
+        continue;
+      }
       b.addEventListener('click', () =>
-        this._takeRoute(b.dataset.type === 'longue' ? r.longue : r.courte, idx)
+        this._takeRoute(b.dataset.type === 'longue' ? r.longue : r.courte)
       );
+    }
+    if (!aMoiDeChoisir) {
+      const dit = document.createElement('div');
+      dit.className = 'coque-sous';
+      dit.textContent = `${this._quiChoisitLaRoute()} choisit la trajectoire…`;
+      el.querySelector('.screen')?.prepend(dit);
     }
   }
 
-  _takeRoute(choix, stageIdx) {
+  _takeRoute(choix) {
     // ON NE CHOISIT QU'UNE FOIS.
     //
     // `openShop` AJOUTE son panneau à l'overlay au lieu de le remplacer : après
@@ -5028,6 +5286,35 @@ export class Game {
     // sens que tant qu'on est sur cet écran-là ; et l'overlay, parce qu'un écran
     // qu'on a quitté n'a rien à faire dans le document.
     if (this.state !== 'route') return;
+    // À plusieurs, on annonce d'abord — les autres attendent cette décision pour
+    // avancer, et l'on s'applique à soi-même exactement la même chose qu'eux.
+    if (this.variante === 'duo' && this.bordsDistants.length) {
+      this.duo.route({
+        fragment: !!choix.fragment,
+        credits: choix.credits | 0,
+        mods: choix.risque ? { ...choix.risque.mods } : null,
+      });
+    }
+    this.overlayRoot.innerHTML = '';
+    // Le détour dépose le vaisseau dans un lieu, et un niveau BIS s'y joue — une
+    // vague en plus, portant le même numéro que celle qui viendra après. Le
+    // tirage sort de la GRAINE, jamais d'un hasard vif : deux parties de même
+    // graine doivent passer par les mêmes escales, sinon le rejeu ne montrerait
+    // pas ce que le joueur a vu.
+    this._appliqueRoute({
+      fragment: !!choix.fragment,
+      credits: choix.credits | 0,
+      mods: choix.risque ? { ...choix.risque.mods } : null,
+    });
+  }
+
+  // Ce que la trajectoire change, et rien d'autre. Écrit une seule fois pour que
+  // celui qui décide et ceux qui reçoivent en fassent exactement autant.
+  _appliqueRoute(choix) {
+    // Le palier d'où l'on part : il décide du souvenir joué en transition. Il se
+    // déduit de la vague, il n'a donc pas à voyager avec la décision.
+    const stageIdx = STAGES.indexOf(stageForWave(this.wave));
+    this.state = 'route';
     this.overlayRoot.innerHTML = '';
     // Le détour dépose le vaisseau dans un lieu, et un niveau BIS s'y joue — une
     // vague en plus, portant le même numéro que celle qui viendra après. Le
@@ -5041,7 +5328,7 @@ export class Game {
         : null;
     this.credits += choix.credits;
     this.hud.setCredits(this.credits);
-    this.routeMods = choix.risque ? choix.risque.mods : null;
+    this.routeMods = choix.mods ? { ...choix.mods } : null;
     this.audio.buy();
 
     if (!choix.fragment) {
@@ -5100,6 +5387,11 @@ export class Game {
       const gagnees = PALIERS[apres].vies || 0;
       if (gagnees) {
         this.lives += gagnees;
+        // Des vies gagnées à l'escale, donc hors combat : elles ne se déduisent
+        // de rien chez les autres, il faut les leur dire. Sinon j'ai quatre vies
+        // ici et trois là-bas, et la vague suivante me fait « revenir avec une
+        // seule vie » sur une machine et pas sur l'autre.
+        this._bordSale = true;
         this.hud.setLives(this.lives);
       }
       this.hud.announce(
@@ -5121,7 +5413,7 @@ export class Game {
     this.enemyBullets.clear();
     this.bullets.clear();
     this.missiles.clear();
-    for (const a of Object.values(this.armes)) a.clear();
+    this._effaceArmes();
     this.aura.clear();
     this.soutien.annule();
     this.fx.cancelSlowmo();
@@ -5223,6 +5515,9 @@ export class Game {
       this.hud.setLives(this.lives);
     }
     this.stats = computeStats(this.levels, this.surcharge);
+    // À plusieurs, cet achat doit rejoindre les autres machines : il part avec
+    // ma prochaine commande, donc il s'appliquera partout à la même image.
+    this._bordSale = true;
     // Ce qu'on achète se voit sur la coque, sinon ce n'est pas un achat : c'est
     // une case cochée.
     this._refreshShip();
@@ -5345,7 +5640,13 @@ export class Game {
       // L'état de l'arme entre dans l'instantané : une charge en vol au changement
       // de vague doit être là au rejeu, sinon la partie diverge dès la première
       // détonation.
-      arme: this.armes[this.coque]?.instantane?.() || null,
+      // L'ÉTAT DES ARMES ENTRE DANS L'INSTANTANÉ — CELLES DE TOUT LE MONDE. Une
+      // charge en vol au changement de vague doit être là au rejeu, sinon la
+      // partie diverge dès la première détonation ; et une réparation qui ne
+      // rendrait que la mienne ferait disparaître le missile d'un copain chez
+      // moi et pas chez lui. Chaque entrée porte SA coque : sans elle, on ne
+      // sait pas si le tableau décrit un rayon ou une forge.
+      armes: this._instantaneArmes(),
       surcharge: this.surcharge,
       score: this.score,
       // L'enchaînement en cours fait partie de l'état : il ne s'arrête pas à la
@@ -5397,6 +5698,15 @@ export class Game {
         credits: local ? this.credits : p.bord.credits,
         coque: local ? this.coque : p.bord.coque,
         nom: local ? activePilot()?.name || 'MOI' : p.bord.nom,
+        // L'ÉCONOMIE ENTRE DANS LA PHOTO. Elle décide des pouvoirs, et les
+        // pouvoirs touchent l'arène : une réparation qui laisserait les jauges
+        // et les chaînes dans l'état d'avant recollerait les vaisseaux pour
+        // laisser diverger la bombe suivante.
+        combo: [p.bord.combo.chain, p.bord.combo.mult, p.bord.combo.timer],
+        appels: p.bord.callLeft | 0,
+        recharge: p.bord.bombCooldown || 0,
+        palier: p.bord.waveBestTier || 1,
+        froles: p.bord.waveGrazes || 0,
       };
     }
     return bords;
@@ -5445,7 +5755,7 @@ export class Game {
     this.seed = etat.seed;
     this.levels = { ...etat.niveaux };
     this.coque = etat.coque || 'orion';
-    for (const a of Object.values(this.armes)) a.clear();
+    this._effaceArmes();
     this.surcharge = etat.surcharge || 0;
     this.stats = computeStats(this.levels, this.surcharge);
     this.score = etat.score || 0;
@@ -5479,6 +5789,11 @@ export class Game {
         bord.energy = e.energie;
         bord.credits = e.credits;
         bord.odTimer = 0;
+        if (e.combo) bord.combo = { chain: e.combo[0], mult: e.combo[1], timer: e.combo[2] };
+        bord.callLeft = e.appels | 0;
+        bord.bombCooldown = e.recharge || 0;
+        bord.waveBestTier = e.palier || 1;
+        bord.waveGrazes = e.froles || 0;
       }
       this._peintBordsHud();
     }
@@ -5501,7 +5816,32 @@ export class Game {
     // purger les armes, comme elle purge les projectiles. Restaurer avant
     // reviendrait à tout effacer juste après — une charge en vol au changement de
     // vague manquerait, et le rejeu divergerait à la première détonation.
-    this.armes[this.coque]?.restaure?.(etat.arme);
+    this._restaureArmes(etat.armes);
+  }
+
+  // Les armes de tous les postes, indexées par NUMÉRO — jamais par la place dans
+  // `bordsDistants`, qui change de sens d'un point de vue à l'autre. Les postes
+  // en ORION portent `null` : leur armement est celui du vaisseau.
+  _instantaneArmes() {
+    const out = [];
+    for (const p of this._postesOrdonnes()) {
+      const coque = (p.bord === this ? this.coque : p.bord.coque) || 'orion';
+      const arme = this.armes.get(p.numero)?.arme;
+      out[p.numero] = arme ? { c: coque, e: arme.instantane?.() || null } : null;
+    }
+    return out;
+  }
+
+  _restaureArmes(armes) {
+    if (!armes) return;
+    for (const p of this._postesOrdonnes()) {
+      const e = armes[p.numero];
+      if (!e) continue;
+      // On reconstruit d'abord l'arme de la bonne coque : restaurer une forge
+      // dans un rayon ne rendrait rien de bon.
+      if (p.bord !== this && e.c) p.bord.coque = e.c;
+      this._armeDe(p.bord)?.restaure?.(e.e);
+    }
   }
 
   // Lance la relecture d'une partie enregistrée.
@@ -5533,7 +5873,7 @@ export class Game {
     this.missiles.clear();
     this.pickups.clear();
     this.modules.clear();
-    for (const a of Object.values(this.armes)) a.clear();
+    this._effaceArmes();
     this.showTitle();
   }
 
@@ -5728,6 +6068,15 @@ export class Game {
       this.bullets.habille?.(FUREUR.teintes[n] ?? FUREUR.teintes[0], FUREUR.echelles[n] ?? 1);
     }
 
+    // LA FURIE DE CHACUN S'ÉTEINT. Seule la mienne était décomptée : chez moi,
+    // un copain entré en Overdrive y restait POUR TOUJOURS — il tirait une fois
+    // et demie plus vite jusqu'à la fin de la partie, ses balles perforaient, et
+    // sa jauge gelée ne lui rendait plus jamais sa bombe. Chez lui, tout
+    // revenait normal au bout de huit secondes.
+    for (const p of this._postesOrdonnes()) {
+      if (p.bord === this || p.bord.odTimer <= 0) continue;
+      p.bord.odTimer -= dt;
+    }
     if (this.odTimer > 0) {
       this.odTimer -= dt;
       if (this.odTimer <= 0) {
@@ -5739,7 +6088,13 @@ export class Game {
         this.fx.burst(this.player.position, 0x8ea0c0, { count: 12, speed: 7, life: 0.4 });
       }
     }
-    const odActive = this.odTimer > 0;
+    // LE RALENTI DES TIRS ENNEMIS EST UN FAIT DE L'ARÈNE, pas de mon écran. Il
+    // suivait MON Overdrive : pendant mes huit secondes de furie, toutes les
+    // balles rampaient chez moi et filaient chez lui — elles n'étaient donc plus
+    // au même endroit, et ne touchaient plus les mêmes vaisseaux. Il suffit
+    // qu'UN pilote soit en furie pour que le temps se fige, et c'est vrai
+    // partout en même temps.
+    const odActive = this._postesOrdonnes().some((p) => p.bord.odTimer > 0);
     // La recharge court pour CHACUN : celle d'un copain avançait à zéro chez
     // moi, donc sa bombe suivante partait ici avant de partir chez lui.
     for (const p of this._postesOrdonnes()) {
@@ -5804,20 +6159,37 @@ export class Game {
       const bombardier = this.soutien.vaisseau || this.player;
       if (!this.soutien.bref) bombardier.invulnTimer = Math.max(bombardier.invulnTimer, 0.4);
     }
-    const arme = this.armes[this.coque];
+    // DANS L'ORDRE DES NUMÉROS. VULCAIN consomme un tirage semé par charge : deux
+    // machines qui serviraient les forges dans deux ordres différents tireraient
+    // les mêmes nombres pour des missiles différents.
+    for (const poste of this._postesOrdonnes()) this._updateArme(dt, poste);
+    this._updateApresArmes(dt, odActive);
+  }
+
+  // L'arme d'un poste, une image. Le drapeau de coupure est PAR POSTE : partagé,
+  // la mort d'un pilote éteignait l'arme des autres — et ne l'éteignait qu'une
+  // seule fois pour toute la partie.
+  _updateArme(dt, poste) {
+    const bord = poste.bord;
+    const arme = this._armeDe(bord);
     if (arme) {
-      if (this.player.alive) arme.update(dt, this);
-      else if (!this._armeCoupee) {
+      if (poste.vaisseau?.alive) {
+        arme.update(dt, this, bord);
+        bord._armeCoupee = false;
+      } else if (!bord._armeCoupee) {
         // LE VAISSEAU EST DÉTRUIT, L'ARME AUSSI. `update` ne tourne plus quand le
         // joueur est mort — et c'était tout le problème : une arme qui n'est plus
         // mise à jour ne s'efface pas, elle se FIGE. Le rayon d'HÉLIOS restait
         // donc tendu en travers de l'écran par-dessus l'explosion, jusqu'au
         // réapparition. Il faut le couper explicitement, une seule fois.
         arme.clear();
-        this._armeCoupee = true;
+        bord._armeCoupee = true;
       }
     }
-    if (this.player.alive) this._armeCoupee = false;
+  }
+
+  // La suite de l'image, reprise après les armes.
+  _updateApresArmes(dt, odActive) {
     this.enemies.update(dt, this);
     this.bullets.update(dt);
     this.enemyBullets.update(dt, odActive ? OVERDRIVE.odBulletSlow : 1);
@@ -5855,6 +6227,17 @@ export class Game {
       vacuum
     );
 
+    // LA CHAÎNE DE CHAQUE PILOTE S'ÉCOULE, pas seulement la mienne : celle d'un
+    // copain restait figée chez moi, donc ses kills valaient plus ici que chez
+    // lui — et sa jauge, qui décide de ses pouvoirs, n'était pas la même.
+    for (const p of this._postesOrdonnes()) {
+      if (p.bord === this || p.bord.combo.chain <= 0) continue;
+      p.bord.combo.timer -= dt;
+      if (p.bord.combo.timer <= 0) {
+        p.bord.combo.chain = 0;
+        p.bord.combo.mult = 1;
+      }
+    }
     // Combo : la fenêtre se resserre à chaque palier, les frôlements la rallongent.
     if (this.combo.chain > 0) {
       this.combo.timer -= dt;
@@ -6015,47 +6398,68 @@ export class Game {
     }
   }
 
-  _comboWindow() {
-    return COMBO.windows[Math.min(this.combo.mult, COMBO.windows.length - 1)];
+  _comboWindow(bord = this) {
+    return COMBO.windows[Math.min(bord.combo.mult, COMBO.windows.length - 1)];
   }
 
   // Frôlement : on mémorise la distance minimale de chaque balle ennemie et on
   // crédite quand elle DÉPASSE le joueur — jamais avant, sinon une balle qui touche
   // rapporterait un graze la frame d'avant.
   _updateGraze() {
-    if (!this.player.alive) return;
+    // PAS DE GARDE SUR MON SEUL VAISSEAU. Elle coupait tout le calcul quand
+    // j'étais détruit : le bouclier d'un copain se rechargeait alors à ses
+    // frôlements chez lui et pas chez moi, et il encaissait un coup ici qui lui
+    // coûtait une vie là. La boucle vérifie déjà chaque vaisseau.
     // LE FRÔLEMENT APPARTIENT À ORION. Partagé par les trois coques, il les aurait
     // fait jouer pareil malgré leurs armes : le joueur se serait approché des balles
     // dans les trois cas, et le choix de coque n'aurait plus porté que sur la façon
     // de tirer. Chaque coque a donc sa propre source d'énergie — la chauffe pour
     // HÉLIOS, la salve pour VULCAIN — et chacune récompense exactement son verbe.
-    if ((this.coque || 'orion') !== 'orion') return;
-    const p = this.player.position;
+    // CHAQUE PILOTE FRÔLE POUR SON PROPRE COMPTE, et dans l'ordre des numéros.
+    // On ne mesurait la distance que depuis MON vaisseau : la jauge d'un copain
+    // ne montait donc jamais chez moi, et ses pouvoirs y étaient refusés.
     const grazeRR = (GRAZE.radius + this.enemyBullets.radius) ** 2;
-    this.enemyBullets.forEachActive((b) => {
-      const d = b.mesh.position.distanceToSquared(p);
-      if (d < b.minDistSq) b.minDistSq = d;
-      if (!b.grazed && b.mesh.position.z > p.z + 0.6) {
-        b.grazed = true;
-        if (b.minDistSq < grazeRR) this._onGraze(b.mesh.position);
-      }
-    });
+    for (const poste of this._postesOrdonnes()) {
+      const bord = poste.bord;
+      if ((bord.coque || 'orion') !== 'orion') continue;
+      const vaisseau = poste.vaisseau;
+      if (!vaisseau?.alive) continue;
+      const p = vaisseau.position;
+      const bit = 1 << poste.numero;
+      this.enemyBullets.forEachActive((b) => {
+        const d = b.mesh.position.distanceToSquared(p);
+        if (d < b.minDistSq[poste.numero]) b.minDistSq[poste.numero] = d;
+        if (!(b.grazePar & bit) && b.mesh.position.z > p.z + 0.6) {
+          b.grazePar |= bit;
+          if (b.minDistSq[poste.numero] < grazeRR) this._onGraze(b.mesh.position, bord);
+        }
+      });
+    }
   }
 
-  _onGraze(pos) {
-    this.waveGrazes++;
-    this.characters.teachOnce('grazeFirst');
-    this.score += GRAZE.score * this.combo.mult * (this.odTimer > 0 ? OVERDRIVE.odScoreMul : 1);
-    this.hud.setScore(this.score);
-    this._addEnergy(GRAZE.energy);
+  _onGraze(pos, bord = this) {
+    const moi = bord === this;
+    bord.waveGrazes++;
+    bord.score += GRAZE.score * bord.combo.mult * (bord.odTimer > 0 ? OVERDRIVE.odScoreMul : 1);
+    this._addEnergy(GRAZE.energy, bord);
     // Sursis de combo : c'est ce qui rend les paliers ×6-×8 tenables.
-    if (this.combo.chain > 0) {
-      this.combo.timer = Math.min(this._comboWindow(), this.combo.timer + GRAZE.comboRefill);
+    if (bord.combo.chain > 0) {
+      bord.combo.timer = Math.min(this._comboWindow(bord), bord.combo.timer + GRAZE.comboRefill);
     }
     // Le bouclier se recharge au RISQUE, pas seulement à l'horloge.
-    if (this.player.shieldRechargeTimer > 0) {
-      this.player.shieldRechargeTimer -= GRAZE.shieldRecharge;
+    const vaisseau = this._vaisseauDu(bord);
+    if (vaisseau && vaisseau.shieldRechargeTimer > 0) {
+      vaisseau.shieldRechargeTimer -= GRAZE.shieldRecharge;
     }
+    // Le frôlement d'un copain se voit — une étincelle sur SA coque — mais ne
+    // prend ni mon score, ni ma jauge, ni mes oreilles.
+    if (!moi) {
+      if (vaisseau) vaisseau.grazeFlash = 1;
+      this.fx.burst(pos, 0x8ffbff, { count: 4, speed: 6, life: 0.3, spread: 0.5 });
+      return;
+    }
+    this.characters.teachOnce('grazeFirst');
+    this.hud.setScore(this.score);
 
     // Retour franc : sans lui, personne ne comprend comment remplir la jauge.
     this.player.grazeFlash = 1;
@@ -6081,7 +6485,13 @@ export class Game {
     // colonne. Le cœur de la cible — le tiers central de son rayon — inflige
     // maintenant le double, et le dit franchement, sinon personne ne remarquerait
     // jamais qu'il y a quelque chose à viser.
-    const pierceMax = this.odTimer > 0 ? OVERDRIVE.odPierce : 1;
+    // LES DÉGÂTS SONT CEUX DU TIREUR, PAS LES MIENS. La perforation et la fureur
+    // se lisaient sur MON poste quelle que soit la balle : chez moi, le tir d'un
+    // copain frappait avec ma furie et mes niveaux, chez lui avec les siens. Les
+    // ennemis n'avaient donc pas les mêmes points de vie d'un écran à l'autre —
+    // et une divergence de points de vie, c'est un ennemi qui meurt ici et
+    // survit là.
+    const perforation = (bord) => ((bord || this).odTimer > 0 ? OVERDRIVE.odPierce : 1);
     // UNE MINE SE TIRE. C'est ce qui la sépare d'un obstacle : elle pose une
     // question — la dégager maintenant, ou la contourner et garder son tir — et
     // une question à laquelle on ne peut pas répondre n'est qu'une gêne.
@@ -6099,6 +6509,8 @@ export class Game {
         const rr = e.def.radius + this.bullets.radius;
         const d2 = b.mesh.position.distanceToSquared(e.group.position);
         if (d2 < rr * rr) {
+          const tireur = this._bordDuNumero(b.proprio ?? 0) || this;
+          const pierceMax = perforation(tireur);
           b.hitIds.push(e.id);
           b.pierce++;
           if (b.pierce >= pierceMax) this.bullets.kill(b);
@@ -6120,14 +6532,14 @@ export class Game {
           const dx = b.mesh.position.x - e.group.position.x;
           const dy = b.mesh.position.y - e.group.position.y;
           const critique = dx * dx + dy * dy < coeur * coeur;
-          if (critique) this._marquePrecision(b.mesh.position, e);
+          if (critique && tireur === this) this._marquePrecision(b.mesh.position, e);
           // LA FUREUR. Elle ne vaut que pendant l'Overdrive, et elle s'ajoute au
           // coup critique plutôt que de le remplacer : bien viser en pleine furie
           // doit rester le meilleur moment du jeu.
-          const fureur = this.odTimer > 0 ? FUREUR.degats[this.levels.fureur | 0] || 0 : 0;
+          const fureur = tireur.odTimer > 0 ? FUREUR.degats[tireur.levels.fureur | 0] || 0 : 0;
           const degats = (critique ? PRECISION.degats : 1) + fureur;
           if (this.enemies.damage(e, degats, this))
-            this._onEnemyKilled(e, critique ? 'precision' : 'cannon');
+            this._onEnemyKilled(e, critique ? 'precision' : 'cannon', tireur.numero);
           if (b.pierce >= pierceMax) break;
         }
       }
@@ -6141,7 +6553,7 @@ export class Game {
         if (m.mesh.position.distanceToSquared(e.group.position) < rr * rr) {
           this.missiles.kill(m);
           this.fx.explosionSmall(m.mesh.position, 0xffc857);
-          if (this.enemies.damage(e, 3, this)) this._onEnemyKilled(e, 'missile');
+          if (this.enemies.damage(e, 3, this)) this._onEnemyKilled(e, 'missile', m.proprio ?? 0);
           break;
         }
       }
@@ -6208,7 +6620,8 @@ export class Game {
         // renvoi mou se ferait rattraper par la formation qui descend, et on ne
         // verrait jamais ce qu'on a réussi.
         this._renvoie(b);
-        this._addEnergy(GRAZE.energy * 0.35); // une balle traversée reste un risque pris
+        // une balle traversée reste un risque pris — pour CELUI qui l'a traversée
+        this._addEnergy(GRAZE.energy * 0.35, bord);
         return;
       }
       this.enemyBullets.kill(b);
@@ -6221,7 +6634,7 @@ export class Game {
       const rr = PLAYER.radius + e.def.radius;
       if (e.group.position.distanceToSquared(pPos) < rr * rr) {
         if (e.type !== 'boss') {
-          if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e, 'ram');
+          if (this.enemies.damage(e, 99, this)) this._onEnemyKilled(e, 'ram', bord.numero);
         }
         this._playerHit(bord);
         break;
@@ -6337,12 +6750,17 @@ export class Game {
     bord.lives--;
     bord.energy = 0;
     bord.odTimer = 0;
+    // LA CHAÎNE SE CASSE CHEZ TOUT LE MONDE. Elle ne se brisait que pour le
+    // pilote local : sur ma machine, le copain touché gardait son combo, donc
+    // ses kills suivants valaient plus qu'ils ne valaient chez lui, sa jauge
+    // montait plus vite, et ses pouvoirs ne partaient pas au même moment.
+    // Mesuré au banc, image 391 — chaîne 0 chez lui, 5 chez moi.
+    bord.combo = { chain: 0, mult: 1, timer: 0 };
+    bord.bombCooldown = 0;
     if (moi) {
       this.hud.setLives(this.lives);
-      this.combo = { chain: 0, mult: 1, timer: 0 };
       this.hud.setEnergy(0);
       this.hud.setOverdrive(false);
-      this.bombCooldown = 0;
     }
     // La vague a coûté une vie à L'ÉQUIPAGE : la prime de vague propre se juge
     // sur tout le monde, sinon elle diverge d'un poste à l'autre.
@@ -6375,47 +6793,69 @@ export class Game {
 
   // source : 'cannon' | 'missile' | 'ram' | 'bomb'. Seuls les kills au canon
   // rechargent l'énergie (sinon les missiles automatiques la rempliraient tout seuls).
-  _onEnemyKilled(e, source = 'cannon') {
+  // `numero` : le poste à qui revient la mort. Toute l'économie — chaîne,
+  // jauge, points — était portée au compte du joueur LOCAL, quel que soit
+  // l'auteur du tir. Un copain ne gagnait donc jamais d'énergie chez moi : sa
+  // bombe y était refusée faute de jauge alors qu'elle partait chez lui.
+  // Mesuré sur le banc à l'image 117 — énergie 580 chez lui, 0 chez moi.
+  _onEnemyKilled(e, source = 'cannon', numero = null) {
+    // `numero` négatif : la mort n'appartient à personne (le Colosse). On garde
+    // alors le bord local pour les effets, mais sans rien créditer — c'est le
+    // seul moyen d'avoir la même chose sur toutes les machines.
+    const anonyme = numero !== null && numero < 0;
+    const bord = (numero === null || anonyme ? this : this._bordDuNumero(numero)) || this;
+    const moi = bord === this;
+    if (anonyme) return this._dropCredits(e, bord);
+
     // Combo.
-    this.combo.chain++;
-    this.combo.timer = this._comboWindow();
+    bord.combo.chain++;
+    bord.combo.timer = this._comboWindow(bord);
     const newMult = Math.min(
-      1 + Math.floor(this.combo.chain / COMBO.killsPerTier),
+      1 + Math.floor(bord.combo.chain / COMBO.killsPerTier),
       COMBO.maxMultiplier
     );
-    if (newMult > this.combo.mult) {
-      this.combo.mult = newMult;
-      this.audio.comboUp(newMult);
-      this.hud.pulseCombo();
-      this.hud.announce(`Combo ×${newMult}`, '', 800);
-      this.characters.onComboUp(newMult);
+    if (newMult > bord.combo.mult) {
+      bord.combo.mult = newMult;
+      if (moi) {
+        this.audio.comboUp(newMult);
+        this.hud.pulseCombo();
+        this.hud.announce(`Combo ×${newMult}`, '', 800);
+        this.characters.onComboUp(newMult);
+      }
       // Un palier n'est payé qu'à sa PREMIÈRE atteinte dans la vague : sinon
       // casser et refaire sa chaîne finançait la prochaine bombe.
-      if (newMult > this.waveBestTier) {
-        this.waveBestTier = newMult;
-        this._addEnergy(OVERDRIVE.energyPerComboTier);
+      if (newMult > bord.waveBestTier) {
+        bord.waveBestTier = newMult;
+        this._addEnergy(OVERDRIVE.energyPerComboTier, bord);
       }
     }
     if (source === 'cannon' && e.state === 'diving') {
-      this._addEnergy(OVERDRIVE.energyPerDiverKill); // abattre une menace récompense
+      this._addEnergy(OVERDRIVE.energyPerDiverKill, bord); // abattre une menace récompense
     }
     // Et la chaîne elle-même nourrit la furie, à chaque kill, proportionnellement
     // au multiplicateur : la jauge cesse d'être alimentée par le seul frôlement.
     // Deux façons de la charger, donc deux styles de jeu qui se valent.
-    if (this.combo.mult > 1) {
-      this._addEnergy(OVERDRIVE.energyPerComboHit * this.combo.mult);
+    if (bord.combo.mult > 1) {
+      this._addEnergy(OVERDRIVE.energyPerComboHit * bord.combo.mult, bord);
     }
 
     // Score.
-    const odMul = this.odTimer > 0 ? OVERDRIVE.odScoreMul : 1;
-    this.score += e.def.score * this.combo.mult * odMul;
-    this.hud.setScore(this.score);
-    if (this.mode === 'arcade' && this.score > this.hiscore) this.hud.setHiscore(this.score);
+    const odMul = bord.odTimer > 0 ? OVERDRIVE.odScoreMul : 1;
+    bord.score += e.def.score * bord.combo.mult * odMul;
+    if (moi) {
+      this.hud.setScore(this.score);
+      if (this.mode === 'arcade' && this.score > this.hiscore) this.hud.setHiscore(this.score);
+    }
 
-    this._dropCredits(e);
+    this._dropCredits(e, bord);
   }
 
-  _dropCredits(e) {
+  // `bord` : le tueur. Le tirage de la grosse pièce se faisait sur MON combo,
+  // quel que soit l'auteur du kill — et comme il consomme le générateur semé,
+  // ma machine tirait un nombre différent de fois de la sienne. Tout le hasard
+  // commun décrochait d'un cran : plongées, cibles, dispersion, trajectoires.
+  // C'est le défaut le plus grave de la liste, parce qu'il ne se voit pas.
+  _dropCredits(e, bord = this) {
     // EN SURVIE, PAS D'ARGENT. Il n'y a rien à acheter : ce qui tombe, ce sont les
     // améliorations elles-mêmes. Le boss en lâche plusieurs — il vaut dix vagues.
     if (this.mode === 'survie') {
@@ -6439,7 +6879,7 @@ export class Game {
     // Enchaîner peut faire tomber une GROSSE pièce. La chance monte avec le
     // multiplicateur, et elle est nulle sans combo : c'est le seul endroit du jeu
     // où l'on VOIT qu'un enchaînement a payé.
-    const mult = this.combo.mult;
+    const mult = bord.combo.mult;
     if (mult < 2) return;
     const chance = Math.min(PICKUPS.bigChanceMax, PICKUPS.bigChancePerTier * (mult - 1));
     if (alea() < chance) this.pickups.dropBig(e.group.position);

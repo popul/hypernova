@@ -175,8 +175,12 @@ export class ArenaEdges {
 // le déplacement du vaisseau, son fantôme de l'autre côté, l'aura qui le suit, le
 // rayon d'HÉLIOS qui doit franchir la couture avec lui, et la couture elle-même
 // qui ne doit s'allumer que si elle sert à quelque chose.
-export function boucleActive(game) {
-  return ARENA.wrap && (game?.levels?.couture | 0) > 0;
+// `porteur` : celui dont on regarde les améliorations — un bord, pas le jeu. On
+// lisait `game.levels`, donc MES modules : chez moi le vaisseau d'un copain
+// traversait la couture que j'avais achetée, chez lui il butait sur le mur. Un
+// écart de toute la largeur de l'arène, immédiat et définitif.
+export function boucleActive(porteur) {
+  return ARENA.wrap && (porteur?.levels?.couture | 0) > 0;
 }
 
 const MARGE_BORD = 0.035; // ce qu'on garde entre le bord de l'arène et celui de l'écran

@@ -259,11 +259,18 @@ export class Enemies {
 
   pickTargets(n) {
     const alive = this.list.filter((e) => e.alive);
-    // Priorité aux plongeurs (menace immédiate), puis au boss, puis aléatoire.
-    alive.sort((a, b) => {
-      const rank = (e) => (e.state === 'diving' ? 0 : e.type === 'boss' ? 1 : 2);
-      return rank(a) - rank(b) + ecart(0.25);
-    });
+    // Priorité aux plongeurs (menace immédiate), puis au boss, puis au sort.
+    //
+    // LA CLÉ SE TIRE UNE FOIS PAR ENNEMI, PAS À CHAQUE COMPARAISON. Le tirage
+    // était DANS le comparateur : le nombre d'appels au générateur semé dépendait
+    // alors de l'algorithme de tri du navigateur, et l'ordre lui-même n'était pas
+    // transitif — deux machines pouvaient consommer un nombre différent de
+    // tirages et repartir avec deux flux communs décalés. Une clé par ennemi,
+    // tirée dans l'ordre stable de la liste, donne le même résultat partout.
+    const rang = (e) => (e.state === 'diving' ? 0 : e.type === 'boss' ? 1 : 2);
+    const cles = new Map();
+    for (const e of alive) cles.set(e, rang(e) + ecart(0.25));
+    alive.sort((a, b) => cles.get(a) - cles.get(b));
     return alive.slice(0, n);
   }
 
@@ -514,11 +521,11 @@ export class Enemies {
         e.type !== 'poseur'
     );
     if (candidates.length === 0) return;
-    // Les guêpes plongent plus volontiers.
-    candidates.sort((a, b) => {
-      const w = (x) => (x.type === 'wasp' ? 0 : 1) + alea();
-      return w(a) - w(b);
-    });
+    // Les guêpes plongent plus volontiers. Même précaution que dans `pickTargets` :
+    // la clé se tire une fois par candidat, jamais dans le comparateur.
+    const poids = new Map();
+    for (const x of candidates) poids.set(x, (x.type === 'wasp' ? 0 : 1) + alea());
+    candidates.sort((a, b) => poids.get(a) - poids.get(b));
     const lead = candidates[0];
     game.characters?.onDive(); // NOVA alerte (anti-spam géré côté personnage)
 
@@ -1417,7 +1424,11 @@ export class Enemies {
     for (const e of this.list) {
       if (!e.alive || e.type === 'boss') continue;
       if (e.group.position.distanceTo(pos) > MINE.souffle + e.def.radius) continue;
-      if (this.damage(e, 2, game)) game._onEnemyKilled(e, 'mine');
+      // UNE MINE NE TUE POUR PERSONNE. Elle appartient à l'ennemi qui l'a posée :
+      // sans ce -1, la récompense retombait sur le joueur local de chaque
+      // machine, donc sur deux pilotes différents — et l'énergie décide des
+      // pouvoirs, qui touchent l'arène.
+      if (this.damage(e, 2, game)) game._onEnemyKilled(e, 'mine', -1);
     }
     this._souffleEnCours = { pos, rayon: MINE.souffle, temps: 0.12 };
   }

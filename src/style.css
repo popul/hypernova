@@ -4982,3 +4982,11 @@ body.touch .btn-call-touch {
   color: var(--muted, #8ea0c0);
   opacity: 0.8;
 }
+
+/* Une carte de trajectoire qu'on ne choisit pas : à plusieurs, un seul décide.
+   Elle reste LISIBLE — on veut voir ce qui se joue — mais elle ne répond pas,
+   et ça doit se voir avant qu'un doigt s'y pose. */
+.route-attente {
+  opacity: 0.55;
+  cursor: default;
+}

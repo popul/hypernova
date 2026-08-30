@@ -169,6 +169,10 @@ export class Duo {
       // spectateur — et elle passe par la table, pas par le canal des amis :
       // deux invités d'une table publique ne se connaissent pas forcément.
       // Les empreintes croisées (`emp`) voyagent ici pour la même raison.
+      // La trajectoire choisie par l'hôte : une décision COMMUNE, relayée telle
+      // quelle. Personne ne passe l'écran de choix sans elle, donc tout le monde
+      // l'a avant d'entamer la vague suivante.
+      case 'route':
       case 'etat-vague':
       case 'emp':
       case 'pause':

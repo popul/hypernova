@@ -30,7 +30,25 @@
 const RACINE = '/api';
 // Combien d'images d'avance on prend. Quatre à soixante images par seconde
 // laissent soixante-six millisecondes d'aller-retour avant le premier hoquet.
+// LE DÉLAI D'ENTRÉE : de combien d'images ma commande est postdatée.
+//
+// C'est le budget que je donne au réseau pour livrer mes touches avant que les
+// autres n'en aient besoin. Trop court, tout le monde attend à chaque image et
+// le jeu hoquette ; trop long, mon manche répond mou. Quatre images font
+// soixante-six millisecondes : parfait sur un même wifi, insuffisant dès qu'un
+// copain joue en 4G.
+//
+// Il s'ADAPTE donc, entre ces deux bornes, à la latence réellement mesurée. Le
+// changement est un acte de simulation comme un autre : il ne s'applique jamais
+// au fil de l'eau — voir `changeDelai`.
 export const DELAI = 4;
+export const DELAI_MIN = 3;
+export const DELAI_MAX = 12;
+
+// Combien d'images d'avance on garde en plus de la latence mesurée. Le réseau
+// n'est pas régulier : viser exactement l'aller-retour moyen, c'est attendre une
+// image sur deux. Deux images de marge absorbent la gigue ordinaire.
+export const MARGE_GIGUE = 2;
 
 // LE RATTRAPAGE DU SPECTATEUR : combien d'images consommer EN PLUS ce tour-ci
 // quand sa file a grossi — onglet passé en fond, réseau qui hoquette, appareil
@@ -121,6 +139,16 @@ export class Duo {
     this.frame = 0;
     this.reste = 0;
     this.attentes = 0; // images passées à attendre l'autre, pour le diagnostic
+    // Le délai EN VIGUEUR. Il ne change qu'aux frontières de vague, et de la
+    // même façon chez tout le monde — voir `changeDelai`.
+    this.delai = DELAI;
+    // Ce qu'on a mesuré depuis la dernière frontière : le pire aller-retour vu
+    // avec un pair, en images. On garde le PIRE et pas la moyenne — c'est le
+    // retardataire qui fait attendre toute la table.
+    this.pireRetard = 0;
+    this._envoiA = new Map(); // image publiée → temps mur de l'envoi
+    // Les états d'améliorations en transit, par numéro puis par image.
+    this.bordages = new Map();
   }
 
   // --- Connexion -------------------------------------------------------------
@@ -238,6 +266,11 @@ export class Duo {
     this._envoie({ t: 'pause', oui: !!oui, nom: this._dernier?.nom || '' });
   }
 
+  // La trajectoire choisie, de l'hôte vers la table.
+  route(d) {
+    this._envoie({ t: 'route', j: this.moi, d });
+  }
+
   // La photo de frontière de vague, de l'hôte vers la table. En liaison
   // directe, le canal des amis fait le même travail avec `resync-etat`.
   etatVague(d) {
@@ -351,12 +384,14 @@ export class Duo {
         // numéro (`j`, posé dans `publie`) — à trois, « l'autre » n'existe plus.
         // Sans signature (partie à deux d'avant), elle ne peut venir que de
         // l'unique pair.
-        this.recoisCommande(m.j ?? this.pairs[0]?.numero, m.f, m.d);
+        this.recoisCommande(m.j ?? this.pairs[0]?.numero, m.f, m.d, m.b);
         return;
       case 'fin':
         return this.r.onFinAutre?.(m);
       case 'pause':
         return this.r.onPause?.(m);
+      case 'route':
+        return this.r.onRoute?.(m);
       case 'etat-vague':
         return this.r.onEtatVague?.(m);
       case 'emp':
@@ -404,7 +439,8 @@ export class Duo {
     // attendait de l'autre une commande pour l'image zéro, et les deux
     // s'arrêtaient là. Mesuré sur le banc : cent soixante-dix-neuf attentes de
     // chaque côté, image zéro, plus rien qui avance.
-    for (let f = 0; f < DELAI; f++) {
+    this._dernierPour = this.delai - 1;
+    for (let f = 0; f < this.delai; f++) {
       // Pour moi comme pour eux : ma file part de la même amorce, sans quoi mes
       // DELAI premières images n'auraient aucune commande à consommer.
       this.recoisCommande(this.moi, f, neutre);
@@ -416,7 +452,13 @@ export class Duo {
   // Ce qu'on envoie pour l'image `frame + DELAI`. `encode` transforme la commande
   // du jeu en tableau de nombres — c'est le seul endroit qui sait à quoi elle
   // ressemble, et le serveur, lui, ne le sait pas du tout.
-  publie(donnees) {
+  // `bordage` : l'état d'améliorations à faire voyager AVEC cette commande, quand
+  // il vient de changer. C'est le seul canal qui garantisse une application à la
+  // MÊME IMAGE chez tout le monde — un achat annoncé par un message à part
+  // arriverait à des images différentes selon la latence, et les vaisseaux
+  // n'auraient pas la même vitesse au même moment. Absent la plupart du temps :
+  // on ne l'attache qu'après un achat ou une escale.
+  publie(donnees, bordage = null) {
     // DEUX TRANSPORTS POUR LE MÊME PAS VERROUILLÉ.
     //
     // Une partie à deux montée depuis le hall passe par un SALON : le serveur
@@ -451,9 +493,32 @@ export class Duo {
     // millisecondes, uniquement en réseau — et c'est le prix normal du genre :
     // mieux vaut un manche qui répond un souffle plus tard que deux parties qui
     // divergent.
-    this.recoisCommande(this.moi, this.frame + DELAI, donnees);
-    if (this.direct) return this.signale(this.direct, 'c', { f: this.frame + DELAI, d: donnees });
-    this._envoie({ t: 'c', j: this.moi, f: this.frame + DELAI, d: donnees });
+    // UNE ESTAMPILLE NE RECULE JAMAIS.
+    //
+    // En baissant le délai, on se met à publier pour une image PLUS PROCHE — et
+    // donc, éventuellement, pour une image que les autres ont déjà jouée avec la
+    // valeur d'avant. Ils l'avaient déjà : l'amorce, ou ma commande précédente.
+    // Ma vraie commande arrivait après coup, dans le vide, et mon vaisseau
+    // bougeait chez moi une image avant chez eux. Mesuré au banc : divergence à
+    // l'image 3, après une descente de quatre à trois au tout premier tableau.
+    //
+    // On garde donc la plus grande des deux : l'image visée par le délai, et
+    // celle qui suit ma dernière publication. Une baisse ne se traduit alors pas
+    // par un saut en arrière mais par un rattrapage — le délai réel se resserre
+    // d'une image par image, sans jamais rien réécrire.
+    const pour = Math.max(this.frame + this.delai, (this._dernierPour ?? -1) + 1);
+    this._dernierPour = pour;
+    this.recoisCommande(this.moi, pour, donnees, bordage);
+    // On note QUAND on a envoyé pour cette image-là. Quand la commande d'un pair
+    // pour la même image arrive, l'écart donne l'aller-retour réel, en images,
+    // sans horloge partagée ni message de mesure : le trafic mesure le trafic.
+    this._envoiA.set(pour, this._maintenant());
+    if (this._envoiA.size > 300) {
+      const vieux = this._envoiA.keys().next().value;
+      this._envoiA.delete(vieux);
+    }
+    if (this.direct) return this.signale(this.direct, 'c', { f: pour, d: donnees, b: bordage });
+    this._envoie({ t: 'c', j: this.moi, f: pour, d: donnees, b: bordage });
   }
 
   // MA commande pour l'image courante — celle que j'ai publiée DELAI images
@@ -469,14 +534,110 @@ export class Duo {
   // Une commande arrive d'un pair — par le salon ou par le canal des amis. `de`
   // est son NUMÉRO de joueur : l'identité qui ne ment pas, là où deux invités
   // peuvent porter le même pseudo.
-  recoisCommande(de, f, d) {
+  // Le temps mur, isolé ici pour que les épreuves puissent le piloter.
+  _maintenant() {
+    return typeof performance !== 'undefined' ? performance.now() : 0;
+  }
+
+  recoisCommande(de, f, d, b = null) {
     if (typeof de !== 'number') return;
+    if (b) {
+      let parBord = this.bordages.get(de);
+      if (!parBord) {
+        parBord = new Map();
+        this.bordages.set(de, parBord);
+      }
+      parBord.set(f, b);
+    }
+    // LA MESURE DE LATENCE, GRATUITE. La commande d'un pair pour l'image `f` me
+    // parvient ; j'ai publié la mienne pour cette même image à un instant connu.
+    // L'écart, converti en images, est l'aller-retour vu de mon siège. On garde
+    // le pire depuis la dernière frontière : c'est le retardataire qui décide du
+    // confort de toute la table.
+    if (de !== this.moi) {
+      const envoi = this._envoiA.get(f);
+      if (envoi) {
+        const images = Math.ceil(((this._maintenant() - envoi) / 1000 / PAS) * 0.5);
+        if (images > this.pireRetard) this.pireRetard = Math.min(images, DELAI_MAX * 2);
+      }
+    }
     let parImage = this.recues.get(de);
     if (!parImage) {
       parImage = new Map();
       this.recues.set(de, parImage);
     }
     parImage.set(f, d);
+  }
+
+  // LE DÉLAI NE CHANGE QU'À UNE FRONTIÈRE, ET DE LA MÊME FAÇON PARTOUT.
+  //
+  // C'est tout le sujet : changer le postdatage au fil de l'eau créerait des
+  // images sans commande ou des commandes en double, donc une divergence. On le
+  // change donc à un instant que toutes les machines traversent en même temps —
+  // le départ d'une vague — et à partir d'une valeur qu'elles partagent : le
+  // pire retard vu par CHACUN voyage avec les commandes, et c'est le maximum de
+  // la table qui l'emporte.
+  //
+  // Le nouveau délai vaut le retard mesuré plus une marge de gigue, borné. En
+  // montant, il faut aussi remplir le trou : les images entre l'ancien et le
+  // nouveau délai n'ont encore été publiées par personne, on les amorce.
+  // `cible` est le délai VOULU, borné ici — pas une mesure. La marge de gigue
+  // est ajoutée par l'appelant : mélanger les deux dans la même fonction faisait
+  // qu'une descente demandée à `delai - 2` revenait exactement à `delai`, et le
+  // budget ne redescendait jamais.
+  changeDelai(cible, neutre) {
+    const vise = Math.max(DELAI_MIN, Math.min(DELAI_MAX, cible));
+    if (vise === this.delai) return this.delai;
+    const avant = this.delai;
+    this.delai = vise;
+    if (vise > avant) {
+      for (let f = this.frame + avant; f < this.frame + vise; f++) {
+        if (f <= (this._dernierPour ?? -1)) continue; // déjà publiée, on ne réécrit pas
+        this._dernierPour = f;
+        this.recoisCommande(this.moi, f, neutre);
+        if (this.direct) this.signale(this.direct, 'c', { f, d: neutre });
+        else this._envoie({ t: 'c', j: this.moi, f, d: neutre });
+      }
+    }
+    return this.delai;
+  }
+
+  // LA POLITIQUE : quand changer, et de combien.
+  //
+  // Le délai est une propriété DE CHAQUE JOUEUR, pas de la table — c'est ce qui
+  // rend l'adaptation possible sans se concerter. Ma commande porte l'image pour
+  // laquelle elle vaut ; que je la poste avec quatre ou dix images d'avance, tout
+  // le monde l'applique à l'image inscrite dessus. Deux pilotes peuvent donc
+  // vivre avec deux budgets différents sans que rien ne diverge, et celui qui a
+  // un mauvais réseau paie sa latence tout seul au lieu de faire hoqueter les
+  // autres.
+  //
+  // On MONTE vite : dès que la mesure dépasse le budget, parce que chaque image
+  // de retard est une image où toute la table attend. On DESCEND lentement, d'un
+  // cran et seulement aux frontières de vague, parce qu'un réseau qui va mieux
+  // pendant deux secondes ne prouve rien, et qu'un délai qui yoyote se sent plus
+  // qu'un délai un peu trop grand.
+  ajusteDelai(neutre, frontiere = false) {
+    if (this.etat !== 'partie') return this.delai;
+    const vise = this.pireRetard + MARGE_GIGUE;
+    if (vise > this.delai) {
+      const t = this._maintenant();
+      // Pas plus d'une montée par seconde : sinon un hoquet isolé grimperait
+      // marche après marche jusqu'au plafond.
+      if (t - (this._derniereMontee || 0) < 1000) return this.delai;
+      this._derniereMontee = t;
+      return this.changeDelai(vise, neutre);
+    }
+    if (frontiere) {
+      // La mesure s'oublie à chaque vague : sans cet oubli, le pire hoquet de la
+      // partie tiendrait le délai en l'air jusqu'à la fin.
+      const mesure = this.pireRetard;
+      this.pireRetard = 0;
+      // Un cran à la fois, et seulement si la marge reste couverte APRÈS la
+      // descente : on préfère un budget un peu large à un yoyo qui se sent.
+      if (mesure + MARGE_GIGUE <= this.delai - 1) return this.changeDelai(this.delai - 1, neutre);
+    }
+    return this.delai;
   }
 
   // Un pair a quitté la partie. On ne jette RIEN : ses dernières commandes,
@@ -543,6 +704,22 @@ export class Duo {
       parImage?.delete(this.frame);
       return d || null;
     });
+  }
+
+  // Les états d'améliorations à appliquer À CETTE IMAGE, par numéro de joueur —
+  // le mien compris, pour que mon propre achat prenne effet à la même image chez
+  // moi que chez les autres. Rend `null` quand il n'y a rien, ce qui est le cas
+  // presque toujours.
+  bordagesDeLImage() {
+    let out = null;
+    for (const [numero, parImage] of this.bordages) {
+      const b = parImage.get(this.frame);
+      if (!b) continue;
+      parImage.delete(this.frame);
+      (out ||= []).push([numero, b]);
+    }
+    // Dans l'ordre des numéros, comme tout le reste.
+    return out && out.sort((a, z) => a[0] - z[0]);
   }
 
   // Combien de pas de simulation exécuter pour le temps réel écoulé. Le reliquat

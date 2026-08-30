@@ -38,17 +38,32 @@ class Pool {
     }
   }
 
-  spawn(pos, vel) {
+  // `proprio` : le NUMÉRO du poste qui a tiré. Sans lui, une balle n'appartient
+  // à personne — et l'on ne peut ni la faire frapper avec la fureur de son
+  // tireur, ni rendre la récompense du kill à celui qui l'a mérité. Chaque
+  // machine calculait donc les dégâts avec SA propre furie, quel que soit
+  // l'auteur du tir : les ennemis n'avaient pas les mêmes points de vie d'un
+  // écran à l'autre. En solo, tout le monde est le numéro zéro.
+  spawn(pos, vel, proprio = 0) {
     const entry = this.entries.find((e) => !e.active);
     if (!entry) return null;
     entry.active = true;
+    entry.proprio = proprio;
     entry.age = 0;
     entry.mesh.position.copy(pos);
     entry.vel.copy(vel);
     entry.mesh.visible = true;
     // Suivi du frôlement (balles ennemies) et de la perforation (balles joueur).
-    entry.minDistSq = Infinity;
-    entry.grazed = false;
+    // LE FRÔLEMENT SE MESURE POUR CHAQUE PILOTE. Une balle ne passe pas près de
+    // « le joueur » : elle passe près de CHACUN, à des distances différentes, et
+    // chacun mérite sa récompense. Un seul couple minimum/déjà-compté pour toute
+    // la table faisait qu'un frôlement en effaçait un autre — et comme le
+    // frôlement remplit la jauge, la jauge divergeait.
+    // Réutilisé en place : une allocation par balle, à plusieurs centaines de
+    // balles par vague, se paie en hoquets de ramasse-miettes.
+    if (entry.minDistSq) entry.minDistSq.fill(Infinity);
+    else entry.minDistSq = [Infinity, Infinity, Infinity];
+    entry.grazePar = 0; // un bit par numéro de poste
     entry.pierce = 0;
     if (entry.hitIds) entry.hitIds.length = 0;
     else entry.hitIds = [];
@@ -104,8 +119,12 @@ export class PlayerBullets extends Pool {
     for (const e of this.entries) e.mesh.scale.setScalar(echelle);
   }
 
-  spawn(pos, vel) {
-    const e = super.spawn(pos, vel);
+  // ON FAIT SUIVRE LE PROPRIÉTAIRE. Cette redéfinition ne voulait qu'ajuster
+  // l'échelle du mesh, et laissait tomber le troisième argument au passage :
+  // toutes les balles du jeu repartaient au numéro zéro, donc toutes frappaient
+  // avec la furie de l'hôte. Un oubli d'un seul mot, invisible à la lecture.
+  spawn(pos, vel, proprio = 0) {
+    const e = super.spawn(pos, vel, proprio);
     if (e) e.mesh.scale.setScalar(this._echelle);
     return e;
   }
@@ -208,8 +227,9 @@ export class Missiles extends Pool {
     this._tmp = new THREE.Vector3();
   }
 
-  launch(pos, target) {
-    const entry = this.spawn(pos, this._tmp.set(ecart(3), 0, -MISSILE_SPEED * 0.5));
+  // Même règle que pour les balles : un missile sait qui l'a lancé.
+  launch(pos, target, proprio = 0) {
+    const entry = this.spawn(pos, this._tmp.set(ecart(3), 0, -MISSILE_SPEED * 0.5), proprio);
     if (entry) entry.target = target;
     return entry;
   }
