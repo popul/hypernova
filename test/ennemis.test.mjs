@@ -23,7 +23,7 @@ function banc(vague = 1) {
   enemies.waveNumber = vague;
   const game = {
     player: { position: new THREE.Vector3(0, 0, 8), alive: true },
-    joueur2: null,
+    joueursDistants: [],
     enemyBullets: { spawn: () => {} },
     audio: muet(['enemyShoot', 'explosionSmall', 'hit', 'bossAlarm', 'setMode']),
     fx: muet(['burst', 'explosionSmall', 'explosionBig', 'shockwave', 'addShake']),
@@ -267,4 +267,28 @@ test('les mines ne comptent pas pour la fin de vague', () => {
   enemies._poseMine(e, game);
   e.alive = false;
   assert.equal(enemies.aliveCount(), 0, 'une mine est comptée comme un ennemi vivant');
+});
+
+// --- L'ÉQUIPAGE CHANGE EN PLEINE VAGUE ---------------------------------------
+//
+// Quand un pilote tombe pour de bon, la vague en cours se recale sur les
+// survivants. Ce qui se vérifie ici : la cadence s'adoucit VRAIMENT (pas juste
+// un champ réécrit), et les prochains entrants prendront la coque adoucie —
+// c'est `mods.hp` au moment de l'entrée qui décide de leurs points de vie.
+
+test("reequilibre : la vague en cours s'adoucit quand un pilote tombe", () => {
+  const { enemies } = banc(8);
+  const aTrois = { hp: 1.7, fire: 1.45, dive: 1.45, credits: 1 };
+  const aDeux = { hp: 1.35, fire: 1.25, dive: 1.25, credits: 1 };
+  enemies.mods = aTrois;
+  enemies.setHeat(0.5);
+  const avant = enemies.diff;
+  enemies.reequilibre(aDeux, 0.5);
+  assert.ok(
+    enemies.diff.formationFireInterval > avant.formationFireInterval,
+    'à deux survivants, la formation doit tirer moins souvent'
+  );
+  assert.ok(enemies.diff.diveInterval > avant.diveInterval, 'et plonger moins souvent');
+  assert.equal(enemies.mods.hp, 1.35, 'les prochains entrants prennent la coque adoucie');
+  assert.equal(enemies.heat, 0.5, 'la chaleur du directeur est conservée telle quelle');
 });

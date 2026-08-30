@@ -32,6 +32,21 @@ function makeEntryCurve(variant, end) {
         new THREE.Vector3(-12, 0, 10),
         e
       );
+    case 'back':
+      // PAR-DERRIÈRE. L'escadron surgit DANS LE DOS du vaisseau — sous le bord
+      // bas de l'écran — remonte en traversant la zone de pilotage, et va se
+      // poser en formation. C'est l'entrée la plus agressive du jeu, et elle
+      // n'est honnête qu'à deux conditions : elle est ANNONCÉE deux secondes
+      // avant par une flèche au sol (voir annoncesPourVague), et elle ne se
+      // débloque qu'avec le niveau (voir VARIANTS_POUR). Sans l'annonce, se
+      // faire traverser par ce qu'on ne peut pas voir n'est pas une difficulté,
+      // c'est une injustice.
+      return new THREE.CubicBezierCurve3(
+        new THREE.Vector3(e.x * 0.4, 0, 30),
+        new THREE.Vector3(e.x * 0.8 + 10, 0, 14),
+        new THREE.Vector3(e.x * 0.5 - 8, 0, -4),
+        e
+      );
     default:
       // Plongée en S depuis le fond.
       return new THREE.CubicBezierCurve3(
@@ -44,6 +59,67 @@ function makeEntryCurve(variant, end) {
 }
 
 const VARIANTS = ['left', 'right', 'top'];
+
+// L'entrée par-derrière ne se débloque qu'avec le niveau : les premières vagues
+// apprennent au joueur que le danger vient d'en face, et cette leçon doit être
+// bien assise avant qu'on la contredise. À partir de là, elle entre dans le
+// tirage comme les autres — une rangée sur quatre environ — et c'est le MÊME
+// tirage semé que le reste de la vague : deux machines, un rejeu ou un duo
+// tirent exactement les mêmes entrées.
+//
+// LE SEUIL EST EN UNITÉS DE DIFFICULTÉ, pas en numéro de vague : makeWave reçoit
+// la difficulté APLATIE par la pente (voir paramsVague). Difficulté 9, c'est la
+// vague 12 environ en arcade, la vague 20 en survie — et c'est voulu : la survie
+// monte plus doucement, sa leçon met plus longtemps à s'asseoir.
+export const ARRIERE_DEPUIS = 9;
+
+export function variantsPour(diff) {
+  return diff >= ARRIERE_DEPUIS ? [...VARIANTS, 'back'] : VARIANTS;
+}
+
+// ------------------------------------------------------------- LES ANNONCES
+//
+// « Une flèche préventive, deux secondes avant, qui montre exactement où ils
+// vont débouler » — la demande de Paul, au mot près. Une entrée par le côté ou
+// par l'arrière surgit d'un bord que l'écran ne montre pas ; sans annonce, la
+// seule défense est d'avoir déjà mangé le coup une fois. La flèche transforme
+// le réflexe en LECTURE : on voit, on se décale.
+//
+// Une annonce par ESCADRON, pas par ennemi : une rangée entre d'un bloc par la
+// même trajectoire, et huit flèches au même endroit ne diraient rien de plus
+// qu'une seule. Les entrées par le fond n'annoncent rien — elles se voient
+// arriver de loin, c'est leur nature.
+export const ANNONCE_AVANCE = 2; // secondes de préavis
+export const ANNONCE_REMANENCE = 0.4; // la flèche survit un peu à l'entrée
+
+export function annoncesPourVague(spawns, { xMax = 14.5, zMax = 14 } = {}) {
+  const parRangee = new Map();
+  for (const s of spawns) {
+    if (s.type === 'boss' || !s.curve) continue;
+    const depart = s.curve.getPoint(0);
+    const cote = Math.abs(depart.x) > xMax;
+    const dos = depart.z > zMax;
+    if (!cote && !dos) continue; // par le fond : ça se voit venir tout seul
+    const cle = `${s.row}|${dos ? 'dos' : depart.x > 0 ? 'droite' : 'gauche'}`;
+    const e = parRangee.get(cle);
+    if (!e || s.delay < e.delay) {
+      // La flèche se pose SUR LE BORD FRANCHI, à hauteur du point d'entrée : au
+      // ras du bord gauche ou droit pour un débordement de côté, au ras du bas
+      // pour un surgissement dans le dos. C'est « exactement où ils déboulent »,
+      // ramené à ce que l'écran peut montrer.
+      const dir = s.curve.getTangent(0.02);
+      parRangee.set(cle, {
+        x: dos
+          ? Math.max(-xMax + 1, Math.min(xMax - 1, depart.x))
+          : (depart.x > 0 ? 1 : -1) * (xMax - 0.9),
+        z: dos ? zMax - 0.9 : Math.max(-2, Math.min(zMax - 1, depart.z)),
+        angle: Math.atan2(dir.x, dir.z),
+        delay: s.delay,
+      });
+    }
+  }
+  return [...parRangee.values()];
+}
 
 // Le générateur vit dans core/rng.js — le même que celui de la simulation, pour
 // qu'il n'y ait qu'une seule définition du hasard dans le projet. Une même graine
@@ -130,7 +206,7 @@ export function makeWave(n, opts = {}) {
   }
 
   // Chorégraphie tirée au sort : plus jamais gauche → droite → fond dans cet ordre.
-  const variants = shuffled(VARIANTS, rng);
+  const variants = shuffled(variantsPour(n), rng);
   // À partir de la vague 3, la vague déferle en DEUX ASSAUTS : les trois premières
   // rangées arrivent ensemble (par trois trajectoires différentes), puis le reste.
   // Le compte-gouttes d'avant livrait moins d'ennemis que le joueur n'en tuait :

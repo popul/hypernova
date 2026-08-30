@@ -229,6 +229,46 @@ body {
   filter: drop-shadow(0 0 6px var(--cyan-dim));
 }
 
+/* ---- Les autres pilotes du jeu en réseau ---------------------------------
+   Une LISTE au-dessus de mes vies : une ligne par bord distant — nom et vies —
+   donc une à deux, deux à trois. Il faut lire d'un coup d'œil, en plein combat,
+   s'il reste des vies au copain qu'on ne couvre pas. */
+.hud-bords {
+  position: absolute;
+  left: max(28px, env(safe-area-inset-left));
+  bottom: calc(max(22px, env(safe-area-inset-bottom)) + 34px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.bord-ligne {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bord-nom {
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.bord-vies {
+  display: flex;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+/* Les vies des autres, plus petites que les miennes : ce sont des repères, pas
+   mon tableau de bord. */
+.bord-vies .life {
+  width: 12px;
+  height: 13px;
+  filter: drop-shadow(0 0 4px var(--cyan-dim));
+}
+
 /* Jauge d'énergie (frôlements) : bombe à 50 %, Overdrive à 100 % */
 
 /* À DROITE, et pas à gauche : la fenêtre de comm occupe tout le coin bas-gauche
@@ -4383,6 +4423,52 @@ body.touch .btn-call-touch {
   color: var(--gold);
   text-align: center;
   min-height: 1.4em;
+}
+
+/* LES TROIS PLACES DE LA TABLE. Toujours trois cases, remplies ou non : les
+   sièges vides disent sans un mot qu'on peut être trois — et qu'on n'attend
+   personne en particulier pour décoller. */
+.salon-sieges {
+  display: flex;
+  gap: 10px;
+  width: min(520px, 100%);
+  justify-content: center;
+}
+
+.salon-sieges:empty {
+  display: none;
+}
+
+.siege {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border: 1px solid rgba(207, 230, 245, 0.25);
+  border-radius: 10px;
+  background: rgba(8, 12, 30, 0.55);
+}
+
+.siege.moi {
+  border-color: var(--cyan);
+}
+
+.siege.libre {
+  border-style: dashed;
+  opacity: 0.55;
+}
+
+.siege-nom {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.siege-coque {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 
 .salon-liste {

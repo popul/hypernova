@@ -21,7 +21,15 @@ import {
   TRANSFO,
   bossParId,
 } from './constants.js';
-import { slotBasePosition, difficulty, pickDiveStyle, pickWeighted } from './waves.js';
+import {
+  slotBasePosition,
+  difficulty,
+  pickDiveStyle,
+  pickWeighted,
+  annoncesPourVague,
+  ANNONCE_AVANCE,
+  ANNONCE_REMANENCE,
+} from './waves.js';
 import { alea, entre, ecart } from '../core/rng.js';
 
 // États depuis lesquels un ennemi peut tirer ou plonger. Se limiter à 'formation'
@@ -134,15 +142,26 @@ class Enemy {
 // vitesse pour anticiper. Et l'on ignore les morts — tirer sur une épave laisse
 // l'autre tranquille, ce qui est exactement l'inverse de ce qu'on veut.
 //
-// Aucune allocation : la fonction rend l'un des deux objets existants.
+// Aucune allocation : la fonction rend l'un des objets existants. À plusieurs,
+// on vise le vaisseau VIVANT le plus avancé — `position.z` décroît vers le
+// fond, donc le plus grand z est le plus proche de l'ennemi.
+//
+// LE PARCOURS SUIT L'ORDRE DES NUMÉROS DE JOUEUR, jamais « moi puis les
+// autres » : à égalité parfaite de z, toutes les machines départagent alors de
+// la même façon. Un parcours qui commencerait par le joueur LOCAL ferait viser
+// deux cibles différentes sur deux machines — et les simulations divergeraient
+// en silence.
 function cible(game) {
-  const a = game.player;
-  const b = game.joueur2;
-  if (!b || !b.alive) return a;
-  if (!a.alive) return b;
-  // `position.z` décroît vers le fond : le plus GRAND z est le plus avancé vers
-  // l'ennemi, donc le plus proche de lui.
-  return b.position.z > a.position.z ? b : a;
+  const postes = game._postesOrdonnes?.();
+  const vaisseaux = postes ? null : [game.player, ...(game.joueursDistants || [])];
+  const n = (postes || vaisseaux).length;
+  let mieux = postes ? postes[0].vaisseau : vaisseaux[0];
+  for (let i = 0; i < n; i++) {
+    const v = postes ? postes[i].vaisseau : vaisseaux[i];
+    if (!v.alive) continue;
+    if (!mieux.alive || v.position.z > mieux.position.z) mieux = v;
+  }
+  return mieux;
 }
 
 export class Enemies {
@@ -175,6 +194,14 @@ export class Enemies {
     this.heat = heat;
     this.diff = difficulty(waveNumber, mods, heat);
     this.pending = [...waveDef.spawns];
+    // Les annonces d'entrée : une flèche au sol, deux secondes avant qu'un
+    // escadron ne déboule par un côté ou par l'arrière. Purement visuel et
+    // entièrement déduit de la vague — aucun tirage, aucune divergence possible
+    // entre deux machines ou avec un rejeu.
+    this.annonces = annoncesPourVague(waveDef.spawns, {
+      xMax: ARENA.playerXMax,
+      zMax: ARENA.playerZMax,
+    });
     this.waveClock = 0;
     // Le balancement de la formation repartait du temps écoulé depuis le CHARGEMENT
     // de la page : deux vagues identiques ne se balançaient donc jamais pareil, et
@@ -192,6 +219,17 @@ export class Enemies {
     this.diff = difficulty(this.waveNumber, this.mods, heat);
   }
 
+  // L'équipage vient de changer en pleine vague — un pilote est tombé pour de
+  // bon. La vague EN COURS se recale sur les vivants : cadence de tir et
+  // plongées suivent les nouveaux multiplicateurs, et les ennemis PAS ENCORE
+  // entrés prendront la coque adoucie. Ceux déjà en vol gardent la leur : on
+  // n'affaiblit pas un ennemi à moitié détruit, on cesse d'en gonfler de
+  // nouveaux.
+  reequilibre(mods, heat) {
+    this.mods = mods;
+    this.setHeat(heat);
+  }
+
   clear() {
     for (const e of this.list) e.dispose();
     this.list = [];
@@ -203,6 +241,8 @@ export class Enemies {
     for (const m of this.mines || []) this.scene.remove(m.group);
     this.mines = [];
     this._souffleEnCours = null;
+    this.annonces = [];
+    for (const f of this._fleches || []) f.g.visible = false;
   }
 
   aliveCount() {
@@ -312,6 +352,7 @@ export class Enemies {
     }
 
     this._updateMines(dt, game);
+    this._updateAnnonces();
     // Le souffle ne dure qu'un souffle : sans ce décompte, une mine ayant sauté
     // resterait mortelle à cet endroit pour le restant de la vague.
     if (this._souffleEnCours) {
@@ -1098,6 +1139,64 @@ export class Enemies {
       this._spawnShot(from, dir, 'straight', game);
     }
     game.audio.enemyShoot();
+  }
+
+  // ---- LES FLÈCHES D'ANNONCE -------------------------------------------------
+  //
+  // Même langage que celle du colosse : une flèche posée au sol, qui bat. Elle
+  // dit « ça va débouler ICI » deux secondes avant l'entrée — le temps de voir,
+  // de décider et de se décaler. Un pool de six : jamais plus de rangées
+  // annoncées en même temps dans une vague réelle, et un pool évite d'allouer
+  // en plein combat.
+  _flecheAnnonce() {
+    const g = new THREE.Group();
+    const corps = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 1.6),
+      new THREE.MeshBasicMaterial({
+        color: 0xffb347,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    corps.rotation.x = -Math.PI / 2;
+    corps.position.z = -0.5;
+    g.add(corps);
+    const pointe = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.9, 4), corps.material);
+    // LA POINTE MONTRE LE SENS DE L'ENTRÉE. Le cône de Three pointe vers +Y :
+    // couché vers +Z par une rotation de +π/2 — le signe qui avait inversé la
+    // flèche du colosse, on ne le rejoue pas.
+    pointe.rotation.x = Math.PI / 2;
+    pointe.position.z = 0.55;
+    g.add(pointe);
+    g.visible = false;
+    this.scene.add(g);
+    return { g, mat: corps.material };
+  }
+
+  _updateAnnonces() {
+    if (!this._fleches) {
+      this._fleches = Array.from({ length: 6 }, () => this._flecheAnnonce());
+    }
+    let i = 0;
+    for (const a of this.annonces || []) {
+      if (i >= this._fleches.length) break;
+      const debut = a.delay - ANNONCE_AVANCE;
+      const fin = a.delay + ANNONCE_REMANENCE;
+      if (this.waveClock < debut || this.waveClock > fin) continue;
+      const f = this._fleches[i++];
+      f.g.visible = true;
+      f.g.position.set(a.x, 0.05, a.z);
+      f.g.rotation.y = a.angle;
+      // Le battement s'accélère à l'approche : la flèche COMPTE À REBOURS sans
+      // un chiffre. Indexé sur l'horloge de vague — identique partout.
+      const reste = Math.max(0, a.delay - this.waveClock);
+      const bat = Math.sin(this.waveClock * (8 + (ANNONCE_AVANCE - reste) * 9));
+      f.g.scale.setScalar(1 + bat * 0.18);
+      f.mat.opacity = 0.5 + 0.4 * Math.max(0, bat);
+    }
+    for (; i < (this._fleches?.length || 0); i++) this._fleches[i].g.visible = false;
   }
 
   // ---- LE LANCIER : viser, charger, brûler ----------------------------------

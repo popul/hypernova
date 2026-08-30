@@ -53,7 +53,7 @@ import { ArriveeEscale } from './escale-arrivee.js';
 import { Aura } from './aura.js';
 import { PiloteAuto } from './pilote-auto.js';
 import { Colosse } from './asteroide.js';
-import { Duo, PAS as PAS_DUO, pasDeRattrapage } from './duo.js';
+import { Duo, PAS as PAS_DUO, pasDeRattrapage, estPhotographe } from './duo.js';
 import { Installation } from './installation.js';
 import { Voix } from './voix.js';
 import { DemoArme } from './demo-arme.js';
@@ -111,7 +111,7 @@ import { Director, romanTier } from './director.js';
 import {
   SURVIE,
   DEFAULT_MODS,
-  DUO,
+  modsEquipage,
   BOSS_PHASES,
   MODULE_RARETE,
   COQUES,
@@ -269,7 +269,19 @@ export class Game {
     this.state = 'title';
     this.mode = 'arcade';
     // 'solo' | 'duo' | 'entrainement' — orthogonal au mode, qui reste les règles.
+    // La variante « duo » couvre le jeu en réseau à DEUX ET À TROIS : mêmes
+    // salons, mêmes tableaux (arcade2/survie2), même pas verrouillé.
     this.variante = 'solo';
+    // LES JOUEURS DISTANTS, EN LISTE (0, 1 ou 2 éléments). Le joueur local reste
+    // `this` — le jeu lui-même est son poste de pilotage, ce contrat ne bouge
+    // pas. Les deux tableaux sont alignés indice à indice et ORDONNÉS PAR NUMÉRO
+    // de joueur croissant : `joueursDistants[i]` est le vaisseau du poste
+    // `bordsDistants[i]`.
+    this.joueursDistants = [];
+    this.bordsDistants = [];
+    // Combien de pilotes au décollage — pour l'affichage (« à deux », « à
+    // trois ») : un départ en cours de partie ne change pas ce qu'elle était.
+    this.nJoueursPartie = 1;
     this.paused = false;
     // Les records viennent du SERVEUR, avec le pilote — ils ne sont plus ceux de
     // l'appareil. Deux enfants qui se passent un téléphone n'ont plus le même
@@ -1980,6 +1992,14 @@ export class Game {
       return;
     }
     this.duo?.annonceJeu(false);
+    // ON DIT À LA TABLE QU'ON A FINI. Les autres continuent — la règle du
+    // dernier en vol — mais ils doivent le SAVOIR : c'est ce qui passe le rôle
+    // de photographe au numéro suivant. Sans cette annonce, la référence des
+    // photos de frontière s'éteignait avec la partie de l'hôte, et les
+    // survivants finissaient chacun dans leur monde.
+    if (this.variante === 'duo' && !this.duo.direct && this.duo.etat === 'partie') {
+      this.duo.fin(this.score, this.wave);
+    }
     // Ceux qui regardaient n'ont plus rien à voir : on les libère.
     for (const qui of this._regardeurs || []) this.duo.signale(qui, 'regard-fin', null);
     this._regardeurs?.clear();
@@ -2183,7 +2203,13 @@ export class Game {
   _sousTitreMode(mode, variante = this.variante) {
     const base = mode === 'survie' ? `Survie · ${SURVIE.vagues} vagues` : 'Arcade';
     if (variante === 'entrainement') return `${base} · Entraînement`;
-    if (variante === 'duo') return `${base} · À deux`;
+    // Avant le décollage on ne sait pas encore combien on sera : « en réseau »
+    // couvre les deux tablées. En vol, on dit le compte réel.
+    if (variante === 'duo') {
+      if (this.nJoueursPartie >= 3) return `${base} · À trois`;
+      if (this.nJoueursPartie === 2) return `${base} · À deux`;
+      return `${base} · En réseau`;
+    }
     return base;
   }
 
@@ -2381,9 +2407,15 @@ export class Game {
           if (b) b.hidden = false;
         }
         return this.hud.announce('Refusé', `${de} préfère finir sa partie seul`, 2400);
-      // Les commandes du pas verrouillé, quand on joue à deux SANS salon.
+      // Les commandes du pas verrouillé, quand on joue à deux SANS salon. Sur ce
+      // canal l'émetteur est un NOM (celui de l'ami) : on le traduit vers son
+      // numéro de joueur, l'identité que le pas verrouillé comprend.
       case 'c':
-        if (this.duo.direct === de) this.duo.recues.set(d.f, d.d);
+        if (this.duo.direct === de) this.duo.recoisCommande(this.duo.pairs[0]?.numero, d.f, d.d);
+        return;
+      // La pause du copain, en liaison directe : ici l'émetteur est son nom.
+      case 'pause':
+        if (this.duo.direct === de) this._pauseDistante(d.oui, de);
         return;
       // La vérification croisée, et sa réparation.
       case 'emp':
@@ -2394,7 +2426,9 @@ export class Game {
         this._doitResync = de;
         return;
       case 'resync-etat':
-        if (this.variante !== 'duo' || this.duo.direct !== de) return;
+        // L'état ne se restaure que s'il vient d'un pair de CETTE partie — en
+        // salon comme en direct, c'est le bord distant qui fait foi.
+        if (this.variante !== 'duo' || !this._bordDistantParNom(de)) return;
         this._restaure(d);
         this._resyncDemande = false;
         note('resync', { ou: `vague ${this.wave}`, avec: de });
@@ -2548,25 +2582,18 @@ export class Game {
   // le retard du réseau, donc après l'image qu'elle décrit.
   static EMPREINTES_GARDEES = 240;
 
-  // Ce qu'on compare : les quelques nombres dont un écart trahit tout le reste.
-  // Pas les positions de chaque ennemi — ce serait plus sûr et cent fois plus
-  // cher, alors qu'un score qui diverge suffit à dire que le reste a divergé.
+  // Ce qu'on compare : l'état PARTAGÉ, et lui seul — la vague et le compte
+  // d'ennemis. Jamais les positions ni les scores : chacun compte le sien, et
+  // les vaisseaux sont des points de vue — mon premier bord est le second (ou le
+  // troisième) de l'autre. Comparer un point de vue, c'est fabriquer de fausses
+  // divergences. Pas les positions de chaque ennemi non plus — ce serait plus
+  // sûr et cent fois plus cher, alors qu'un compte qui diverge suffit à dire que
+  // le reste a divergé.
   _empreinteDuo() {
-    const p = this.player.position;
-    const q = this.joueur2?.position;
-    return [
-      this.wave,
-      this.score | 0,
-      this.lives | 0,
-      this.enemies.list.length,
-      Math.round(p.x * 100),
-      Math.round(p.z * 100),
-      Math.round((q?.x ?? 0) * 100),
-      Math.round((q?.z ?? 0) * 100),
-    ];
+    return [this.wave, this.enemies.list.length];
   }
 
-  // Appelée à chaque image du pas verrouillé, chez les deux joueurs.
+  // Appelée à chaque image du pas verrouillé, chez tous les joueurs.
   _croiseEmpreintes(frame) {
     if (frame % Game.EMPREINTE_TOUS_LES !== 0) return;
     if (!this._empreintes) this._empreintes = new Map();
@@ -2578,31 +2605,37 @@ export class Game {
       const vieux = frame - Game.EMPREINTE_TOUS_LES * Game.EMPREINTES_GARDEES;
       for (const f of this._empreintes.keys()) if (f < vieux) this._empreintes.delete(f);
     }
-    const pair = this.duo.direct || this.bord2?.nom;
-    if (pair) this.duo.signale(pair, 'emp', { f: frame, e: mienne });
+    // À chacun des pairs : à trois, une divergence peut naître entre n'importe
+    // quelle paire de machines. En salon, l'empreinte part par la TABLE — le
+    // canal des amis exige l'amitié, et deux invités d'une table publique ne se
+    // connaissent pas forcément. En liaison directe, les deux sont amis par
+    // construction.
+    if (this.duo.direct) {
+      for (const b of this.bordsDistants) this.duo.signale(b.nom, 'emp', { f: frame, e: mienne });
+    } else {
+      this.duo.empreinte({ f: frame, e: mienne });
+    }
   }
 
   // L'empreinte de l'autre vient d'arriver. Elle décrit une image qu'on a déjà
-  // jouée : on la retrouve et on compare.
+  // jouée : on la retrouve et on compare. Elle passe par le canal des amis :
+  // seule celle d'un pair de CETTE partie compte — une empreinte attardée d'une
+  // partie précédente déclencherait sinon une resynchronisation avec quelqu'un
+  // qui n'est plus là.
   _recoisEmpreinte(de, d) {
     if (!d || !this._empreintes) return;
+    if (this._numeroDe(de) === -1) return;
     const mienne = this._empreintes.get(d.f);
     if (!mienne) return; // trop vieille, ou pas encore atteinte : on ne conclut rien
     this._empreintes.delete(d.f);
     const sienne = d.e;
     if (!Array.isArray(sienne) || sienne.length !== mienne.length) return;
 
-    const NOMS = ['vague', 'score', 'vies', 'ennemis', 'x', 'z', 'x2', 'z2'];
+    const NOMS = ['vague', 'ennemis'];
     const ecarts = {};
     for (let i = 0; i < mienne.length; i++) {
       if (mienne[i] !== sienne[i]) ecarts[NOMS[i]] = { lui: sienne[i], moi: mienne[i] };
     }
-    // À deux, les positions sont SYMÉTRIQUES : mon vaisseau est son second, et
-    // inversement. Une différence sur x/x2 n'est donc pas une divergence, c'est
-    // le point de vue. On ne compare que ce qui doit être identique des deux
-    // côtés — et le score, qui est celui de chacun, en fait partie pour la même
-    // raison : chacun compte le sien.
-    for (const cle of ['x', 'z', 'x2', 'z2', 'score', 'vies']) delete ecarts[cle];
     const cles = Object.keys(ecarts);
     if (!cles.length) return;
 
@@ -2615,13 +2648,71 @@ export class Game {
       ecarts,
     });
     // ET ON SE REPARLE AU PROCHAIN TABLEAU. Détecter sans réparer ne servirait
-    // qu'à écrire de belles lignes de journal : celui qui a rejoint — le second —
-    // demande l'état de l'autre, exactement comme un spectateur.
-    if (this.duoMoi === 1 && !this._resyncDemande) {
+    // qu'à écrire de belles lignes de journal. Des deux machines qui divergent,
+    // c'est celle au PLUS GRAND numéro qui demande l'état de l'autre — règle
+    // arbitraire mais identique partout, donc un seul demandeur par paire : si
+    // chacun demandait, les deux se restaureraient l'un l'autre en boucle.
+    // En SALON, on ne demande rien : la photo de frontière de l'hôte recolle
+    // toute la table au prochain tableau, détection ou pas. La demande explicite
+    // ne sert plus qu'à la liaison directe, où il n'y a pas de table.
+    if (this.duo.direct && this.duoMoi > this._numeroDe(de) && !this._resyncDemande) {
       this._resyncDemande = true;
       this.duo.signale(de, 'resync', null);
       this.hud.announce('Resynchronisation', 'au prochain tableau', 2000);
     }
+  }
+
+  // Un pilote de la table a terminé SA partie — tous morts chez lui. La règle
+  // du dernier en vol fait continuer les autres ; lui n'enverra plus de photos,
+  // et c'est le plus petit numéro encore en course qui reprend l'appareil.
+  _finDunAutre(m) {
+    const bord = this.bordsDistants.find((b) => b.numero === m.j);
+    if (!bord || bord.fini) return;
+    bord.fini = true;
+    if (this.state === 'playing') {
+      this.hud.announce(`${bord.nom} est tombé`, `${m.score ?? 0} points`, 2400);
+    }
+  }
+
+  // QUI PHOTOGRAPHIE : le plus petit numéro encore en course — ni parti, ni
+  // arrivé au bout de sa partie. Chacun le déduit des mêmes messages de table
+  // (`parti`, `fin`), donc tout le monde désigne le même sans se concerter. Les
+  // photos d'un numéro plus grand que le sien sont ignorées à la réception : si
+  // deux se croient photographes le temps d'un message, la référence la plus
+  // basse gagne.
+  _jePhotographie() {
+    if (this.variante !== 'duo' || this.duo.direct || this.rejeu) return false;
+    return estPhotographe(this.duoMoi, this.bordsDistants, this.duo.partis);
+  }
+
+  // La photo de frontière de l'hôte : l'invité s'y recale, toujours. C'est le
+  // régime du spectateur appliqué aux joueurs — restaurer une photo qu'on a
+  // soi-même à peu près atteinte est indolore, et restaurer une photo qu'on n'a
+  // pas atteinte est exactement la réparation qu'on attendait. On ne revient
+  // jamais en arrière : une photo attardée d'un tableau déjà passé ne défait
+  // rien.
+  _surEtatVague(m) {
+    if (this.variante !== 'duo' || !this.bordsDistants.length || this.duo.direct) return;
+    if (typeof m?.j !== 'number' || m.j >= this.duoMoi) return;
+    if (this.state !== 'playing') return;
+    const d = m?.d;
+    if (!d || (d.w || 0) < this.wave) return;
+    const hote = this.bordsDistants.find((b) => b.numero === m.j)?.nom || '?';
+    // La télémétrie d'abord : c'est le seul moment où l'on connaît la vérité de
+    // l'autre machine, et c'est elle qui dira si les vagues divergent encore.
+    this._verifieSynchro(d, hote);
+    this._restaure(d);
+    this._resyncDemande = false;
+  }
+
+  // Le numéro de joueur d'un pair, par son nom. -1 s'il n'est pas de la partie.
+  _numeroDe(nom) {
+    const b = this._bordDistantParNom(nom);
+    return b ? b.numero : -1;
+  }
+
+  _bordDistantParNom(nom) {
+    return this.bordsDistants.find((b) => b.nom === nom) || null;
   }
 
   // ---- REJOINDRE UNE PARTIE EN COURS -----------------------------------------
@@ -2728,18 +2819,26 @@ export class Game {
     this.variante = 'duo';
     this.duo.ouvreDirect(v.qui, v.moi);
 
+    // Le rejoindre-en-cours reste une affaire à DEUX : l'hôte est le joueur 0,
+    // celui qui arrive le joueur 1 — le bord distant porte le numéro de l'autre.
+    this._fermeBordsDistants();
     if (v.moi === 1) {
       // CELUI QUI ARRIVE hérite de l'état de l'hôte : le vaisseau qu'il vient de
-      // restaurer est celui de l'HÔTE, pas le sien. On le déplace donc au second
-      // bord, et l'on s'en fabrique un neuf.
+      // restaurer est celui de l'HÔTE, pas le sien. On le déplace donc au bord
+      // distant, et l'on s'en fabrique un neuf.
       this.spectateur = null;
-      // Le second bord, c'est l'HÔTE : il garde sa coque à lui.
-      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: v.saCoque || this.coque });
-      this.joueur2.group.position.copy(this.player.position);
-      this.bord2.score = this.score;
-      this.bord2.lives = this.lives;
-      this.bord2.levels = { ...this.levels };
-      this.bord2.stats = computeStats(this.bord2.levels, this.surcharge);
+      // Le bord distant, c'est l'HÔTE : il garde sa coque à lui.
+      const bord = this._ouvreBordDistant({
+        numero: 0,
+        nom: v.qui,
+        coque: v.saCoque || this.coque,
+      });
+      const vaisseau = this._vaisseauDu(bord);
+      vaisseau.group.position.copy(this.player.position);
+      bord.score = this.score;
+      bord.lives = this.lives;
+      bord.levels = { ...this.levels };
+      bord.stats = computeStats(bord.levels, this.surcharge);
       // ET ON REPREND SA PROPRE COQUE. Elle avait été remplacée par celle de
       // l'hôte au premier instantané restauré, puisqu'on rejouait sa partie.
       this.coque = this._coqueAMoi || 'orion';
@@ -2751,11 +2850,14 @@ export class Game {
       this.score = 0;
       this.player.rebuild(this._fiche());
     } else {
-      // Le second bord, c'est le RENFORT : il arrive avec la coque qu'il pilote.
-      this._ouvreSecondBord({ luiNom: v.qui, luiCoque: v.saCoque || 'orion' });
+      // Le bord distant, c'est le RENFORT : il arrive avec la coque qu'il pilote.
+      this._ouvreBordDistant({ numero: 1, nom: v.qui, coque: v.saCoque || 'orion' });
     }
     this.duoMoi = v.moi;
-    this._attenteDuo = 0;
+    this._postesSales = true; // mon numéro vient de changer avec la bascule
+    this.nJoueursPartie = 2;
+    this._peintBordsHud();
+    this._attenteDuoDepuis = 0;
     // IL NE REGARDE PLUS, IL JOUE. Le laisser dans la liste des spectateurs lui
     // enverrait encore l'instantané complet de l'hôte à chaque vague — qui
     // écraserait son propre vaisseau par celui de l'hôte, en pleine partie.
@@ -3269,10 +3371,11 @@ export class Game {
             <span class="variante-desc">Seul aux commandes, et au panthéon.</span>
           </button>
           <button class="variante" data-v="duo">
-            <span class="variante-nom">2 joueurs <em>en réseau</em></span>
+            <span class="variante-nom">2–3 joueurs <em>en réseau</em></span>
             <span class="variante-desc">
-              Un salon d’attente, un copain qui rejoint, et deux vaisseaux dans la même
-              arène. Les ennemis sont plus durs — vous êtes deux.
+              Un salon d’attente, un ou deux copains qui rejoignent, et jusqu’à trois
+              vaisseaux dans la même arène. Les ennemis sont plus durs — vous êtes
+              plusieurs.
             </span>
           </button>
           <button class="variante" data-v="entrainement">
@@ -3349,6 +3452,7 @@ export class Game {
           <div class="coque-sous">${this._sousTitreMode(mode, 'duo')}</div>
         </div>
         <div class="salon-etat" id="salon-etat">Connexion au serveur…</div>
+        <div class="salon-sieges" id="salon-sieges"></div>
         <div class="salon-liste" id="salon-liste"></div>
         <div class="rangee" id="salon-actes"></div>
         <button class="btn-ghost" id="salon-back">← Retour</button>
@@ -3356,6 +3460,7 @@ export class Game {
     `);
 
     const zoneEtat = el.querySelector('#salon-etat');
+    const zoneSieges = el.querySelector('#salon-sieges');
     const zoneListe = el.querySelector('#salon-liste');
     const zoneActes = el.querySelector('#salon-actes');
     const dit = (t) => {
@@ -3363,9 +3468,42 @@ export class Game {
     };
 
     const duo = this.duo;
-    // La coque choisie pour cette table. Elle voyage jusqu'à l'autre joueur :
-    // on doit savoir avec quoi il vole avant que ça commence.
+    // La coque choisie pour cette table. Elle voyage jusqu'aux autres joueurs :
+    // on doit savoir avec quoi chacun vole avant que ça commence.
     let coque = this._entrainement?.coque || 'orion';
+
+    // LA TABLÉE, POUR L'AFFICHAGE. Le serveur la rejoue entière à chaque
+    // changement (message `equipage`, l'hôte en tête) ; tant qu'elle n'est pas
+    // arrivée, il n'y a que soi.
+    const tablee = () => {
+      if (duo.joueurs.length) return duo.joueurs.slice(0, 3);
+      return duo.etat === 'salon' ? [{ nom, coque }] : [];
+    };
+
+    // LES TROIS PLACES : l'hôte, et deux sièges qui se remplissent. Montrer les
+    // sièges vides dit sans un mot qu'on peut être trois — et qu'on n'est pas
+    // obligé de l'être. « Moi » se reconnaît à son NUMÉRO, pas à son pseudo :
+    // deux invités sans compte peuvent s'appeler pareil.
+    const peintSieges = () => {
+      if (!el.isConnected) return;
+      if (duo.etat !== 'salon') {
+        zoneSieges.innerHTML = '';
+        return;
+      }
+      const assis = tablee();
+      const monSiege = duo.joueurs.length ? duo.moi : 0;
+      zoneSieges.innerHTML = [0, 1, 2]
+        .map((i) => {
+          const j = assis[i];
+          if (!j)
+            return `<div class="siege libre"><span class="siege-nom">Siège libre</span></div>`;
+          return `<div class="siege${i === monSiege ? ' moi' : ''}">
+            <span class="siege-nom">${esc(j.nom)}</span>
+            <span class="siege-coque">${esc(coqueParId(j.coque).nom)}</span>
+          </div>`;
+        })
+        .join('');
+    };
 
     const peintActes = () => {
       if (!el.isConnected) return;
@@ -3396,9 +3534,23 @@ export class Game {
         });
         zoneActes.append(ouvrir);
       } else if (duo.etat === 'salon') {
+        // L'HÔTE LANCE QUAND IL VEUT, À 2 OU À 3 : un salon n'attend pas d'être
+        // plein. Le bouton dit avec combien on part — c'est lui qui répond à
+        // « on attend le troisième, ou on y va ? ».
+        const n = tablee().length;
+        if (duo.role === 'hote' && n >= 2) {
+          const partir = document.createElement('button');
+          partir.className = 'btn-primary';
+          partir.textContent = `Décoller à ${n === 3 ? '3' : '2'}`;
+          partir.addEventListener('click', () => {
+            this.audio.buy();
+            duo.lance();
+          });
+          zoneActes.append(partir);
+        }
         const fermer = document.createElement('button');
         fermer.className = 'btn-ghost';
-        fermer.textContent = 'Fermer ma table';
+        fermer.textContent = duo.role === 'hote' ? 'Fermer ma table' : 'Quitter la table';
         fermer.addEventListener('click', () => {
           duo.quitte();
           peintTout();
@@ -3424,7 +3576,7 @@ export class Game {
         b.className = 'salon-ligne';
         b.innerHTML = `<span class="salon-nom">${esc(s.nom)}</span>
           <span class="salon-coque">${esc(coqueParId(s.coque).nom)}</span>
-          <span class="salon-go">Rejoindre →</span>`;
+          <span class="salon-go">${s.assis ? `${s.assis}/3 · ` : ''}Rejoindre →</span>`;
         b.addEventListener('click', () => {
           this.audio.buy();
           duo.choisitCoque(coque);
@@ -3436,8 +3588,13 @@ export class Game {
 
     const peintTout = () => {
       peintActes();
+      peintSieges();
       if (duo.etat === 'salon') {
-        dit('Votre table est ouverte. On attend un deuxième pilote…');
+        const n = tablee().length;
+        if (duo.role !== 'hote') dit('À table — l’hôte lance le décollage.');
+        else if (n >= 3) dit('Table pleine. Décollez quand vous voulez !');
+        else if (n === 2) dit('Un siège encore libre : partez à deux, ou attendez un troisième.');
+        else dit('Votre table est ouverte. On attend un deuxième pilote…');
         zoneListe.innerHTML = '';
       } else {
         dit('Choisissez une table, ou ouvrez la vôtre.');
@@ -3456,15 +3613,25 @@ export class Game {
       },
       onSalons: (l) => peintListe(l),
       onSalon: () => peintTout(),
-      onPair: (p) => dit(`${p.nom} arrive, en ${coqueParId(p.coque).nom}.`),
+      onEquipage: () => peintTout(),
       onCompte: (n) => {
         this.audio.uiTick?.();
+        peintSieges();
         dit(`Décollage dans ${n}…`);
       },
       onGo: (m) => this._lanceDuo(m, mode),
+      onPause: (m) => this._pauseDistante(m.oui, m.nom),
+      onFinAutre: (m) => this._finDunAutre(m),
+      onEtatVague: (m) => this._surEtatVague(m),
+      onEmpreinte: (m) => {
+        const b = this.bordsDistants.find((x) => x.numero === m.j);
+        if (b) this._recoisEmpreinte(b.nom, m.d);
+      },
       onParti: (p) => {
-        if (this.state === 'playing' && this.variante === 'duo') return this._duoSeul();
-        dit(p.hote ? 'La table s’est fermée.' : 'Votre copain est parti. La table reste ouverte.');
+        // En partie, un départ retire SON bord — les restants continuent.
+        if (this.state === 'playing' && this.variante === 'duo') return this._duoPart(p.slot);
+        peintTout();
+        dit(p.hote ? 'La table s’est fermée.' : 'Un pilote est parti. La table reste ouverte.');
       },
       onErreur: (code) =>
         dit(
@@ -3503,39 +3670,68 @@ export class Game {
     });
   }
 
-  // LE DÉCOLLAGE À DEUX.
+  // LE DÉCOLLAGE EN RÉSEAU, À DEUX OU À TROIS.
   //
-  // Les deux clients arrivent ici au même instant, avec la même graine et le même
-  // tableau de joueurs. À partir de là ils ne se parlent plus que par commandes :
-  // tout le reste — ennemis, tirs, score — est recalculé des deux côtés à partir
-  // de ce point de départ commun.
+  // Tous les clients arrivent ici au même instant, avec la même graine et le
+  // même tableau de joueurs — chacun son indice, qui est son NUMÉRO pour toute
+  // la partie. À partir de là ils ne se parlent plus que par commandes : tout le
+  // reste — ennemis, tirs, score — est recalculé chez chacun à partir de ce
+  // point de départ commun.
   _lanceDuo(m) {
     const moi = m.joueurs[m.moi];
-    const lui = m.joueurs[m.moi === 0 ? 1 : 0];
     this.startRun(m.mode, moi.coque, {
       variante: 'duo',
       graine: m.graine,
-      duo: { moi: m.moi, moiNom: moi.nom, luiNom: lui.nom, luiCoque: lui.coque },
+      duo: { moi: m.moi, joueurs: m.joueurs },
     });
     // Les premières images n'ont pas de commande à échanger — voir `amorce`.
     this.duo.amorce(commandeVersTableau(commandeVide()));
-    this.hud.announce('Décollage', `${moi.nom} & ${lui.nom}`, 2000);
+    this.hud.announce('Décollage', m.joueurs.map((j) => j.nom).join(' & '), 2000);
   }
 
-  // LE COPAIN EST PARTI, LA PARTIE CONTINUE.
+  // UN JOUEUR EST PARTI, LA PARTIE CONTINUE POUR LES RESTANTS.
   //
-  // On ne renvoie pas au menu : celui qui reste est peut-être à sa meilleure
-  // vague, et perdre sa partie parce que l'autre a fermé son onglet serait la
-  // pire façon de découvrir le jeu à deux. La partie redevient donc SOLO — le
-  // second vaisseau s'efface, la difficulté redescend à la vague suivante, et le
-  // score continue de compter.
+  // On ne renvoie pas au menu : ceux qui restent sont peut-être à leur meilleure
+  // vague, et perdre sa partie parce qu'un autre a fermé son onglet serait la
+  // pire façon de découvrir le jeu en réseau. On retire SON bord — le retrait
+  // effectif se fait dans `_updateDuo`, à l'image où ses commandes s'épuisent,
+  // la même chez tous les survivants — et s'il ne reste qu'un pilote, la
+  // simulation repasse au régime solo.
   //
-  // Elle ne rejoint pas pour autant le panthéon solo : elle a commencé à deux,
-  // avec l'aide de quelqu'un, et la comparer à une partie jouée seule du début à
-  // la fin serait faux. Elle reste au tableau du jeu à deux.
-  _duoSeul() {
+  // Elle ne rejoint pas pour autant le panthéon solo : elle a commencé à
+  // plusieurs, avec de l'aide, et la comparer à une partie jouée seule du début
+  // à la fin serait faux. Elle reste au tableau du jeu en réseau.
+  _duoPart(numero) {
     if (this.variante !== 'duo') return;
-    this._fermeSecondBord();
+    const b =
+      typeof numero === 'number'
+        ? this.bordsDistants.find((x) => x.numero === numero)
+        : this.bordsDistants.length === 1
+          ? this.bordsDistants[0]
+          : null;
+    if (b && this.bordsDistants.length > 1) {
+      // À trois : on prévient, et `_updateDuo` retirera son bord au bon moment.
+      this.duo.marquePart(b.numero);
+      this.hud.announce(`${b.nom} a quitté la partie`, 'Vous continuez à deux', 2600);
+      return;
+    }
+    this._resteSeul();
+  }
+
+  // La pause d'un copain. On applique la même bascule que la sienne, en disant
+  // qui l'a demandée. Si la table est déjà dans l'état voulu, rien : le message
+  // de reprise de celui qui a réappuyé le premier ne doit pas RE-basculer.
+  _pauseDistante(oui, nom) {
+    if (this.state !== 'playing') return;
+    if (this.variante !== 'duo' || !this.bordsDistants.length) return;
+    if (!!oui === !!this.paused) return;
+    this.togglePause(nom || 'Un copain');
+  }
+
+  // Le dernier compagnon s'en va : régime solo, comme depuis toujours.
+  _resteSeul() {
+    if (this.variante !== 'duo') return;
+    this._fermeBordsDistants();
     this._duoAttente = false;
     this._duoAbandonne = false;
     // UNE LIAISON DIRECTE SE COUPE SANS FERMER LE CANAL DES AMIS. Le même
@@ -3548,92 +3744,187 @@ export class Game {
     // repasse en temps réel : il n'y a plus personne à attendre.
     this._duoAbandonne = true;
     this.hud.announce('Seul aux commandes', 'Votre copain a quitté la partie', 2600);
-    // S'il était mort en attendant que l'autre tombe, la partie s'arrête ici.
+    // S'il était mort en attendant que les autres tombent, la partie s'arrête ici.
     if (!this.player.alive && this.lives <= 0) this.gameOverTimer = 1.8;
   }
 
-  // Le second vaisseau, et son poste de pilotage. Il vit tant que la partie à
-  // deux dure ; le premier joueur, lui, est celui du jeu depuis toujours.
-  _ouvreSecondBord(duo) {
-    this._fermeSecondBord();
-    const fiche = { ...this._fiche(), carene: coqueParId(duo.luiCoque).carene };
-    this.joueur2 = new Player(this.scene, fiche);
-    this.joueur2.reset();
-    this.bord2 = {
+  // Un vaisseau distant, et son poste de pilotage. Il vit tant que la partie en
+  // réseau dure ; le joueur local, lui, est celui du jeu depuis toujours. La
+  // liste reste TRIÉE PAR NUMÉRO : c'est elle qui fixe l'ordre de simulation.
+  _ouvreBordDistant({ numero, nom, coque }) {
+    const fiche = { ...this._fiche(), carene: coqueParId(coque).carene };
+    const vaisseau = new Player(this.scene, fiche);
+    vaisseau.reset();
+    const bord = {
+      numero,
       cmd: commandeVide(),
-      // Le second joueur a ses propres améliorations, donc ses propres stats.
+      // Chaque joueur a ses propres améliorations, donc ses propres stats.
       // Elles partent de zéro comme les nôtres et suivent SES achats.
       levels: emptyLevels(),
       stats: computeStats(emptyLevels(), 0),
-      coque: duo.luiCoque,
+      coque,
       odTimer: 0,
       energy: 0,
       credits: 0,
       lives: PLAYER.baseLives,
       respawnTimer: 0,
+      // Sa partie à LUI est-elle terminée ? Pas la même chose que « il n'a plus
+      // de vies » : entre deux vagues, un pilote à zéro vie revient (voir
+      // startWave). `fini` ne se pose qu'à son annonce de fin, et c'est lui qui
+      // décide de qui photographie la table — voir `_jePhotographie`.
+      fini: false,
       score: 0,
-      nom: duo.luiNom,
+      nom,
     };
+    const i = this.bordsDistants.findIndex((b) => b.numero > numero);
+    const ou = i === -1 ? this.bordsDistants.length : i;
+    this.bordsDistants.splice(ou, 0, bord);
+    this.joueursDistants.splice(ou, 0, vaisseau);
+    this._postesSales = true;
+    return bord;
   }
 
-  _fermeSecondBord() {
-    if (!this.joueur2) return;
-    this.joueur2.dispose?.();
-    this.scene.remove(this.joueur2.group);
-    if (this.joueur2.seam) this.scene.remove(this.joueur2.seam);
-    this.joueur2 = null;
-    this.bord2 = null;
+  _fermeBordDistant(bord) {
+    const i = this.bordsDistants.indexOf(bord);
+    if (i === -1) return;
+    const vaisseau = this.joueursDistants[i];
+    vaisseau.dispose?.();
+    this.scene.remove(vaisseau.group);
+    if (vaisseau.seam) this.scene.remove(vaisseau.seam);
+    this.bordsDistants.splice(i, 1);
+    this.joueursDistants.splice(i, 1);
+    this._postesSales = true;
+    this._peintBordsHud();
+  }
+
+  _fermeBordsDistants() {
+    while (this.bordsDistants.length) this._fermeBordDistant(this.bordsDistants[0]);
+  }
+
+  // Le vaisseau d'un poste de pilotage : celui du jeu pour le joueur local, le
+  // distant du même indice sinon — les deux listes sont alignées.
+  _vaisseauDu(bord) {
+    if (bord === this) return this.player;
+    return this.joueursDistants[this.bordsDistants.indexOf(bord)] || null;
+  }
+
+  // TOUS LES POSTES, ORDONNÉS PAR NUMÉRO DE JOUEUR — le local compris.
+  //
+  // INVARIANT DU PAS VERROUILLÉ : chaque image applique les commandes dans
+  // l'ordre des numéros, TOUJOURS. Deux machines qui simulent les vaisseaux dans
+  // deux ordres différents divergent en silence — les tirs entrent dans les
+  // mêmes réserves partagées, et l'ordre d'insertion décide de l'ordre des
+  // collisions. C'est cette liste, et elle seule, qui fixe l'ordre de `update`,
+  // des collisions, des renaissances — et du choix de cible des ennemis.
+  //
+  // Elle est mise en cache : les ennemis la consultent à chaque visée, et
+  // reconstruire trois objets par balle serait de l'allocation pour rien. Elle
+  // se salit quand un bord s'ouvre, se ferme, ou quand mon numéro change.
+  _postesOrdonnes() {
+    if (!this._postes || this._postesSales) {
+      const postes = this.bordsDistants.map((bord, i) => ({
+        numero: bord.numero,
+        bord,
+        vaisseau: this.joueursDistants[i],
+      }));
+      postes.push({ numero: this.duoMoi, bord: this, vaisseau: this.player });
+      this._postes = postes.sort((a, b) => a.numero - b.numero);
+      this._postesSales = false;
+    }
+    return this._postes;
+  }
+
+  // Le HUD du jeu en réseau : la liste des autres pilotes, nom et vies.
+  _peintBordsHud() {
+    this.hud.setBords(this.bordsDistants.map((b) => ({ nom: b.nom, vies: b.lives })));
   }
 
   // LE PAS VERROUILLÉ, VU DU JEU.
   //
   // `main.js` appelle `update` avec le temps réel. En solo on simule cette durée
-  // telle quelle. À deux, on la découpe en pas d'un soixantième — les deux
+  // telle quelle. En réseau, on la découpe en pas d'un soixantième — toutes les
   // machines doivent avancer par les MÊMES incréments — et chaque pas attend
-  // d'avoir les commandes des deux joueurs.
+  // d'avoir les commandes de tous les joueurs.
   _updateDuo(dtReel) {
     const d = this.duo;
-    // Plus de copain : on ne verrouille plus rien, on joue comme en solo.
+    // Plus de compagnon : on ne verrouille plus rien, on joue comme en solo.
     if (this._duoAbandonne || !d || d.etat !== 'partie') return this._updatePlaying(dtReel);
     let n = d.pas(dtReel);
     while (n-- > 0) {
       if (!d.pret()) {
-        // On attend l'autre. Ce n'est pas une erreur : c'est le prix du pas
+        // On attend les autres. Ce n'est pas une erreur : c'est le prix du pas
         // verrouillé, et ça ne dure que le temps d'un aller-retour.
         d.attentes++;
         this._duoAttend = true;
 
-        // MAIS ON N'ATTEND PAS INDÉFINIMENT, ET C'EST TOUT LE SUJET.
+        // MAIS ON N'ATTEND PAS INDÉFINIMENT — ET SURTOUT PAS N'IMPORTE QUI.
         //
-        // En salon, le serveur envoie « parti » quand le copain s'en va : la
-        // partie repasse en solo et personne ne reste bloqué. En liaison DIRECTE
-        // — celle d'un spectateur qui vient de rejoindre — il n'y a pas de
-        // salon, donc rien ne peut sauver celui qui attend. Si la bascule échoue
-        // d'un seul côté, ou si l'autre ferme son onglet, le jeu se fige : on ne
-        // simule plus, on ne rend plus la main, et le joueur n'a plus qu'à
-        // recharger la page. Signalé par Paul, et c'est exactement ce qui se
-        // passait.
+        // EN SALON, ON NE DÉCLARE PERSONNE MUET. Un copain qui ne m'envoie
+        // rien, c'est d'abord un copain EN BOUTIQUE, sur le choix de route, ou
+        // en pause : les écrans d'entre-vagues sont locaux, chacun y va à son
+        // rythme, et le premier revenu attend les autres. L'ancien couperet de
+        // cinq secondes éjectait DÉFINITIVEMENT quiconque traînait devant les
+        // améliorations. Le vrai disparu, lui, est annoncé par le serveur : son
+        // balai pingue tout le monde, la socket morte se révèle à l'écriture,
+        // et « parti » arrive avec promotion d'hôte s'il le faut. Une seule
+        // source de vérité, zéro faux positif.
         //
-        // Cinq secondes sans une seule commande, c'est cent fois un
-        // aller-retour normal : ce n'est plus de la latence, c'est une absence.
-        this._attenteDuo = (this._attenteDuo || 0) + dtReel;
-        if (this._attenteDuo > 5) {
-          note('duo-perdu', { ou: `vague ${this.wave}`, avec: d.direct || this.bord2?.nom });
-          this._duoSeul();
+        // En liaison DIRECTE, pas de serveur de table pour trancher : le
+        // garde-fou reste, EN TEMPS MUR — pas en temps simulé, un rattrapage
+        // comptait une minute d'attente en une seconde de mur. Et avant de
+        // couper, on regarde la PRÉSENCE : les deux sont amis par construction,
+        // donc si le canal des amis le dit encore en ligne, il est en boutique,
+        // pas disparu — on lui laisse ses cinq secondes suivantes.
+        if (!this._attenteDuoDepuis) this._attenteDuoDepuis = performance.now();
+        if (d.direct && performance.now() - this._attenteDuoDepuis > 5000) {
+          const muets = d.pairs.filter(
+            (p) =>
+              !d.partis.has(p.numero) &&
+              !d.recues.get(p.numero)?.has(d.frame) &&
+              !this._presence?.[p.nom]
+          );
+          if (muets.length) {
+            note('duo-perdu', {
+              ou: `vague ${this.wave}`,
+              avec: muets.map((p) => p.nom).join(','),
+            });
+            for (const p of muets) d.marquePart(p.numero);
+          }
+          this._attenteDuoDepuis = 0;
         }
         return;
       }
-      this._attenteDuo = 0;
+      this._attenteDuoDepuis = 0;
       this._duoAttend = false;
-      // Ma commande part avec de l'avance ; celle de l'autre arrive pour MAINTENANT.
+      // Ma commande part avec de l'avance ; celles des autres arrivent pour
+      // MAINTENANT, ordonnées par numéro de joueur comme les bords distants.
       this._construitCommande(PAS_DUO);
       d.publie(commandeVersTableau(this.cmd));
-      tableauVersCommande(d.consomme(), this.bord2.cmd);
+      const commandes = d.consomme();
+      // Un pair parti dont la réserve est épuisée rend null : son bord se retire
+      // ICI, à la même image chez tous les survivants — ses commandes relayées
+      // avant la coupure sont les mêmes partout. Voir `Duo.marquePart`.
+      const retires = [];
+      commandes.forEach((cmd, i) => {
+        const bord = this.bordsDistants[i];
+        if (!bord) return;
+        if (cmd) tableauVersCommande(cmd, bord.cmd);
+        else retires.push(bord);
+      });
+      for (const bord of retires) {
+        this.duo.retire(bord.numero);
+        this._fermeBordDistant(bord);
+      }
+      // Plus personne en face : régime solo, la partie continue.
+      if (retires.length && !this.bordsDistants.length) {
+        this._resteSeul();
+        return;
+      }
       this.enregistreur.frame(this.cmd, this._controle());
       d.frame++;
       this._updatePlaying(PAS_DUO);
-      // Une empreinte par seconde, croisée avec celle de l'autre : c'est tout ce
-      // qui sépare une divergence silencieuse d'une divergence mesurée.
+      // Une empreinte par seconde, croisée avec celles des autres : c'est tout
+      // ce qui sépare une divergence silencieuse d'une divergence mesurée.
       this._croiseEmpreintes(d.frame);
     }
   }
@@ -3951,12 +4242,22 @@ export class Game {
         part: this._entrainement?.part ?? null,
       };
     }
-    // Le second vaisseau n'existe qu'à deux, et il est reconstruit à chaque
-    // partie : sa coque change avec le copain qu'on a en face.
+    // Les vaisseaux distants n'existent qu'en réseau, et ils sont reconstruits à
+    // chaque partie : leurs coques changent avec les copains qu'on a en face.
+    // `options.duo.joueurs` est la tablée entière, indexée par numéro — on ouvre
+    // un bord par joueur qui n'est pas nous.
     this.duoMoi = options?.duo ? options.duo.moi : 0;
+    this._postesSales = true; // mon numéro vient peut-être de changer
     this._duoAttente = false;
-    if (options?.duo) this._ouvreSecondBord(options.duo);
-    else this._fermeSecondBord();
+    this._fermeBordsDistants();
+    if (options?.duo?.joueurs) {
+      options.duo.joueurs.forEach((j, numero) => {
+        if (numero === this.duoMoi) return;
+        this._ouvreBordDistant({ numero, nom: j.nom, coque: j.coque });
+      });
+    }
+    this.nJoueursPartie = 1 + this.bordsDistants.length;
+    this._peintBordsHud();
     // Filet : un secteur caché pour une cinématique se rallume à sa fin, mais un
     // chemin de sortie oublié laisserait le jeu se jouer dans le noir. On le
     // repose ici, où passe forcément toute partie.
@@ -4037,22 +4338,25 @@ export class Game {
     this.player.shieldUp = false;
     this.player.reset();
     this.player.invulnTimer = 0;
-    // Les deux vaisseaux ne partent pas au même endroit : superposés, on ne
-    // saurait pas lequel on pilote pendant les deux premières secondes. Posé
-    // APRÈS `reset`, qui ramène tout le monde au centre.
-    if (this.joueur2) {
-      this.joueur2.reset();
-      this.joueur2.invulnTimer = 0;
-      // LA PLACE DÉPEND DU RÔLE, PAS DE QUI REGARDE.
+    // Les vaisseaux ne partent pas au même endroit : superposés, on ne saurait
+    // pas lequel on pilote pendant les deux premières secondes. Posé APRÈS
+    // `reset`, qui ramène tout le monde au centre.
+    if (this.bordsDistants.length) {
+      for (const v of this.joueursDistants) {
+        v.reset();
+        v.invulnTimer = 0;
+      }
+      // LA PLACE DÉPEND DU NUMÉRO, PAS DE QUI REGARDE.
       //
-      // Poser « mon vaisseau à gauche » chez les deux joueurs paraît naturel et
-      // c'est une divergence : chacun croit alors que l'autre est à droite, et
-      // les deux simulations racontent deux mondes différents dès la première
-      // image. Le joueur zéro est à gauche pour TOUT LE MONDE.
-      const gauche = this.duoMoi === 0 ? this.player : this.joueur2;
-      const droite = this.duoMoi === 0 ? this.joueur2 : this.player;
-      gauche.group.position.x = -3.2;
-      droite.group.position.x = 3.2;
+      // Poser « mon vaisseau à gauche » chez chaque joueur paraît naturel et
+      // c'est une divergence : chacun croit alors que les autres sont ailleurs,
+      // et les simulations racontent des mondes différents dès la première
+      // image. Le joueur zéro est à gauche pour TOUT LE MONDE — puis le centre
+      // et la droite suivent les numéros : même règle sur chaque machine.
+      const places = this.nJoueursPartie >= 3 ? [-4.8, 0, 4.8] : [-3.2, 3.2];
+      for (const p of this._postesOrdonnes()) {
+        p.vaisseau.group.position.x = places[p.numero] ?? 0;
+      }
     }
 
     this.hud.setScore(0);
@@ -4150,6 +4454,19 @@ export class Game {
       this.duo.signale(this._doitResync, 'resync-etat', this._instantane());
       this._doitResync = null;
     }
+    // LA PHOTO DE FRONTIÈRE — la réparation du jeu en salon, à deux comme à
+    // trois. Le pas verrouillé n'y est pas un déterminisme parfait : ma commande
+    // s'applique chez moi tout de suite et chez les autres quatre images plus
+    // tard, donc les simulations sont VOISINES, jamais identiques. À deux, le
+    // couple demande/réponse (`resync`) suffisait à recoller les morceaux ; à
+    // trois, une réparation par paire et par tableau court après trois écarts
+    // qui grandissent. On fait donc comme pour le spectateur, qui ne diverge
+    // jamais : l'hôte est la référence, et chaque tableau commence par sa photo
+    // que toute la table restaure. Elle part par la TABLE, pas par le canal des
+    // amis : deux invités d'une table publique ne se connaissent pas forcément.
+    if (this._jePhotographie()) {
+      this.duo.etatVague(this._instantane());
+    }
     // LE RENDEZ-VOUS. L'instantané vient de partir : les deux machines ont
     // exactement le même état, c'est donc ICI, et seulement ici, qu'une partie
     // solo peut devenir une partie à deux. Chez l'hôte comme chez celui qui
@@ -4217,27 +4534,57 @@ export class Game {
       // solo suivantes jusqu'au rechargement de la page. Mesuré avant
       // correction : 137 points de vie en solo, 276 à deux, là où l'on attendait
       // 185.
-      const mods = { ...DEFAULT_MODS, ...(this.routeMods || {}) };
+      let mods = { ...DEFAULT_MODS, ...(this.routeMods || {}) };
       this.routeMods = null;
-      // À DEUX, LA VAGUE EST PLUS DURE — sinon elle est deux fois plus facile.
-      //
-      // Deux vaisseaux, c'est deux fois la puissance de feu et deux fois les
-      // chances qu'un tir trouve une cible. Les chiffres ci-dessous ne doublent
-      // pas la difficulté pour autant : à deux on se gêne, on partage l'arène, et
-      // l'un couvre l'autre. Un tiers de points de vie en plus, un quart de tirs
-      // et de piqués en plus — assez pour qu'on ait besoin d'être deux, pas assez
-      // pour que ce soit une punition. Les crédits, eux, ne bougent pas : chacun
-      // ramasse les siens et la boutique reste au même prix.
-      if (this.variante === 'duo' && this.joueur2) {
-        mods.hp *= DUO.hp;
-        mods.fire *= DUO.fire;
-        mods.dive *= DUO.dive;
+      // LA BASE SANS ÉQUIPAGE EST MÉMORISÉE : si un pilote tombe pour de bon en
+      // pleine vague, `_adapteAuxVivants` recalcule les multiplicateurs sur les
+      // survivants à partir d'elle — pas à partir des mods déjà majorés, qui se
+      // composeraient.
+      this._modsVague = { ...mods };
+      let rappel = '';
+      if (this.variante === 'duo' && this.bordsDistants.length) {
+        // PERSONNE NE RESTE À TERRE ENTRE DEUX VAGUES. Un pilote tombé pour de
+        // bon revient au départ de la suivante — avec UNE seule vie, pas les
+        // siennes : le retour est une seconde chance, pas une remise à neuf.
+        // Tout est déterministe : l'état des bords est partagé, et chaque
+        // machine prend la même décision à la même image.
+        const revenus = [];
+        for (const p of this._postesOrdonnes()) {
+          if (p.bord.lives > 0) continue;
+          p.bord.lives = 1;
+          p.bord.respawnTimer = 1.3;
+          if (p.bord === this) {
+            this._duoAttente = false;
+            this.hud.setLives(this.lives);
+          }
+          revenus.push(p.bord === this ? null : p.bord.nom);
+        }
+        if (revenus.length) {
+          this._peintBordsHud();
+          rappel = revenus.includes(null)
+            ? 'De retour en vol — une seule vie'
+            : `${revenus.filter(Boolean).join(' et ')} — de retour avec une vie`;
+        }
+        // À PLUSIEURS, LA VAGUE EST PLUS DURE — sinon elle est d'autant plus
+        // facile qu'on est nombreux.
+        //
+        // Chaque vaisseau de plus, c'est de la puissance de feu et des chances
+        // qu'un tir trouve une cible. Les multiplicateurs ne suivent pas pour
+        // autant le nombre : on se gêne, on partage l'arène, et l'un couvre
+        // l'autre — voir MULT_JOUEURS. Le compte se fait sur les bords VIVANTS —
+        // tous, maintenant que les tombés reviennent — et se refait en cours de
+        // vague si l'un d'eux retombe (`_adapteAuxVivants`). Les crédits, eux,
+        // ne bougent pas : chacun ramasse les siens et la boutique reste au
+        // même prix.
+        const vivants =
+          (this.lives > 0 ? 1 : 0) + this.bordsDistants.filter((b) => b.lives > 0).length;
+        mods = modsEquipage(mods, vivants);
       }
       this.enemies.startWave(def, nDiff, mods, this.director.heat);
       this.hud.setWave(survie ? `${n}/${SURVIE.vagues}` : n);
       this.hud.announce(
         survie ? `Vague ${n} / ${SURVIE.vagues}` : `Vague ${n}`,
-        def.boss ? '⚠ KORN en approche ⚠' : ''
+        def.boss ? '⚠ KORN en approche ⚠' : rappel
       );
     }
     // Le secteur est déjà en place quand la vague démarre : il a basculé sous le
@@ -4265,7 +4612,9 @@ export class Game {
   // n'a pas lieu d'exister.
   get copainDeJeu() {
     if (this.voix?.pair) return this.voix.pair;
-    if (this.variante === 'duo' && this.bord2?.nom) return this.bord2.nom;
+    // La voix reste un appel à DEUX — pas de maillage à trois pour l'instant :
+    // à trois, on propose le premier bord distant, et c'est tout.
+    if (this.variante === 'duo' && this.bordsDistants[0]?.nom) return this.bordsDistants[0].nom;
     if (this.spectateur?.de) return this.spectateur.de;
     const premier = this._regardeurs?.values?.().next?.().value;
     return premier || null;
@@ -4396,15 +4745,19 @@ export class Game {
     };
   }
 
-  // Sous quel tableau cette partie s'inscrit. Le duo a le sien : comparer un
-  // score fait à deux à un score fait seul n'aurait pas de sens.
+  // Sous quel tableau cette partie s'inscrit. Le jeu en réseau a le sien :
+  // comparer un score fait à plusieurs à un score fait seul n'aurait pas de
+  // sens. Les parties à deux et à trois partagent le même tableau — pas de
+  // troisième paire de colonnes au panthéon — mais l'étiquette dit la vérité.
   _titreTableau() {
     if (this.variante === 'entrainement') return '— Entraînement · hors panthéon —';
-    const duo = this.variante === 'duo' ? ' à deux' : '';
+    const duo = this.variante === 'duo' ? (this.nJoueursPartie >= 3 ? ' à trois' : ' à deux') : '';
     return this.mode === 'survie' ? `— Survie${duo} —` : `— Panthéon${duo} —`;
   }
 
   get modeTableau() {
+    // Le « 2 » historique couvre les parties à 2 ET à 3 : c'est le tableau du
+    // jeu en réseau, pas celui d'un effectif.
     return this.variante === 'duo' ? `${this.mode}2` : this.mode;
   }
 
@@ -4727,9 +5080,21 @@ export class Game {
     this.shop.refresh(this._shopState());
   }
 
-  togglePause() {
+  // `de` : le copain qui a suspendu la partie, quand la pause vient du réseau.
+  // Absent, la pause est la mienne — et c'est elle qui se propage à la table.
+  togglePause(de = null) {
     if (this.state !== 'playing') return;
     this.paused = !this.paused;
+    // LA PAUSE SE PARTAGE. Sans ça, celui qui pause cesse d'envoyer ses
+    // commandes, les autres l'attendent cinq secondes — le garde-fou des muets —
+    // puis le retirent DÉFINITIVEMENT de la partie : appuyer sur P revenait à
+    // abandonner. La pause de l'un est donc la pause de tous ; la reprise est
+    // ouverte à tous aussi, pour que personne ne reste prisonnier d'un copain
+    // qui a refermé son onglet sans reprendre. L'auto-pause de l'onglet caché
+    // passe par ici : poser un téléphone suspend la table au lieu de se faire
+    // sortir de la partie.
+    if (!de && this.variante === 'duo' && this.bordsDistants.length && !this._duoAbandonne)
+      this.duo.pause(this.paused);
     // 'paused' et non 'off' : couper la musique la ferait repartir de son intro
     // à chaque reprise, et trois pauses suffiraient à user les quatre premières mesures.
     this.audio.setMode(this.paused ? 'paused' : 'play');
@@ -4739,6 +5104,7 @@ export class Game {
       const el = this._screen(`
         <div class="screen pause">
           <div class="go-title">Pause</div>
+          ${de ? `<div class="coque-sous">${esc(de)} a suspendu la partie</div>` : ''}
           <div class="title-menu">
             <button class="btn-launch" id="pause-reprendre">Reprendre${
               IS_TOUCH ? '' : ' <span class="key-hint">P</span>'
@@ -4839,14 +5205,14 @@ export class Game {
       bis: this.bis,
       energie: this.energy,
       mods: this.routeMods ? { ...this.routeMods } : null,
-      heat: this.director.heat,
+      directeur: this.director.instantane(),
       vaisseau: this.player.instantane(),
-      // À DEUX, UN SEUL VAISSEAU NE SUFFIT PAS.
+      // EN RÉSEAU, UN SEUL VAISSEAU NE SUFFIT PAS.
       //
       // L'instantané ne portait que le mien. Il servait au rejeu et au
-      // spectateur, où c'est exactement ce qu'il faut — mais il sert désormais à
-      // réparer une divergence entre deux joueurs, et là il faut les deux bords.
-      // Sans ça, celui qui restaure se retrouve avec le vaisseau de l'autre à la
+      // spectateur, où c'est exactement ce qu'il faut — mais il sert aussi à
+      // réparer une divergence entre joueurs, et là il faut TOUS les bords.
+      // Sans ça, celui qui restaure se retrouve avec le vaisseau d'un autre à la
       // place du sien.
       //
       // On les indexe par NUMÉRO DE JOUEUR, jamais par « moi » et « lui » : ces
@@ -4854,21 +5220,31 @@ export class Game {
       // et c'est précisément ainsi qu'on inverse deux vaisseaux sans s'en
       // apercevoir.
       duoMoi: this.variante === 'duo' ? this.duoMoi : null,
-      vaisseau2: this.joueur2 ? this.joueur2.instantane() : null,
-      bord2:
-        this.variante === 'duo' && this.bord2
-          ? {
-              score: this.bord2.score,
-              lives: this.bord2.lives,
-              energy: this.bord2.energy,
-              credits: this.bord2.credits,
-              odTimer: this.bord2.odTimer,
-            }
-          : null,
+      bords: this.variante === 'duo' ? this._instantaneBords() : null,
       fiche: this._fiche(),
       systemIdx: this.mission?.systemIdx ?? null,
       gemmes: this.pickups.instantane(),
     };
+  }
+
+  // LA LISTE DES BORDS, INDEXÉE PAR NUMÉRO DE JOUEUR — le mien compris. Un trou
+  // (joueur parti) reste un trou : les numéros ne se recompactent jamais, ce
+  // sont des identités, pas des rangs.
+  _instantaneBords() {
+    const bords = [];
+    for (const p of this._postesOrdonnes()) {
+      const local = p.bord === this;
+      bords[p.numero] = {
+        vaisseau: p.vaisseau.instantane(),
+        score: local ? this.score : p.bord.score,
+        vies: local ? this.lives : p.bord.lives,
+        energie: local ? this.energy : p.bord.energy,
+        credits: local ? this.credits : p.bord.credits,
+        coque: local ? this.coque : p.bord.coque,
+        nom: local ? activePilot()?.name || 'MOI' : p.bord.nom,
+      };
+    }
+    return bords;
   }
 
   // Un point de contrôle : de quoi VÉRIFIER, à la relecture, que la simulation
@@ -4890,24 +5266,21 @@ export class Game {
   // spectateur — on rejoue SA partie — mais faux à deux, où l'on garde le sien.
   // On regarde donc qui est qui, et l'on croise si nécessaire.
   _croiseBords(etat) {
-    if (this.variante !== 'duo' || etat.duoMoi == null || !etat.vaisseau2) return etat;
+    if (this.variante !== 'duo' || etat.duoMoi == null || !etat.bords) return etat;
     if (etat.duoMoi === this.duoMoi) return etat; // même point de vue, rien à faire
-    // Points de vue opposés : son vaisseau est mon second, et inversement.
+    // Point de vue d'un autre : les champs « à plat » de l'instantané sont les
+    // SIENS. Comme les bords sont indexés par numéro, il n'y a rien à échanger,
+    // rien à deviner : ma ligne est `bords[duoMoi]`, on la remonte à plat et
+    // c'est tout — on réordonne par numéro, jamais par « moi » et « lui ».
+    const mien = etat.bords[this.duoMoi];
+    if (!mien) return etat;
     return {
       ...etat,
-      vaisseau: etat.vaisseau2,
-      vaisseau2: etat.vaisseau,
-      score: etat.bord2?.score ?? etat.score,
-      vies: etat.bord2?.lives ?? etat.vies,
-      energie: etat.bord2?.energy ?? etat.energie,
-      credits: etat.bord2?.credits ?? etat.credits,
-      bord2: {
-        score: etat.score,
-        lives: etat.vies,
-        energy: etat.energie,
-        credits: etat.credits,
-        odTimer: 0,
-      },
+      vaisseau: mien.vaisseau,
+      score: mien.score,
+      vies: mien.vies,
+      energie: mien.energie,
+      credits: mien.credits,
     };
   }
 
@@ -4931,19 +5304,28 @@ export class Game {
     this.bis = !!etat.bis;
     this.energy = etat.energie;
     this.routeMods = etat.mods ? { ...etat.mods } : null;
-    this.director.reset();
-    this.director.heat = etat.heat || 0;
+    this.director.restaure(etat.directeur);
 
     this.bullets.clear();
     this.enemyBullets.clear();
     this.missiles.clear();
     this.pickups.restaure(etat.gemmes);
-    // Le second bord, quand il y en a un : sans lui, une resynchronisation à deux
-    // remettrait mon vaisseau en place et laisserait celui du copain là où ma
-    // simulation le croyait — c'est-à-dire au mauvais endroit.
-    if (this.variante === 'duo' && this.joueur2 && etat.vaisseau2) {
-      this.joueur2.restaure(etat.vaisseau2, this);
-      if (etat.bord2) Object.assign(this.bord2, etat.bord2);
+    // Les bords distants, quand il y en a : sans eux, une resynchronisation
+    // remettrait mon vaisseau en place et laisserait ceux des copains là où ma
+    // simulation les croyait — c'est-à-dire au mauvais endroit. Chacun retrouve
+    // sa ligne PAR SON NUMÉRO, jamais par sa place dans un couple.
+    if (this.variante === 'duo' && etat.bords) {
+      for (const bord of this.bordsDistants) {
+        const e = etat.bords[bord.numero];
+        if (!e) continue;
+        this._vaisseauDu(bord)?.restaure(e.vaisseau, this);
+        bord.score = e.score;
+        bord.lives = e.vies;
+        bord.energy = e.energie;
+        bord.credits = e.credits;
+        bord.odTimer = 0;
+      }
+      this._peintBordsHud();
     }
     this.enemies.clear();
     this.bombFront = null;
@@ -5221,11 +5603,14 @@ export class Game {
     this._updateBombFront(dt);
     this._rafraichitMicro();
 
-    this.player.update(dt, this);
-    // Le second vaisseau est simulé exactement comme le premier, avec SON poste
-    // de pilotage. Les deux machines exécutent ces deux lignes dans le même
-    // ordre avec les mêmes commandes : c'est tout le contrat du pas verrouillé.
-    if (this.joueur2) this.joueur2.update(dt, this, this.bord2);
+    // INVARIANT : les vaisseaux se simulent DANS L'ORDRE DES NUMÉROS DE JOUEUR,
+    // le local à sa place parmi les autres — jamais « moi d'abord ». Chaque
+    // machine exécute donc exactement la même suite d'appels avec les mêmes
+    // commandes : c'est tout le contrat du pas verrouillé. « Moi d'abord »
+    // donnerait un ordre différent sur chaque machine, et l'ordre se voit — les
+    // tirs entrent dans des réserves partagées, où l'ordre d'insertion décide de
+    // l'ordre des collisions.
+    for (const p of this._postesOrdonnes()) p.vaisseau.update(dt, this, p.bord);
     // Le vaisseau détruit n'est plus en furie : l'aura suivrait sinon une épave.
     this.aura.update(dt, this, this.odTimer > 0 && this.player.alive ? 1 : 0);
     this._updateColosse(dt);
@@ -5308,10 +5693,10 @@ export class Game {
 
     this._collisions();
 
-    // Respawn / game over différés, par pilote.
-    this._respawn(dt, this);
-    if (this.joueur2) this._respawn(dt, this.bord2);
-    // La fin de partie n'appartient qu'au poste local : à deux, tant que le
+    // Respawn / game over différés, par pilote — dans l'ordre des numéros,
+    // comme tout ce qui touche aux postes : c'est l'invariant du pas verrouillé.
+    for (const p of this._postesOrdonnes()) this._respawn(dt, p.bord);
+    // La fin de partie n'appartient qu'au poste local : en réseau, tant qu'un
     // copain vole encore, on attend.
     if (!this.player.alive && this.lives <= 0 && !this._duoAttente) {
       this.gameOverTimer -= dt;
@@ -5319,7 +5704,19 @@ export class Game {
     }
 
     // Fin de vague → bonus, puis boutique (ou victoire de mission en campagne).
-    if (vacuum && this.player.alive) {
+    //
+    // « EN VOL » SE JUGE SUR L'ÉQUIPAGE, PAS SUR MOI. La porte était
+    // `player.alive` : chez un pilote tombé pour de bon, la fin de vague ne
+    // s'exécutait jamais — sa simulation restait plantée sur une arène vide
+    // pendant que les autres passaient à la suite. Tant qu'un vaisseau vole, la
+    // partie avance, et elle avance PARTOUT à la même image : c'est ce qui
+    // permet au tombé de traverser l'escale et de revenir au départ de la vague
+    // suivante.
+    const enVol =
+      this.variante === 'duo' && this.bordsDistants.length
+        ? this._postesOrdonnes().some((p) => p.vaisseau?.alive)
+        : this.player.alive;
+    if (vacuum && enVol) {
       // La survie a une LIGNE D'ARRIVÉE, et c'est ce qui la distingue de l'arcade :
       // on n'y joue pas jusqu'à la mort, on y va quelque part.
       const derniereVague = this.mode === 'survie' && this.wave >= SURVIE.vagues;
@@ -5571,20 +5968,21 @@ export class Game {
       }
     });
 
-    // CHAQUE PILOTE A SES PROPRES COLLISIONS. À deux, un tir ne touche pas « le
-    // joueur » : il touche l'un des deux, et l'autre continue. Les tirs des
-    // JOUEURS, eux, restent communs — il n'y a qu'une arène et qu'un tas
-    // d'ennemis.
-    this._collisionsPilote(this, enemies);
-    if (this.joueur2) this._collisionsPilote(this.bord2, enemies);
+    // CHAQUE PILOTE A SES PROPRES COLLISIONS. En réseau, un tir ne touche pas
+    // « le joueur » : il touche l'un des pilotes, et les autres continuent. Les
+    // tirs des JOUEURS, eux, restent communs — il n'y a qu'une arène et qu'un
+    // tas d'ennemis. Dans l'ordre des numéros, toujours : l'invariant du pas
+    // verrouillé vaut aussi ici, une balle qui pourrait toucher deux vaisseaux
+    // la même image doit tuer le même sur toutes les machines.
+    for (const p of this._postesOrdonnes()) this._collisionsPilote(p.bord, enemies);
   }
 
-  // `bord` désigne le poste de pilotage : le jeu lui-même pour le premier joueur,
-  // `bord2` pour le second. Les vaisseaux ne se gênent pas entre eux — ni
-  // collision, ni tir fratricide — parce qu'à deux on se serre, et qu'un jeu où
-  // l'on se bouscule punit la coopération qu'il vient d'inventer.
+  // `bord` désigne le poste de pilotage : le jeu lui-même pour le joueur local,
+  // un bord distant pour les autres. Les vaisseaux ne se gênent pas entre eux —
+  // ni collision, ni tir fratricide — parce qu'à plusieurs on se serre, et
+  // qu'un jeu où l'on se bouscule punit la coopération qu'il vient d'inventer.
   _collisionsPilote(bord, enemies) {
-    const qui = bord === this ? this.player : this.joueur2;
+    const qui = this._vaisseauDu(bord);
     if (!qui?.alive) return;
     const pPos = qui.position;
 
@@ -5652,16 +6050,28 @@ export class Game {
     }
   }
 
-  // Le retour en vol d'un pilote. Chacun a son compte à rebours : à deux, l'un
-  // peut revenir pendant que l'autre se bat.
+  // Le retour en vol d'un pilote. Chacun a son compte à rebours : à plusieurs,
+  // l'un peut revenir pendant que les autres se battent.
   _respawn(dt, bord) {
-    const qui = bord === this ? this.player : this.joueur2;
+    const qui = this._vaisseauDu(bord);
     if (!qui || qui.alive || bord.lives <= 0) return;
     bord.respawnTimer -= dt;
     // On repart sans bouclier : son timer redémarre à plein.
     if (bord.respawnTimer <= 0) {
       qui.reset({ keepUpgrades: false, shieldRecharge: bord.stats.shieldRecharge });
     }
+  }
+
+  // Un pilote vient de tomber pour de bon : la vague EN COURS se recale sur les
+  // survivants. Sans ce recalcul, deux rescapés affrontent jusqu'au bout une
+  // vague gonflée pour trois. Tout y est déterministe : la mort est simulée
+  // partout, la base des mods vient du départ de vague (`_modsVague`), et la
+  // chaleur du directeur est partagée depuis qu'il écoute tout l'équipage.
+  _adapteAuxVivants() {
+    if (this.variante !== 'duo' || !this.bordsDistants.length || !this._modsVague) return;
+    const vivants = (this.lives > 0 ? 1 : 0) + this.bordsDistants.filter((b) => b.lives > 0).length;
+    if (vivants < 1) return;
+    this.enemies.reequilibre(modsEquipage(this._modsVague, vivants), this.director.heat);
   }
 
   // Ce qu'on voit d'un coup au centre. Un dégât doublé qui ne se voit pas n'est
@@ -5723,17 +6133,25 @@ export class Game {
       return;
     }
 
-    // `bord` est le poste touché : le jeu lui-même pour le premier pilote, le
-    // second bord pour l'autre. `moi` dit si c'est CE joueur-ci — le HUD, les
+    // `bord` est le poste touché : le jeu lui-même pour le pilote local, un bord
+    // distant pour les autres. `moi` dit si c'est CE joueur-ci — le HUD, les
     // répliques et la secousse ne concernent que lui.
     const moi = bord === this;
-    const qui = moi ? this.player : this.joueur2;
+    const qui = this._vaisseauDu(bord);
     const result = qui.takeHit(this, bord);
+    // LE DIRECTEUR ÉCOUTE TOUT L'ÉQUIPAGE, PAS SEULEMENT MOI.
+    //
+    // Ses événements étaient filtrés par `moi` : chaque poste nourrissait sa
+    // propre chaleur, qui divergeait au premier bouclier perdu — et comme le
+    // franchissement de palier refrappe les ennemis (`setHeat`), la divergence
+    // finissait dans la simulation elle-même. Tous les coups sont simulés au
+    // pas verrouillé sur toutes les machines : en les écoutant tous, la chaleur
+    // redevient un état partagé. Et c'est le bon jeu — la pression suit
+    // l'équipage, pas un pilote. En solo, `bord` est toujours moi : rien ne
+    // change.
     if (result === 'shield') {
-      if (moi) {
-        this.characters.onShieldLost();
-        this.director.onShieldBroken();
-      }
+      if (moi) this.characters.onShieldLost();
+      this.director.onShieldBroken();
       return;
     }
     if (result !== 'hit') return;
@@ -5746,27 +6164,34 @@ export class Game {
       this.hud.setEnergy(0);
       this.hud.setOverdrive(false);
       this.bombCooldown = 0;
-      this.waveDeath = true;
-      this.director.onDeath();
     }
+    // La vague a coûté une vie à L'ÉQUIPAGE : la prime de vague propre se juge
+    // sur tout le monde, sinon elle diverge d'un poste à l'autre.
+    this.waveDeath = true;
+    this.director.onDeath();
     qui.die(this);
+    if (!moi) this._peintBordsHud();
     if (bord.lives > 0) {
-      // LA RENAISSANCE EST PROPRE À CHACUN. À deux, l'un peut être en train de
-      // revenir pendant que l'autre se bat : un seul compteur les ferait
-      // réapparaître ensemble, ce qui n'a aucun sens.
+      // LA RENAISSANCE EST PROPRE À CHACUN. À plusieurs, l'un peut être en train
+      // de revenir pendant que les autres se battent : un seul compteur les
+      // ferait réapparaître ensemble, ce qui n'a aucun sens.
       bord.respawnTimer = 1.3;
       if (moi) this.characters.onLifeLost();
-    } else if (moi) {
-      // LA PARTIE NE FINIT PAS PARCE QUE J'AI PERDU. À deux, on attend que
-      // l'autre tombe aussi — c'est la règle du jeu, et c'est ce qui rend la
-      // dernière vie du copain intéressante à regarder.
-      if (!this.joueur2 || this.bord2.lives <= 0) this.gameOverTimer = 1.8;
-      else this._duoAttente = true;
-    } else if (this.lives <= 0) {
-      // L'autre vient de tomber alors que j'étais déjà à terre : c'est fini.
+      return;
+    }
+    // Un pilote vient de tomber pour de bon. LA PARTIE NE FINIT PAS PARCE QUE
+    // J'AI PERDU : tant qu'un bord vole encore — le mien ou un distant — on
+    // attend que le dernier tombe. C'est la règle du jeu, et c'est ce qui rend
+    // la dernière vie du copain intéressante à regarder.
+    const unAutreVole = this.lives > 0 || this.bordsDistants.some((b) => b.lives > 0);
+    if (!unAutreVole) {
       this._duoAttente = false;
       this.gameOverTimer = 1.8;
+    } else if (moi) {
+      this._duoAttente = true;
     }
+    // Les survivants n'affrontent pas la vague taillée pour l'équipage complet.
+    this._adapteAuxVivants();
   }
 
   // source : 'cannon' | 'missile' | 'ram' | 'bomb'. Seuls les kills au canon

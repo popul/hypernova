@@ -914,19 +914,39 @@ export const REFLEX = {
 // Aucune n'a été construite pour se battre : les Élides fuyaient, ils ont emporté
 // des outils. Le détail est dans docs/classes.md, et il n'est pas décoratif — c'est
 // lui qui a dicté les trois mécaniques.
-// LE JEU À DEUX. Ce que la présence d'un second pilote change à la vague.
+// LE JEU EN RÉSEAU, À DEUX OU À TROIS. Ce que chaque pilote de plus change à la
+// vague.
 //
-// Doubler la difficulté serait le réflexe et ce serait faux : deux joueurs ne
-// valent pas deux fois un joueur seul. Ils se gênent, ils partagent la largeur
-// de l'arène, et surtout ils ne peuvent pas être partout — un ennemi qui plonge
-// sur l'un est un ennemi que l'autre ne couvre pas. Les valeurs ci-dessous
-// rendent la vague exigeante pour deux sans la rendre injouable ; elles restent
-// à ajuster une fois qu'on aura vu deux enfants y jouer une soirée.
-export const DUO = {
-  hp: 1.35,
-  fire: 1.25,
-  dive: 1.25,
+// Doubler (ou tripler) la difficulté serait le réflexe et ce serait faux : deux
+// joueurs ne valent pas deux fois un joueur seul. Ils se gênent, ils partagent
+// la largeur de l'arène, et surtout ils ne peuvent pas être partout — un ennemi
+// qui plonge sur l'un est un ennemi que l'autre ne couvre pas. À trois, on
+// couvre plus large, donc tout monte encore — mais moins que
+// proportionnellement, pour la même raison : trois vaisseaux dans la même arène
+// se marchent sur les ailes. La table est indexée par le nombre de bords
+// VIVANTS au départ de la vague ; ces valeurs restent à ajuster une fois qu'on
+// aura vu deux ou trois enfants y jouer une soirée.
+export const MULT_JOUEURS = {
+  2: { hp: 1.35, fire: 1.25, dive: 1.25 },
+  3: { hp: 1.7, fire: 1.45, dive: 1.45 },
 };
+
+// Les mods d'une vague pour un équipage donné. C'est LA fonction commune au
+// départ de vague et au recalcul en cours de vague (un pilote tombe pour de
+// bon) : deux copies de cette logique finiraient par diverger, et une
+// divergence ici n'est pas un bug d'équilibrage, c'est une désynchronisation.
+// La base n'est jamais mutée — on a déjà payé pour l'apprendre avec
+// DEFAULT_MODS. Les crédits ne bougent pas : chacun ramasse les siens.
+export function modsEquipage(mods, vivants) {
+  const m = { ...mods };
+  const mult = MULT_JOUEURS[Math.min(vivants, 3)];
+  if (mult) {
+    m.hp *= mult.hp;
+    m.fire *= mult.fire;
+    m.dive *= mult.dive;
+  }
+  return m;
+}
 
 export const COQUES = [
   {

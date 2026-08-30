@@ -22,6 +22,9 @@ import assert from 'node:assert/strict';
 import {
   makeWave,
   paramsVague,
+  annoncesPourVague,
+  variantsPour,
+  ARRIERE_DEPUIS,
   dailySeed,
   slotBasePosition,
   difficulty,
@@ -941,4 +944,82 @@ test('la survie garde la suite de vagues qu’elle avait', () => {
   for (let n = 1; n <= 20; n++) {
     assert.equal(paramsVague(n, { survie: true, seed: 77 }).seed, 77 + n * 977);
   }
+});
+
+// --- LES ANNONCES D'ENTRÉE, ET LES VAGUES DANS LE DOS -------------------------
+//
+// Deux demandes de Paul qui s'emboîtent : « une flèche préventive 2 secondes
+// avant qui montre exactement où ils vont débouler », et des vagues qui
+// surgissent DERRIÈRE le vaisseau « en fonction du niveau ». La seconde n'est
+// honnête que grâce à la première : se faire traverser par ce qu'on ne peut pas
+// voir n'est pas une difficulté, c'est une injustice.
+
+test('les entrées de côté et de dos s’annoncent, celles du fond non', () => {
+  const { diff, seed } = paramsVague(3, { seed: 11 });
+  const w = makeWave(diff, { seed });
+  const a = annoncesPourVague(w.spawns, { xMax: 14.5, zMax: 14 });
+  // La composition varie avec la graine, mais la règle, jamais : chaque annonce
+  // vient d'un départ hors cadre, posée SUR le bord franchi.
+  for (const x of a) {
+    assert.ok(Math.abs(x.x) <= 14.5 && x.z <= 14, 'une flèche est posée hors de l’arène');
+    assert.ok(x.delay >= 0);
+    assert.ok(Number.isFinite(x.angle));
+  }
+  // Et jamais une annonce par ennemi : une par escadron au plus.
+  const rangees = new Set(w.spawns.filter((s) => s.type !== 'boss').map((s) => s.row));
+  assert.ok(a.length <= rangees.size * 2, `${a.length} flèches pour ${rangees.size} rangées`);
+});
+
+test('une entrée par le fond n’a pas de flèche', () => {
+  // Elle se voit venir de loin : c'est sa nature. L'annoncer diluerait les
+  // annonces qui comptent.
+  const spawns = [
+    {
+      type: 'drone',
+      row: 0,
+      delay: 1,
+      curve: { getPoint: () => ({ x: 0, z: -34 }), getTangent: () => ({ x: 0, z: 1 }) },
+    },
+  ];
+  assert.deepEqual(annoncesPourVague(spawns, { xMax: 14.5, zMax: 14 }), []);
+});
+
+test('une entrée dans le dos est annoncée au bord bas', () => {
+  const spawns = [
+    {
+      type: 'wasp',
+      row: 2,
+      delay: 3,
+      curve: { getPoint: () => ({ x: 4, z: 30 }), getTangent: () => ({ x: 0, z: -1 }) },
+    },
+  ];
+  const [a] = annoncesPourVague(spawns, { xMax: 14.5, zMax: 14 });
+  assert.ok(a, 'le dos doit s’annoncer');
+  assert.ok(a.z > 12 && a.z <= 14, `flèche à z=${a.z}, attendue au ras du bord bas`);
+  assert.equal(a.delay, 3);
+});
+
+test('le dos ne se débloque qu’avec la difficulté, et par le même tirage', () => {
+  assert.ok(!variantsPour(ARRIERE_DEPUIS - 1).includes('back'), 'le dos arrive trop tôt');
+  assert.ok(variantsPour(ARRIERE_DEPUIS).includes('back'), 'le dos ne se débloque jamais');
+  // Déterminisme : à graine égale, mêmes entrées — dos compris. C'est la
+  // condition pour que rejeu et duo restent exacts.
+  const { diff, seed } = paramsVague(14, { seed: 42 });
+  const sig = () =>
+    JSON.stringify(
+      makeWave(diff, { seed }).spawns.map((s) => [s.row, Math.round(s.curve.getPoint(0).z)])
+    );
+  assert.equal(sig(), sig());
+});
+
+test('la courbe du dos part bien derrière le joueur', () => {
+  const c = makeWave(ARRIERE_DEPUIS + 3, { seed: 7 }).spawns.map((s) => s.curve.getPoint(0).z);
+  // Au moins une composition sur quelques graines doit contenir une entrée
+  // arrière une fois le seuil franchi — sinon le déblocage est un mensonge.
+  let vue = false;
+  for (let g = 1; g <= 12 && !vue; g++) {
+    vue = makeWave(ARRIERE_DEPUIS + 3, { seed: g }).spawns.some((s) => s.curve.getPoint(0).z > 14);
+  }
+  assert.ok(vue, 'aucune entrée arrière sur douze graines après le seuil');
+  void c;
 });

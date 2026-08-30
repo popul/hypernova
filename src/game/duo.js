@@ -1,6 +1,7 @@
-// LE JEU À DEUX, CÔTÉ CLIENT : le salon, puis le pas verrouillé.
+// LE JEU EN RÉSEAU, CÔTÉ CLIENT : le salon, puis le pas verrouillé — à deux ou
+// à trois.
 //
-// LE PRINCIPE, EN UNE PHRASE. Les deux joueurs simulent la MÊME partie, chacun
+// LE PRINCIPE, EN UNE PHRASE. Tous les joueurs simulent la MÊME partie, chacun
 // chez lui, et ne s'échangent que ce que leurs doigts font. Rien d'autre ne
 // traverse le réseau : ni les ennemis, ni les tirs, ni le score.
 //
@@ -9,7 +10,7 @@
 // d'être appliquées. C'est déjà ce qui fait marcher le rejeu.
 //
 // LE PAS VERROUILLÉ, ET SON PRIX. Pour calculer l'image N, il faut les commandes
-// des DEUX joueurs pour l'image N. Attendre celle de l'autre à chaque image
+// de TOUS les joueurs pour l'image N. Attendre celle de l'autre à chaque image
 // ajouterait un aller-retour à chaque frame : injouable. On envoie donc sa
 // commande AVEC DE L'AVANCE — ce qu'on tape à l'image N s'appliquera à l'image
 // N + DELAI. Chacun a ainsi quatre images d'avance dans la besace de l'autre, et
@@ -66,6 +67,28 @@ function adresse(nom, mode, jeton) {
   return `${proto}//${location.host}${RACINE}/duo?${p}`;
 }
 
+// QUI PHOTOGRAPHIE LA TABLE.
+//
+// Le pas verrouillé n'est pas un déterminisme parfait : ma commande s'applique
+// chez moi tout de suite et chez les autres quatre images plus tard, donc les
+// simulations sont VOISINES, jamais identiques. Ce qui les recolle, c'est la
+// photo de frontière de vague — le mécanisme du spectateur, appliqué aux
+// joueurs. Reste à désigner le photographe : UN SEUL, le même pour tous, sans
+// se concerter. La règle est « le plus petit numéro encore en course » —
+// ni parti, ni arrivé au bout de sa partie. Chacun la déduit des mêmes
+// messages de table (`parti`, `fin`), donc tout le monde nomme le même.
+//
+// `moi` : mon numéro. `autres` : les autres postes, `{numero, fini}`.
+// `partis` : les numéros que le serveur a déclarés partis.
+export function estPhotographe(moi, autres, partis) {
+  if (!autres?.length) return false; // plus de table : régime solo, rien à recaler
+  for (const b of autres) {
+    if (b.fini || partis?.has?.(b.numero)) continue;
+    if (b.numero < moi) return false;
+  }
+  return true;
+}
+
 export class Duo {
   constructor(rappels = {}) {
     this.r = rappels;
@@ -73,12 +96,24 @@ export class Duo {
     this.etat = 'ferme'; // ferme | connexion | hall | salon | partie
     this.salonId = null;
     this.role = null;
-    this.moi = 0; // 0 ou 1 : quel vaisseau je pilote
+    // MON NUMÉRO DE JOUEUR : 0, 1 ou 2. On n'écrit JAMAIS « moi » et « lui »
+    // dans un état qui traverse le réseau, toujours des numéros — c'est la leçon
+    // de l'échange de vaisseaux du mode rejoindre : ces deux mots désignent des
+    // choses différentes de chaque côté de la ligne.
+    this.moi = 0;
     this.joueurs = [];
     this.graine = 0;
-    // Les commandes reçues de l'autre, indexées par numéro d'image. On ne les
-    // efface qu'après les avoir consommées : un paquet en avance doit pouvoir
-    // attendre son tour.
+    // Les PAIRS : les autres joueurs, `{ numero, nom }`, ordonnés par numéro
+    // croissant. C'est cet ordre — jamais celui d'arrivée des paquets — qui
+    // aligne les commandes consommées sur les bords distants du jeu.
+    this.pairs = [];
+    // Les NUMÉROS des pairs partis en cours de partie. On ne les retire pas tout
+    // de suite : leurs dernières commandes, déjà relayées, se consomment
+    // jusqu'au bout — voir `consomme`, c'est ce qui rend le retrait déterministe.
+    this.partis = new Set();
+    // Les commandes reçues, par PAIR puis par image
+    // (numéro de joueur → Map image → commande). On ne les efface qu'après les
+    // avoir consommées : un paquet en avance doit pouvoir attendre son tour.
     this.recues = new Map();
     // Le pair d'un pas verrouillé SANS salon : renseigné quand un copain qui
     // regardait se met à jouer. Voir `publie`.
@@ -168,6 +203,8 @@ export class Duo {
     this.etat = 'ferme';
     this.salonId = null;
     this.recues.clear();
+    this.pairs = [];
+    this.partis.clear();
   }
 
   _envoie(obj) {
@@ -184,10 +221,43 @@ export class Duo {
     this._envoie({ t: 'rejoindre', id });
   }
 
+  // L'hôte décide du décollage : un salon n'attend pas d'être plein, on part à
+  // deux comme à trois. Le serveur lance alors le compte à rebours pour tous.
+  lance() {
+    this._envoie({ t: 'lancer' });
+  }
+
+  // LA PAUSE EST PARTAGÉE. À plusieurs, « pause » veut dire que la table
+  // s'arrête — pas qu'un vaisseau reste figé au milieu des balles pendant que
+  // les autres jouent, jusqu'à ce que le garde-fou des muets le retire de la
+  // partie. Le message ne touche pas au pas verrouillé : chacun cesse d'appeler
+  // update, et les commandes reprennent où elles s'étaient tues. En liaison
+  // directe, même geste par le canal des amis.
+  pause(oui) {
+    if (this.direct) return this.signale(this.direct, 'pause', { oui: !!oui });
+    this._envoie({ t: 'pause', oui: !!oui, nom: this._dernier?.nom || '' });
+  }
+
+  // La photo de frontière de vague, de l'hôte vers la table. En liaison
+  // directe, le canal des amis fait le même travail avec `resync-etat`.
+  etatVague(d) {
+    this._envoie({ t: 'etat-vague', j: this.moi, d });
+  }
+
+  // L'empreinte croisée, à toute la table d'un coup. Elle passait par le canal
+  // des amis, qui exige l'amitié : deux invités d'une table publique ne se
+  // connaissent pas forcément, et leurs divergences passaient sans témoin.
+  empreinte(d) {
+    this._envoie({ t: 'emp', j: this.moi, d });
+  }
+
   quitte() {
     this._envoie({ t: 'quitter' });
     this.salonId = null;
     this.etat = 'hall';
+    // La tablée appartenait à cette table : la garder ferait montrer les sièges
+    // d'hier à la prochaine table ouverte, le temps que le serveur reparle.
+    this.joueurs = [];
   }
 
   choisitCoque(coque) {
@@ -218,7 +288,9 @@ export class Duo {
   }
 
   annonceFin(score, vague) {
-    this._envoie({ t: 'fin', score, vague });
+    // Signée du numéro, comme les commandes : le relais est verbatim, et à trois
+    // il faut savoir quel score est à qui.
+    this._envoie({ t: 'fin', j: this.moi, score, vague });
   }
 
   _recois(brut) {
@@ -241,16 +313,33 @@ export class Duo {
       case 'salon':
         this.salonId = m.id;
         this.role = m.role;
-        this.etat = 'salon';
+        // EN PARTIE, ON Y RESTE. Quand l'hôte s'en va à trois, le serveur promeut
+        // le premier invité et le lui dit par ce même message `salon` : retomber
+        // à l'état « salon » couperait le pas verrouillé en plein vol — plus
+        // d'attente des pairs, simulation en temps réel, divergence immédiate.
+        if (this.etat !== 'partie') this.etat = 'salon';
+        if (Array.isArray(m.joueurs)) this.joueurs = m.joueurs;
         return this.r.onSalon?.(m);
-      case 'pair':
-        return this.r.onPair?.(m);
+      // La composition de la table, rejouée entière à chaque changement : qui
+      // est assis, avec quelle coque, et QUEL NUMÉRO est le nôtre — deux invités
+      // sans compte peuvent porter le même pseudo, le nom ne suffit pas.
+      case 'equipage':
+        if (Array.isArray(m.joueurs)) this.joueurs = m.joueurs;
+        if (this.etat !== 'partie' && typeof m.moi === 'number') this.moi = m.moi;
+        return this.r.onEquipage?.(m);
       case 'compte':
+        if (Array.isArray(m.joueurs)) this.joueurs = m.joueurs;
         return this.r.onCompte?.(m.n);
       case 'go':
         this.graine = m.graine;
         this.moi = m.moi;
         this.joueurs = m.joueurs;
+        // Mes pairs, ordonnés par NUMÉRO : l'indice dans `joueurs` fait loi, et
+        // il est FIGÉ pour toute la partie — un départ ne renumérote personne.
+        this.pairs = m.joueurs
+          .map((j, numero) => ({ numero, nom: j.nom }))
+          .filter((p) => p.numero !== m.moi);
+        this.partis.clear();
         this.etat = 'partie';
         this.frame = 0;
         this.reste = 0;
@@ -258,12 +347,39 @@ export class Duo {
         this.recues.clear();
         return this.r.onGo?.(m);
       case 'c':
-        this.recues.set(m.f, m.d);
+        // Le relais est VERBATIM : c'est l'ÉMETTEUR qui signe sa commande de son
+        // numéro (`j`, posé dans `publie`) — à trois, « l'autre » n'existe plus.
+        // Sans signature (partie à deux d'avant), elle ne peut venir que de
+        // l'unique pair.
+        this.recoisCommande(m.j ?? this.pairs[0]?.numero, m.f, m.d);
         return;
       case 'fin':
         return this.r.onFinAutre?.(m);
+      case 'pause':
+        return this.r.onPause?.(m);
+      case 'etat-vague':
+        return this.r.onEtatVague?.(m);
+      case 'emp':
+        return this.r.onEmpreinte?.(m);
       case 'parti':
-        this.etat = this.salonId ? 'salon' : 'hall';
+        // EN PARTIE, LE DÉPART NE COUPE PAS LE PAS VERROUILLÉ : les autres
+        // continuent. On marque le partant — par son NUMÉRO du décollage, que le
+        // serveur fige — ses dernières commandes déjà relayées s'épuisent, et
+        // c'est le jeu qui retire son bord, voir `consomme`. Hors partie, on
+        // retombe au salon ou au hall comme avant.
+        if (this.etat === 'partie') {
+          if (typeof m.slot === 'number') this.marquePart(m.slot);
+          else if (this.pairs.length === 1) this.marquePart(this.pairs[0].numero);
+        } else {
+          // La table est morte quand l'hôte est parti (`hote`) ou qu'elle a
+          // expiré : on retombe au hall, sièges compris — les garder peints
+          // montrerait une tablée qui n'existe plus.
+          if (m.hote || m.cause === 'expire') {
+            this.salonId = null;
+            this.joueurs = [];
+          }
+          this.etat = this.salonId ? 'salon' : 'hall';
+        }
         return this.r.onParti?.(m);
       case 'erreur':
         return this.r.onErreur?.(m.code);
@@ -290,7 +406,7 @@ export class Duo {
     // chaque côté, image zéro, plus rien qui avance.
     for (let f = 0; f < DELAI; f++) {
       if (this.direct) this.signale(this.direct, 'c', { f, d: neutre });
-      else this._envoie({ t: 'c', f, d: neutre });
+      else this._envoie({ t: 'c', j: this.moi, f, d: neutre });
     }
   }
 
@@ -310,15 +426,53 @@ export class Duo {
     // commandes par ce canal-là. Toute la discipline du pas verrouillé — le
     // délai, l'attente, le rattrapage — ne change pas d'une ligne : seul le
     // tuyau change.
+    // LA COMMANDE EST SIGNÉE DU NUMÉRO DE SON ÉMETTEUR (`j`). Le relais du
+    // salon passe les octets tels quels, sans savoir de qui ils viennent : à
+    // trois, c'est cette signature qui range chaque commande dans la bonne
+    // besace chez ceux qui la reçoivent.
     if (this.direct) return this.signale(this.direct, 'c', { f: this.frame + DELAI, d: donnees });
-    this._envoie({ t: 'c', f: this.frame + DELAI, d: donnees });
+    this._envoie({ t: 'c', j: this.moi, f: this.frame + DELAI, d: donnees });
+  }
+
+  // Une commande arrive d'un pair — par le salon ou par le canal des amis. `de`
+  // est son NUMÉRO de joueur : l'identité qui ne ment pas, là où deux invités
+  // peuvent porter le même pseudo.
+  recoisCommande(de, f, d) {
+    if (typeof de !== 'number') return;
+    let parImage = this.recues.get(de);
+    if (!parImage) {
+      parImage = new Map();
+      this.recues.set(de, parImage);
+    }
+    parImage.set(f, d);
+  }
+
+  // Un pair a quitté la partie. On ne jette RIEN : ses dernières commandes,
+  // relayées à tout le monde avant sa fermeture, sont les mêmes chez chaque
+  // survivant — les consommer jusqu'au bout, puis retirer son bord à la première
+  // image sans commande, donne à tous le MÊME instant de retrait. Un retrait « à
+  // réception du message » se ferait à des images différentes selon la latence
+  // de chacun, et les simulations divergeraient en silence.
+  marquePart(numero) {
+    if (this.pairs.some((p) => p.numero === numero)) this.partis.add(numero);
+  }
+
+  // Le jeu a retiré son bord : le pair sort pour de bon du pas verrouillé.
+  retire(numero) {
+    this.pairs = this.pairs.filter((p) => p.numero !== numero);
+    this.partis.delete(numero);
+    this.recues.delete(numero);
   }
 
   // Bascule en pas verrouillé DIRECT avec un ami, sans salon. `moi` vaut 0 pour
-  // celui qui hébergeait la partie, 1 pour celui qui arrive.
+  // celui qui hébergeait la partie, 1 pour celui qui arrive. Le rejoindre-en-
+  // cours reste une affaire à DEUX : un spectateur rejoint une partie solo —
+  // l'étendre à trois est un chantier séparé.
   ouvreDirect(nom, moi) {
     this.direct = nom;
     this.moi = moi;
+    this.pairs = [{ numero: 1 - moi, nom }];
+    this.partis.clear();
     this.etat = 'partie';
     this.frame = 0;
     this.reste = 0;
@@ -332,16 +486,28 @@ export class Duo {
   }
 
   // Y a-t-il de quoi calculer l'image courante ? En solo il n'y a rien à
-  // attendre ; à deux, il faut la commande de l'autre.
+  // attendre ; en réseau, il faut la commande de CHAQUE pair encore là. Un pair
+  // parti n'est plus attendu : ce qu'il a laissé se consomme, et c'est tout.
   pret() {
-    return this.etat !== 'partie' || this.recues.has(this.frame);
+    if (this.etat !== 'partie') return true;
+    for (const p of this.pairs) {
+      if (this.partis.has(p.numero)) continue;
+      if (!this.recues.get(p.numero)?.has(this.frame)) return false;
+    }
+    return true;
   }
 
-  // La commande de l'autre pour l'image courante, puis on l'oublie.
+  // Les commandes des pairs pour l'image courante, ORDONNÉES PAR NUMÉRO DE
+  // JOUEUR — le même ordre que `pairs`, donc que les bords distants du jeu.
+  // Un pair parti dont la réserve est épuisée rend `null` : c'est le signal,
+  // identique chez tous les survivants, que son bord se retire à cette image.
   consomme() {
-    const d = this.recues.get(this.frame);
-    this.recues.delete(this.frame);
-    return d || null;
+    return this.pairs.map((p) => {
+      const parImage = this.recues.get(p.numero);
+      const d = parImage?.get(this.frame);
+      parImage?.delete(this.frame);
+      return d || null;
+    });
   }
 
   // Combien de pas de simulation exécuter pour le temps réel écoulé. Le reliquat

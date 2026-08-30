@@ -37,6 +37,21 @@ export class Director {
     this.cleanTime = 0;
   }
 
+  // Le directeur se photographie EN ENTIER. La chaleur ne suffit pas : le temps
+  // calme décide de l'image où elle recommence à monter, et le dernier palier
+  // décide de l'image où `setHeat` refrappe les ennemis. Un rejoignant qui
+  // repartirait à zéro sur ces deux-là recalibrerait sa vague à un autre moment
+  // que les autres — une désynchronisation sans aucun coupable visible.
+  instantane() {
+    return [this.heat, this.cleanTime, this._lastTier];
+  }
+
+  restaure(d) {
+    this.heat = d?.[0] || 0;
+    this.cleanTime = d?.[1] || 0;
+    this._lastTier = d?.[2] || 0;
+  }
+
   // Renvoie le palier entier franchi depuis le dernier appel, ou 0.
   pollTier() {
     const tier = Math.floor(this.heat);

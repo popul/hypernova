@@ -42,12 +42,12 @@ import {
 // tirer. Aucun rendu, aucune scène : on éprouve la mécanique, pas les pixels.
 const muet = (noms) => Object.fromEntries(noms.map((n) => [n, () => {}]));
 
-function banc({ joueur2 = null } = {}) {
+function banc({ joueursDistants = [] } = {}) {
   const enemies = new Enemies(new THREE.Scene());
   const balles = [];
   const game = {
     player: { position: new THREE.Vector3(3, 0, 8), alive: true },
-    joueur2,
+    joueursDistants,
     // Le boss tire pour de vrai : on ramasse ses balles au lieu de les dessiner.
     enemyBullets: { spawn: (from, dir, kind) => balles.push({ from, dir, kind }) },
     onBossPhase: () => {},
@@ -111,12 +111,12 @@ test('l’acte III descend sur le joueur et le suit', () => {
   );
 });
 
-test('à deux, l’acte III vise le joueur le plus avancé', () => {
+test('en réseau, l’acte III vise le joueur le plus avancé', () => {
   // La fonction masquée par la variable était justement celle qui choisit lequel
-  // des deux joueurs le boss traque. C'est ce que le duo avait ajouté, et c'est
+  // des joueurs le boss traque. C'est ce que le duo avait ajouté, et c'est
   // ce que le masquage a cassé.
-  const joueur2 = { position: new THREE.Vector3(-6, 0, 9), alive: true };
-  const { enemies, game, boss } = banc({ joueur2 });
+  const distant = { position: new THREE.Vector3(-6, 0, 9), alive: true };
+  const { enemies, game, boss } = banc({ joueursDistants: [distant] });
   joue(enemies, boss, game, 100, 1);
   joue(enemies, boss, game, 20, BOSS_BASCULE + 3);
 

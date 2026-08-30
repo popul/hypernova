@@ -31,6 +31,7 @@ export class Hud {
         <div class="combo-bar"><div class="combo-fill" id="combo-fill"></div></div>
       </div>
       <div class="hud-lives" id="hud-lives"></div>
+      <div class="hud-bords" id="hud-bords"></div>
       <div class="hud-energy" id="hud-energy">
         <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
         <div class="energy-label" id="energy-label">X</div>
@@ -68,6 +69,7 @@ export class Hud {
         'combo-mult',
         'combo-fill',
         'hud-lives',
+        'hud-bords',
         'boss-bar',
         'boss-fill',
         'boss-acte',
@@ -120,6 +122,26 @@ export class Hud {
       { length: Math.max(0, n) },
       () => '<span class="life"></span>'
     ).join('');
+  }
+
+  // LES AUTRES PILOTES, EN LISTE : un nom et ses vies par bord distant — à deux
+  // il y a une ligne, à trois il y en a deux. Vide, le bloc disparaît : en solo,
+  // il n'existe pas. Il faut pouvoir dire d'un coup d'œil, en plein combat, s'il
+  // reste des vies au copain qu'on ne couvre pas.
+  setBords(liste) {
+    const cle = JSON.stringify(liste.map((b) => [b.nom, b.vies]));
+    if (this._cache.bords === cle) return;
+    this._cache.bords = cle;
+    this.el['hud-bords'].innerHTML = liste
+      .map(
+        (b) => `<div class="bord-ligne">
+          <span class="bord-nom">${esc(b.nom)}</span>
+          <span class="bord-vies">${
+            b.vies > 0 ? '<span class="life"></span>'.repeat(Math.min(9, b.vies)) : '✕'
+          }</span>
+        </div>`
+      )
+      .join('');
   }
 
   setCombo(mult, timeFrac) {

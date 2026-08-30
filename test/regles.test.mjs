@@ -73,14 +73,61 @@ test('la chaleur du directeur durcit, jamais l’inverse', () => {
   assert.ok(chaud.simultaneousDivers >= froid.simultaneousDivers);
 });
 
-test('le jeu à deux durcit la vague, et seulement elle', async () => {
-  const { DUO } = await import('../src/game/constants.js');
-  // Les trois facteurs sont au-dessus de un : à deux on est deux à tirer.
+test('le jeu en réseau durcit la vague selon le nombre, jamais proportionnellement', async () => {
+  const { MULT_JOUEURS } = await import('../src/game/constants.js');
+  // La table connaît exactement les deux tablées possibles : 2 et 3.
+  assert.deepEqual(Object.keys(MULT_JOUEURS).sort(), ['2', '3'], 'la table doit couvrir 2 et 3');
   for (const cle of ['hp', 'fire', 'dive']) {
-    assert.ok(DUO[cle] > 1, `DUO.${cle} devrait durcir`);
+    // Les facteurs sont au-dessus de un : à plusieurs, on est plusieurs à tirer.
+    assert.ok(MULT_JOUEURS[2][cle] > 1, `MULT_JOUEURS[2].${cle} devrait durcir`);
     // Et jamais au point de doubler : deux joueurs ne valent pas deux fois un.
-    assert.ok(DUO[cle] < 2, `DUO.${cle} double la difficulté, c'est trop`);
+    assert.ok(MULT_JOUEURS[2][cle] < 2, `MULT_JOUEURS[2].${cle} double la difficulté, c'est trop`);
+    // À trois on couvre plus large : tout monte par rapport à deux…
+    assert.ok(
+      MULT_JOUEURS[3][cle] > MULT_JOUEURS[2][cle],
+      `MULT_JOUEURS[3].${cle} devrait durcir plus qu'à deux`
+    );
+    // … mais moins que proportionnellement (3/2) : à trois, on se gêne aussi.
+    assert.ok(
+      MULT_JOUEURS[3][cle] < MULT_JOUEURS[2][cle] * 1.5,
+      `MULT_JOUEURS[3].${cle} suit le nombre de joueurs, c'est trop`
+    );
   }
+});
+
+test("modsEquipage : la majoration suit les vivants, la base reste intacte", async () => {
+  const { modsEquipage, MULT_JOUEURS } = await import('../src/game/constants.js');
+  const base = { hp: 2, fire: 1.5, dive: 1, credits: 1.2 };
+  // Seul, aucune majoration : la table ne connaît pas le 1.
+  assert.deepEqual(modsEquipage(base, 1), base);
+  const aDeux = modsEquipage(base, 2);
+  assert.equal(aDeux.hp, 2 * MULT_JOUEURS[2].hp, 'la coque suit la table');
+  assert.equal(aDeux.fire, 1.5 * MULT_JOUEURS[2].fire, 'la cadence suit la table');
+  assert.equal(aDeux.dive, 1 * MULT_JOUEURS[2].dive, 'les piqués suivent la table');
+  assert.equal(aDeux.credits, 1.2, 'les crédits ne bougent jamais : chacun ramasse les siens');
+  // Au-delà de trois, la table plafonne — un quatrième pilote hypothétique
+  // n'inventerait pas un multiplicateur inexistant.
+  assert.deepEqual(modsEquipage(base, 4), modsEquipage(base, 3));
+  // Et surtout : la base n'est JAMAIS mutée. C'est elle qui sert de référence
+  // au recalcul en cours de vague — mutée, les majorations se composeraient.
+  assert.deepEqual(base, { hp: 2, fire: 1.5, dive: 1, credits: 1.2 });
+});
+
+test('le directeur se photographie en entier — chaleur, temps calme, palier', async () => {
+  const { Director } = await import('../src/game/director.js');
+  const d = new Director();
+  d.heat = 2.4;
+  d.cleanTime = 7;
+  d._lastTier = 2;
+  const copie = new Director();
+  copie.restaure(d.instantane());
+  assert.equal(copie.heat, 2.4);
+  // Sans le temps calme, la chaleur du rejoignant recommence à monter à une
+  // autre image que celle des autres : divergence sans coupable visible.
+  assert.equal(copie.cleanTime, 7);
+  // Le palier 2 est déjà annoncé : le refranchir déclencherait un `setHeat`
+  // chez le rejoignant seul — et la vague se recalibrerait sur une seule machine.
+  assert.equal(copie.pollTier(), 0);
 });
 
 // --- LE BOUTON D'ÉNERGIE ------------------------------------------------------

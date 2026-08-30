@@ -1,10 +1,11 @@
-// LES SALONS DU JEU À DEUX, LA PRÉSENCE, ET LE RELAIS.
+// LES SALONS DU JEU À PLUSIEURS, LA PRÉSENCE, ET LE RELAIS.
 //
-// Le serveur ne simule rien : il apparie deux clients, leur donne la même graine
-// et fait passer les octets. Tout ce qu'il possède en propre tient donc dans des
-// PROMESSES, et une promesse trahie ici ne plante pas — elle produit deux parties
-// différentes, un ami qui reste éternellement en ligne, ou une ligne audio ouverte
-// chez quelqu'un qui n'a rien demandé. Rien de tout ça ne se voit dans un journal.
+// Le serveur ne simule rien : il assoit deux ou trois clients à la même table,
+// leur donne la même graine et fait passer les octets. Tout ce qu'il possède en
+// propre tient donc dans des PROMESSES, et une promesse trahie ici ne plante pas
+// — elle produit deux parties différentes, un ami qui reste éternellement en
+// ligne, ou une ligne audio ouverte chez quelqu'un qui n'a rien demandé. Rien de
+// tout ça ne se voit dans un journal.
 //
 // Ces épreuves construisent un Duo avec de faux clients : la classe ne parle aux
 // connexions que par envoieJSON / envoie / ping / ouverte, et ne connaît de la
@@ -129,7 +130,9 @@ function epreuve(titre, corps) {
       if (coque) co.dis({ t: 'coque', coque });
       return co;
     };
-    // Une table prête à décoller : hôte, invité, et l'identifiant du salon.
+    // Une table de deux, PAS ENCORE LANCÉE. Le décollage n'est plus automatique
+    // à l'arrivée d'un invité : la table peut attendre un troisième, et c'est
+    // l'hôte qui envoie « lancer » quand son équipage lui convient.
     salle.table = (opts = {}) => {
       const hote = salle.arrive(opts.hote || 'ALICE', opts);
       hote.dis({ t: 'creer' });
@@ -137,6 +140,13 @@ function epreuve(titre, corps) {
       const invite = salle.arrive(opts.invite || 'BOB', { ...opts, mode: 'arcade' });
       invite.dis({ t: 'rejoindre', id });
       return { hote, invite, id };
+    };
+    // La même, avec le troisième siège occupé.
+    salle.trio = (opts = {}) => {
+      const t = salle.table(opts);
+      const troisieme = salle.arrive(opts.troisieme || 'EVE', { ...opts, mode: 'arcade' });
+      troisieme.dis({ t: 'rejoindre', id: t.id });
+      return { ...t, troisieme };
     };
     try {
       corps(salle, horloge);
@@ -170,19 +180,26 @@ epreuve('créer une table donne un rôle, et une invitation que les autres voien
   );
 });
 
-epreuve("une table complète n'est plus une invitation, et redevient libre", (salle) => {
+epreuve('une table garde sa place en vitrine tant qu’il reste un siège', (salle) => {
+  // CHANGEMENT VOULU : à deux, le premier invité suffisait à retirer la table de
+  // la liste. Depuis le troisième siège, une table à deux reste une invitation —
+  // et `assis` dit combien y sont déjà, pour que le hall affiche « 2/3 ».
   const spectateur = salle.arrive('CARL');
-  const { invite } = salle.table();
+  const { id } = salle.table();
 
-  assert.equal(spectateur.dernier('salons').l.length, 0, 'une table à deux reste proposée');
+  let vue = spectateur.dernier('salons').l;
+  assert.equal(vue.length, 1, 'une table à deux n’attend plus son troisième');
+  assert.equal(vue[0].assis, 2, 'la vitrine ne dit pas combien sont assis');
 
-  // L'invité s'en va : l'hôte garde sa table, et elle réapparaît dans la liste.
-  invite.dis({ t: 'quitter' });
-  assert.equal(
-    spectateur.dernier('salons').l.length,
-    1,
-    "la table libérée par l'invité ne revient pas dans la liste"
-  );
+  const eve = salle.arrive('EVE');
+  eve.dis({ t: 'rejoindre', id });
+  assert.equal(spectateur.dernier('salons').l.length, 0, 'une table pleine reste proposée');
+
+  // Un invité s'en va : un siège se libère, la table revient en vitrine.
+  eve.dis({ t: 'quitter' });
+  vue = spectateur.dernier('salons').l;
+  assert.equal(vue.length, 1, "la table libérée par l'invité ne revient pas dans la liste");
+  assert.equal(vue[0].assis, 2, 'la vitrine compte encore l’invité parti');
 });
 
 epreuve('la liste ne montre que les tables du même mode', (salle) => {
@@ -256,10 +273,16 @@ epreuve('on ne pousse la liste qu’à ceux qui la regardent', (salle) => {
   assert.equal(spectateur.dernier('salons').l.length, 2, 'le hall ne voit pas la nouvelle table');
 });
 
-epreuve('rejoindre : chacun apprend le pseudo et la coque de l’autre', (salle) => {
+epreuve('rejoindre : chacun reçoit l’équipage entier, et son propre numéro', (salle) => {
   const alice = salle.arrive('ALICE', { coque: 'helios' });
   alice.dis({ t: 'creer' });
   const id = alice.dernier('salon').id;
+  // Dès la création, l'hôte voit sa table : un équipage d'un seul, numéro 0.
+  assert.deepEqual(alice.dernier('equipage'), {
+    t: 'equipage',
+    joueurs: [{ slot: 0, nom: 'ALICE', coque: 'helios' }],
+    moi: 0,
+  });
 
   const bob = salle.arrive('BOB', { coque: 'vulcain' });
   bob.dis({ t: 'rejoindre', id });
@@ -269,10 +292,16 @@ epreuve('rejoindre : chacun apprend le pseudo et la coque de l’autre', (salle)
     { t: 'salon', id, role: 'invite', mode: 'arcade' },
     "l'invité n'apprend pas correctement où il vient d'entrer"
   );
-  // L'appairage est symétrique : chacun voit le pseudo ET la coque de l'autre,
-  // sinon la salle d'attente affiche un vaisseau qui n'est pas celui qui décollera.
-  assert.deepEqual(alice.dernier('pair'), { t: 'pair', nom: 'BOB', coque: 'vulcain' });
-  assert.deepEqual(bob.dernier('pair'), { t: 'pair', nom: 'ALICE', coque: 'helios' });
+  // L'ancien message `pair` décrivait « l'autre » — un mot qui n'a plus de sens à
+  // trois. `equipage` donne la table entière dans l'ordre des numéros, et `moi`
+  // dit au destinataire lequel il est : deux invités non identifiés peuvent
+  // porter le même pseudo, le nom ne suffit pas à se reconnaître.
+  const joueurs = [
+    { slot: 0, nom: 'ALICE', coque: 'helios' },
+    { slot: 1, nom: 'BOB', coque: 'vulcain' },
+  ];
+  assert.deepEqual(alice.dernier('equipage'), { t: 'equipage', joueurs, moi: 0 });
+  assert.deepEqual(bob.dernier('equipage'), { t: 'equipage', joueurs, moi: 1 });
 });
 
 epreuve('le mode de l’hôte fait loi', (salle) => {
@@ -296,17 +325,24 @@ epreuve('le mode de l’hôte fait loi', (salle) => {
   );
 });
 
-epreuve('rejoindre l’impossible : l’inconnue, la complète, et la sienne', (salle) => {
+epreuve('rejoindre l’impossible : l’inconnue, la pleine, la lancée, la sienne', (salle) => {
   const alice = salle.arrive('ALICE');
   alice.dis({ t: 'creer' });
   const sienne = alice.dernier('salon').id;
-  const { id: complete } = salle.table({ hote: 'CARL', invite: 'DINO' });
+  // Une table PLEINE, c'est désormais trois : deux invités au plus.
+  const { id: pleine } = salle.trio({ hote: 'CARL', invite: 'DINO', troisieme: 'FRED' });
+  // Et une table en plein décompte est verrouillée : ses battements ont déjà
+  // annoncé l'équipage aux assis — quelqu'un qui s'assiérait pendant les trois
+  // secondes ferait mentir ce qu'ils ont sous les yeux.
+  const lancee = salle.table({ hote: 'GIL', invite: 'HUGO' });
+  lancee.hote.dis({ t: 'lancer' });
 
   const zoe = salle.arrive('ZOE');
   for (const [quoi, message] of [
     ['une table inconnue', { t: 'rejoindre', id: 'ffffffff' }],
     ['une table sans identifiant', { t: 'rejoindre' }],
-    ['une table déjà complète', { t: 'rejoindre', id: complete }],
+    ['une table déjà pleine', { t: 'rejoindre', id: pleine }],
+    ['une table en plein décompte', { t: 'rejoindre', id: lancee.id }],
   ]) {
     const avant = zoe.des('erreur').length;
     zoe.dis(message);
@@ -323,9 +359,20 @@ epreuve('rejoindre l’impossible : l’inconnue, la complète, et la sienne', (
   alice.dis({ t: 'rejoindre', id: sienne });
   assert.equal(alice.dernier('erreur')?.code, 'salon-indisponible', 'l’hôte a rejoint sa table');
   assert.ok(salle.duo.salons.has(sienne), 'la table a disparu sous son hôte');
-  assert.equal(salle.duo.salons.get(sienne).invite, null, 'l’hôte est devenu son propre invité');
+  assert.deepEqual(salle.duo.salons.get(sienne).invites, [], 'l’hôte est devenu son propre invité');
   alice.dis({ t: 'c', f: 1 });
   assert.deepEqual(alice.bruts, [], 'l’hôte se relaie ses propres commandes');
+
+  // Un invité déjà assis ne se rassoit pas non plus. Depuis qu'une table à deux
+  // garde un siège libre, la place « disponible » pourrait être la sienne : sans
+  // ce refus, il passerait par « quitter puis revenir » et arroserait la table
+  // de messages de départ pour rien.
+  const t2 = salle.table({ hote: 'IGOR', invite: 'JOE' });
+  const partisAvant = t2.hote.des('parti').length;
+  t2.invite.dis({ t: 'rejoindre', id: t2.id });
+  assert.equal(t2.invite.dernier('erreur')?.code, 'salon-indisponible', 'l’invité s’est rassis');
+  assert.equal(t2.hote.des('parti').length, partisAvant, 'se rasseoir a fait croire à un départ');
+  assert.equal(salle.duo.salons.get(t2.id).invites.length, 1);
 });
 
 epreuve('créer deux fois ne laisse pas de table fantôme', (salle) => {
@@ -337,7 +384,7 @@ epreuve('créer deux fois ne laisse pas de table fantôme', (salle) => {
   assert.equal(salle.duo.chiffres().salons, 1, "l'ancienne table survit à son hôte");
   assert.deepEqual(
     invite.dernier('parti'),
-    { t: 'parti', cause: 'change', hote: true },
+    { t: 'parti', cause: 'change', slot: 0, hote: true },
     "l'invité de la table abandonnée n'est pas prévenu"
   );
   assert.equal(invite.c.salon, null, "l'invité reste assis à une table qui n'existe plus");
@@ -369,13 +416,29 @@ epreuve('le plafond de salons existe, et se libère', (salle) => {
 
 // --- Le décollage ------------------------------------------------------------
 
-epreuve('le compte à rebours est tenu par le serveur, et part sans attendre', (salle, h) => {
+epreuve('le compte à rebours part au « lancer » de l’hôte, et le serveur le tient', (salle, h) => {
   const { hote, invite } = salle.table();
 
-  // Le premier battement est immédiat : sinon les deux clients regardent un écran
+  // CHANGEMENT VOULU : l'arrivée d'un invité ne déclenche plus rien. La table
+  // peut attendre un troisième, et c'est l'hôte qui décide si l'on part à deux.
+  h.bat(1000, 5);
+  assert.equal(hote.des('compte').length, 0, 'le compte part sans l’ordre de l’hôte');
+
+  hote.dis({ t: 'lancer' });
+  // Le premier battement est immédiat : sinon les clients regardent un écran
   // muet pendant une seconde en se demandant si ça a marché.
   const depart = hote.dernier('compte')?.n;
-  assert.ok(depart >= 1, 'aucun compte à rebours au moment de l’appairage');
+  assert.ok(depart >= 1, 'aucun compte à rebours au moment du lancement');
+  // Chaque battement porte l'équipage : l'écran d'attente affiche qui décolle,
+  // et avec quel numéro, sans autre message à attendre.
+  assert.deepEqual(
+    hote.dernier('compte').joueurs.map((j) => [j.slot, j.nom]),
+    [
+      [0, 'ALICE'],
+      [1, 'BOB'],
+    ],
+    'le décompte n’annonce pas l’équipage'
+  );
 
   for (let i = 0; i < depart; i++) {
     assert.equal(hote.des('go').length, 0, 'le décollage a eu lieu avant la fin du compte');
@@ -388,22 +451,59 @@ epreuve('le compte à rebours est tenu par le serveur, et part sans attendre', (
     attendu,
     'le compte ne descend pas jusqu’à un'
   );
-  // Les deux reçoivent EXACTEMENT la même chose : c'est ce qui les fait démarrer
+  // Tous reçoivent EXACTEMENT la même chose : c'est ce qui les fait démarrer
   // sur la même image.
   assert.deepEqual(invite.des('compte'), hote.des('compte'), 'les deux comptes divergent');
   assert.equal(hote.des('go').length, 1, 'un seul décollage, et il a eu lieu');
   assert.equal(h.combien(1000), 0, 'le minuteur du compte tourne encore après le décollage');
 });
 
+epreuve('« lancer » n’obéit qu’à l’hôte, jamais à vide, jamais deux fois', (salle, h) => {
+  // Personne à table : refusé. L'erreur n'est pas décorative — un bouton qui ne
+  // fait rien sans dire pourquoi est indéboguable à distance.
+  const zoe = salle.arrive('ZOE');
+  zoe.dis({ t: 'lancer' });
+  assert.equal(zoe.dernier('erreur')?.code, 'lancement-impossible', 'lancer sans salon passe');
+
+  // Un hôte seul : refusé — on ne fait pas décoller une partie à un.
+  const seul = salle.arrive('ALICE');
+  seul.dis({ t: 'creer' });
+  seul.dis({ t: 'lancer' });
+  assert.equal(seul.dernier('erreur')?.code, 'lancement-impossible', 'un hôte décolle seul');
+  assert.equal(h.combien(1000), 0, 'un compte à rebours est parti quand même');
+
+  // Un invité : refusé — celui qui a ouvert la table décide du départ.
+  const { hote, invite } = salle.table({ hote: 'CARL', invite: 'DINO' });
+  invite.dis({ t: 'lancer' });
+  assert.equal(invite.dernier('erreur')?.code, 'lancement-impossible', 'un invité lance la table');
+  assert.equal(h.combien(1000), 0);
+
+  // Deux « lancer » de suite : un SEUL compte. Deux minuteurs feraient descendre
+  // le compte deux fois plus vite — et décoller deux fois, avec deux graines.
+  hote.dis({ t: 'lancer' });
+  hote.dis({ t: 'lancer' });
+  assert.equal(hote.dernier('erreur')?.code, 'lancement-impossible');
+  assert.equal(h.combien(1000), 1, 'deux comptes à rebours tournent en même temps');
+  h.bat(1000, 8);
+  assert.equal(hote.des('go').length, 1, 'la table a décollé deux fois');
+
+  // Et une fois en l'air : refusé aussi, la partie est déjà lancée.
+  hote.dis({ t: 'lancer' });
+  assert.equal(hote.dernier('erreur')?.code, 'lancement-impossible');
+  assert.equal(h.combien(1000), 0);
+});
+
 epreuve('la même graine des deux côtés, et deux rôles distincts', (salle, h) => {
   const { hote, invite } = salle.table({ mode: 'survie', coque: 'helios' });
   invite.dis({ t: 'coque', coque: 'vulcain' });
+  hote.dis({ t: 'lancer' });
   h.bat(1000, 8);
 
   const a = hote.dernier('go');
   const b = invite.dernier('go');
   assert.ok(a && b, 'quelqu’un n’a pas décollé');
-  // LA promesse du jeu à deux : même graine, donc même hasard, donc même partie.
+  // LA promesse du jeu à plusieurs : même graine, donc même hasard, donc même
+  // partie.
   assert.equal(a.graine, b.graine, 'les deux clients sèment un hasard différent');
   assert.ok(
     Number.isInteger(a.graine) && a.graine >= 0 && a.graine < 2 ** 31,
@@ -426,6 +526,7 @@ epreuve('la graine vient du serveur et n’est pas une constante', (salle, h) =>
   const graines = new Set();
   for (let i = 0; i < 5; i++) {
     const { hote } = salle.table({ hote: `A${i}`, invite: `B${i}` });
+    hote.dis({ t: 'lancer' });
     h.bat(1000, 8);
     graines.add(hote.dernier('go').graine);
     hote.dis({ t: 'quitter' });
@@ -436,6 +537,7 @@ epreuve('la graine vient du serveur et n’est pas une constante', (salle, h) =>
 
 epreuve('l’invité qui part avant le décollage annule le compte à rebours', (salle, h) => {
   const { hote, invite } = salle.table();
+  hote.dis({ t: 'lancer' });
   const battus = hote.des('compte').length;
 
   invite.dis({ t: 'quitter' });
@@ -446,17 +548,153 @@ epreuve('l’invité qui part avant le décollage annule le compte à rebours', 
   assert.equal(hote.des('compte').length, battus, 'le compte continue après le départ de l’invité');
 });
 
-// --- Le relais ---------------------------------------------------------------
+// --- Le trio -----------------------------------------------------------------
 
-epreuve('la commande passe au voisin telle quelle, et à lui seul', (salle) => {
-  const { hote, invite } = salle.table();
-  const temoin = salle.arrive('CARL');
+epreuve('trois pilotes s’assoient, et chacun connaît tout l’équipage', (salle) => {
+  const { hote, invite, troisieme } = salle.trio();
+  // Le troisième change de coque dans la salle d'attente : les DEUX autres
+  // doivent le voir, pas seulement l'hôte.
+  troisieme.dis({ t: 'coque', coque: 'vulcain' });
+
+  const joueurs = [
+    { slot: 0, nom: 'ALICE', coque: 'orion' },
+    { slot: 1, nom: 'BOB', coque: 'orion' },
+    { slot: 2, nom: 'EVE', coque: 'vulcain' },
+  ];
+  assert.deepEqual(hote.dernier('equipage'), { t: 'equipage', joueurs, moi: 0 });
+  assert.deepEqual(invite.dernier('equipage'), { t: 'equipage', joueurs, moi: 1 });
+  assert.deepEqual(troisieme.dernier('equipage'), { t: 'equipage', joueurs, moi: 2 });
+  assert.equal(troisieme.dernier('salon').role, 'invite');
+});
+
+epreuve('le quatrième est refusé : une table porte deux invités au plus', (salle) => {
+  const { id } = salle.trio();
+  const zoe = salle.arrive('ZOE');
+  zoe.dis({ t: 'rejoindre', id });
+
+  // Deux et trois sont les seuls effectifs que la table de difficulté du jeu
+  // connaisse : un quatrième jouerait une partie sans règles.
+  assert.equal(zoe.dernier('erreur')?.code, 'salon-indisponible', 'le quatrième s’est assis');
+  assert.equal(zoe.c.salon, null);
+  assert.equal(salle.duo.salons.get(id).invites.length, 2);
+});
+
+epreuve('le décompte à trois : mêmes battements, même graine, trois numéros', (salle, h) => {
+  const { hote, invite, troisieme } = salle.trio();
+  hote.dis({ t: 'lancer' });
+  h.bat(1000, 8);
+
+  const gos = [hote, invite, troisieme].map((c) => c.dernier('go'));
+  assert.ok(gos.every(Boolean), 'quelqu’un n’a pas décollé');
+  assert.equal(new Set(gos.map((g) => g.graine)).size, 1, 'trois graines différentes');
+  // Chacun son numéro, même liste pour tous : cet ordre est celui de
+  // l'application des commandes, il ne peut pas être un point de vue.
+  assert.deepEqual(
+    gos.map((g) => g.moi),
+    [0, 1, 2]
+  );
+  assert.deepEqual(gos[0].joueurs, [
+    { slot: 0, nom: 'ALICE', coque: 'orion' },
+    { slot: 1, nom: 'BOB', coque: 'orion' },
+    { slot: 2, nom: 'EVE', coque: 'orion' },
+  ]);
+  assert.deepEqual(gos[1].joueurs, gos[0].joueurs);
+  assert.deepEqual(gos[2].joueurs, gos[0].joueurs);
+  assert.deepEqual(invite.des('compte'), hote.des('compte'), 'les comptes divergent');
+  assert.deepEqual(troisieme.des('compte'), hote.des('compte'));
+});
+
+epreuve(
+  'un invité qui part avant le décollage : le compte s’annule, on repart à deux',
+  (salle, h) => {
+    const { hote, invite, troisieme } = salle.trio();
+    hote.dis({ t: 'lancer' });
+    invite.dis({ t: 'quitter' });
+
+    // Les battements annonçaient un équipage à trois qui n'existe plus : le compte
+    // s'annule, et l'hôte relancera avec le bon.
+    assert.equal(h.combien(1000), 0, 'le minuteur du compte a fui');
+    h.bat(1000, 5);
+    assert.equal(hote.des('go').length, 0, 'la table a décollé avec un fantôme');
+
+    // Les restants apprennent QUI est parti — par son numéro, jamais par « lui » :
+    // c'est la leçon de l'échange de vaisseaux du mode rejoindre.
+    const attendu = { t: 'parti', cause: 'quitte', slot: 1, hote: false };
+    assert.deepEqual(hote.dernier('parti'), attendu);
+    assert.deepEqual(troisieme.dernier('parti'), attendu);
+    // Et l'équipage est rejoué : au hall, EVE glisse au numéro 1.
+    assert.deepEqual(troisieme.dernier('equipage'), {
+      t: 'equipage',
+      joueurs: [
+        { slot: 0, nom: 'ALICE', coque: 'orion' },
+        { slot: 1, nom: 'EVE', coque: 'orion' },
+      ],
+      moi: 1,
+    });
+
+    hote.dis({ t: 'lancer' });
+    h.bat(1000, 8);
+    const go = troisieme.dernier('go');
+    assert.equal(go?.moi, 1, 'EVE décolle avec son ancien numéro');
+    assert.equal(go.joueurs.length, 2, 'le décollage compte un absent');
+  }
+);
+
+epreuve('la photo de frontière et les empreintes passent par la table', (salle) => {
+  const { hote, invite, troisieme } = salle.trio();
+  const temoin = salle.arrive('ZOE');
+
+  // L'hôte photographie sa partie au début du tableau : toute la table reçoit,
+  // verbatim — le serveur n'a pas à savoir à quoi ressemble un instantané.
+  const photo = '{"d":{"w":3,"bords":[null]},"t":"etat-vague","j":0}';
+  hote.dis(photo);
+  assert.deepEqual(invite.bruts, [photo], 'la photo n’atteint pas l’invité');
+  assert.deepEqual(troisieme.bruts, [photo], 'la photo n’atteint pas le troisième');
+  assert.deepEqual(hote.bruts, [], 'la photo revient à son expéditeur');
+  assert.deepEqual(temoin.bruts, [], 'la photo fuit hors de la table');
+
+  // Les empreintes croisées suivent : le canal des amis exige l'amitié, la
+  // table ne l'exige pas — deux invités d'une table publique doivent pouvoir
+  // se comparer quand même.
+  const emp = '{"d":{"f":60,"e":[1,8]},"t":"emp","j":2}';
+  troisieme.dis(emp);
+  assert.deepEqual(invite.bruts, [photo, emp], 'l’empreinte n’atteint pas l’autre invité');
+  assert.deepEqual(hote.bruts, [emp], 'l’empreinte n’atteint pas l’hôte');
+  assert.equal(salle.demandes.length, 0, 'la table a consulté la base d’amitié');
+});
+
+epreuve('la pause voyage comme une commande : verbatim, à toute la table', (salle) => {
+  const { hote, invite, troisieme } = salle.trio();
+  const temoin = salle.arrive('ZOE');
+
+  // Verbatim : le serveur n'a pas à connaître la forme d'une pause — champ
+  // inconnu conservé, rien de relu, rien de re-sérialisé.
+  const trame = '{"oui":true,"t":"pause","nom":"BOB","extra":"garde-moi"}';
+  invite.dis(trame);
+  assert.deepEqual(hote.bruts, [trame], 'la pause n’arrive pas chez l’hôte');
+  assert.deepEqual(troisieme.bruts, [trame], 'la pause n’atteint pas l’autre invité');
+  assert.deepEqual(invite.bruts, [], 'la pause revient à son expéditeur');
+  assert.deepEqual(temoin.bruts, [], 'la pause fuit hors de la table');
+
+  // La reprise suit le même chemin — n'importe qui peut relancer la table.
+  const reprise = '{"oui":false,"t":"pause","nom":"ALICE"}';
+  hote.dis(reprise);
+  // L'invité avait ÉMIS la pause : il ne la reçoit pas en retour, il ne reçoit
+  // que la reprise. Le troisième, lui, a tout vu passer.
+  assert.deepEqual(invite.bruts, [reprise], 'l’invité n’apprend pas la reprise');
+  assert.deepEqual(troisieme.bruts, [trame, reprise], 'le troisième n’apprend pas la reprise');
+});
+
+epreuve('le relais atteint les deux autres, jamais l’expéditeur', (salle) => {
+  const { hote, invite, troisieme } = salle.trio();
+  const temoin = salle.arrive('ZOE');
 
   // Un champ que le serveur ne connaît pas, et un ordre de clés inhabituel : si
   // quelqu'un remplace le relais par une re-sérialisation, ça se voit ici.
   const trame = '{"f":42,"t":"c","d":[1,-1,0],"inconnu":"garde-moi"}';
   invite.dis(trame);
-  assert.deepEqual(hote.bruts, [trame], 'la commande n’arrive pas intacte chez le voisin');
+  assert.deepEqual(hote.bruts, [trame], 'la commande n’arrive pas intacte chez l’hôte');
+  assert.deepEqual(troisieme.bruts, [trame], 'la commande n’atteint pas l’autre invité');
   assert.deepEqual(
     hote.recus.filter((m) => m.t === 'c'),
     [],
@@ -464,13 +702,165 @@ epreuve('la commande passe au voisin telle quelle, et à lui seul', (salle) => {
   );
   assert.deepEqual(invite.bruts, [], 'la commande revient à son expéditeur');
   assert.deepEqual(temoin.bruts, [], 'la commande fuit vers un client hors de la table');
+
+  // La fin de partie suit le même chemin : chacun l'annonce aux deux autres,
+  // pour qu'ils affichent son score.
+  const fin = '{"t":"fin","score":12345,"vague":7}';
+  hote.dis(fin);
+  assert.deepEqual(invite.bruts, [fin], 'un joueur n’apprend pas la fin, ni le score');
+  assert.deepEqual(troisieme.bruts, [trame, fin]);
 });
 
-epreuve('la fin de partie est annoncée au voisin', (salle) => {
+epreuve('une table de trio qui expire prévient les DEUX invités', (salle, h) => {
+  const { hote, invite, troisieme, id } = salle.trio();
+  const avant = invite.des('salons').length;
+  // Le téléphone de l'hôte sort du réseau avant le décollage : la table meurt,
+  // et il faut le dire à TOUS — en oublier un le laisserait devant un écran
+  // d'attente pour une partie qui n'existera jamais.
+  hote.meurt();
+  h.bat(12_000);
+
+  assert.equal(salle.duo.salons.has(id), false, 'la table d’un hôte disparu survit');
+  for (const co of [invite, troisieme]) {
+    assert.deepEqual(co.dernier('parti'), { t: 'parti', cause: 'expire', slot: 0, hote: true });
+    assert.equal(co.c.salon, null, 'un invité reste rattaché à une table disparue');
+  }
+  assert.ok(invite.des('salons').length > avant, 'libéré sans liste pour choisir une autre table');
+});
+
+epreuve('en pleine partie, le numéro annoncé est celui du décollage', (salle, h) => {
+  const { hote, invite, troisieme } = salle.trio();
+  hote.dis({ t: 'lancer' });
+  h.bat(1000, 8);
+  assert.ok(troisieme.dernier('go'), 'la partie n’a pas décollé');
+
+  const spectateur = salle.arrive('ZOE');
+  // BOB (numéro 1) part : la partie CONTINUE pour les deux autres, et la table
+  // ne redevient pas une invitation sous leurs pieds.
+  invite.dis({ t: 'quitter' });
+  assert.deepEqual(hote.dernier('parti'), { t: 'parti', cause: 'quitte', slot: 1, hote: false });
+  assert.equal(spectateur.dernier('salons').l.length, 0, 'une table en pleine partie est proposée');
+
+  // EVE part à son tour : son numéro est TOUJOURS 2, celui du décollage. Sans
+  // l'équipage figé, la liste retassée des présents l'aurait renumérotée 1 — et
+  // le client aurait retiré de l'écran le bord d'un joueur encore en vie.
+  troisieme.dis({ t: 'quitter' });
+  assert.deepEqual(hote.dernier('parti'), { t: 'parti', cause: 'quitte', slot: 2, hote: false });
+
+  // Plus personne en face : l'hôte finit sa partie seul, et sa table redevient
+  // une simple invitation — le comportement du duo d'aujourd'hui.
+  assert.equal(spectateur.dernier('salons').l.length, 1, 'la table vidée n’est pas reproposée');
+});
+
+epreuve('à trois, la table survit à son hôte en pleine partie, et le relais aussi', (salle, h) => {
+  const { hote, invite, troisieme, id } = salle.trio();
+  hote.dis({ t: 'lancer' });
+  h.bat(1000, 8);
+
+  hote.dis({ t: 'quitter' });
+  // Les deux restants apprennent le départ par son numéro — et `hote: false` :
+  // leur place tient toujours. Si la table mourait avec son hôte, plus de
+  // relais, et leurs deux simulations divergeraient à la première commande.
+  const attendu = { t: 'parti', cause: 'quitte', slot: 0, hote: false };
+  assert.deepEqual(invite.dernier('parti'), attendu);
+  assert.deepEqual(troisieme.dernier('parti'), attendu);
+  assert.ok(salle.duo.salons.has(id), 'la table est morte sous les deux survivants');
+
+  // Le premier invité hérite du rôle, et l'apprend par un nouveau `salon`.
+  assert.deepEqual(invite.dernier('salon'), { t: 'salon', id, role: 'hote', mode: 'arcade' });
+
+  const trame = '{"f":9,"t":"c","d":[1,0,0]}';
+  invite.dis(trame);
+  assert.deepEqual(troisieme.bruts, [trame], 'le relais est mort avec l’ancien hôte');
+  assert.deepEqual(hote.bruts, [], 'l’ancien hôte reçoit encore des commandes');
+});
+
+epreuve('l’hôte promu qui part à son tour est annoncé par SON numéro, pas par 0', (salle, h) => {
+  const { hote, invite, troisieme, id } = salle.trio();
+  hote.dis({ t: 'lancer' });
+  h.bat(1000, 8);
+
+  // L'hôte d'origine part : BOB (numéro 1) est promu, EVE (numéro 2) reste.
+  hote.dis({ t: 'quitter' });
+  // Puis BOB part aussi. La table meurt sous EVE — mais le partant est le
+  // NUMÉRO 1 du décollage, pas le rôle « hôte ». Annoncer 0 désignerait
+  // quelqu'un de déjà parti : la survivante attendrait les commandes du vrai
+  // partant comme un fantôme, cinq secondes durant, avant le filet des muets.
+  invite.dis({ t: 'quitter' });
+  assert.deepEqual(troisieme.dernier('parti'), {
+    t: 'parti',
+    cause: 'quitte',
+    slot: 1,
+    hote: true,
+  });
+  assert.equal(salle.duo.salons.has(id), false, 'une table à un seul survivant a survécu');
+
+  // Même règle quand c'est le balayage qui révèle la mort du promu.
+  const bis = salle.trio({ hote: 'ANNA', invite: 'BORIS', troisieme: 'EMMA' });
+  bis.hote.dis({ t: 'lancer' });
+  h.bat(1000, 8);
+  bis.hote.dis({ t: 'quitter' });
+  bis.invite.meurt();
+  h.bat(12_000);
+  assert.deepEqual(bis.troisieme.dernier('parti'), {
+    t: 'parti',
+    cause: 'expire',
+    slot: 1,
+    hote: true,
+  });
+});
+
+epreuve('à deux, l’hôte qui part en pleine partie ferme la table, comme avant', (salle, h) => {
+  const { hote, invite, id } = salle.table();
+  hote.dis({ t: 'lancer' });
+  h.bat(1000, 8);
+  hote.dis({ t: 'quitter' });
+
+  // Un seul survivant repasse au régime solo : il n'a plus besoin du relais, la
+  // table meurt et il retourne au hall — le comportement d'aujourd'hui, gardé.
+  assert.deepEqual(invite.dernier('parti'), { t: 'parti', cause: 'quitte', slot: 0, hote: true });
+  assert.equal(salle.duo.salons.has(id), false, 'une table sans personne à relier survit');
+  assert.equal(invite.c.salon, null);
+});
+
+epreuve(
+  'l’hôte qui meurt en pleine partie à trois : le balayage promeut au lieu de tuer',
+  (salle, h) => {
+    const { hote, invite, troisieme, id } = salle.trio();
+    hote.dis({ t: 'lancer' });
+    h.bat(1000, 8);
+
+    // Son téléphone sort du réseau : rien ne se ferme, la socket est muette. Le
+    // balayage la révèle — et il doit prendre le même chemin qu'un départ propre,
+    // pas celui de la table abandonnée : on joue encore à deux dessus.
+    hote.meurt();
+    h.bat(12_000);
+
+    assert.ok(salle.duo.salons.has(id), 'le balayage a tué une table où l’on joue encore à deux');
+    assert.deepEqual(invite.dernier('parti'), {
+      t: 'parti',
+      cause: 'expire',
+      slot: 0,
+      hote: false,
+    });
+    assert.deepEqual(invite.dernier('salon'), { t: 'salon', id, role: 'hote', mode: 'arcade' });
+    const trame = '{"f":12,"t":"c","d":[0,0,1]}';
+    troisieme.dis(trame);
+    assert.deepEqual(invite.bruts, [trame], 'le relais n’a pas survécu au balayage');
+  }
+);
+
+// --- Le relais ---------------------------------------------------------------
+
+epreuve('à deux, la commande passe au voisin tel quel, et à lui seul', (salle) => {
   const { hote, invite } = salle.table();
-  const trame = '{"t":"fin","score":12345,"vague":7}';
-  hote.dis(trame);
-  assert.deepEqual(invite.bruts, [trame], 'l’autre joueur n’apprend pas la fin, ni le score');
+  const temoin = salle.arrive('CARL');
+
+  const trame = '{"f":42,"t":"c","d":[1,-1,0],"inconnu":"garde-moi"}';
+  invite.dis(trame);
+  assert.deepEqual(hote.bruts, [trame], 'la commande n’arrive pas intacte chez le voisin');
+  assert.deepEqual(invite.bruts, [], 'la commande revient à son expéditeur');
+  assert.deepEqual(temoin.bruts, [], 'la commande fuit vers un client hors de la table');
 });
 
 epreuve('une commande sans voisin vivant ne casse rien', (salle) => {
@@ -491,19 +881,23 @@ epreuve('une commande sans voisin vivant ne casse rien', (salle) => {
 
 // --- Les départs -------------------------------------------------------------
 
-epreuve('l’hôte qui part ferme la table', (salle) => {
-  const { hote, invite, id } = salle.table();
+epreuve('l’hôte qui part du hall ferme la table, et TOUS les invités l’apprennent', (salle) => {
+  // Un trio, pas un duo : à deux invités, n'en prévenir qu'un laisserait l'autre
+  // devant un écran d'attente pour une table qui n'existe plus.
+  const { hote, invite, troisieme, id } = salle.trio();
   hote.dis({ t: 'quitter' });
 
-  assert.deepEqual(
-    invite.dernier('parti'),
-    { t: 'parti', cause: 'quitte', hote: true },
-    "l'invité n'apprend pas que la table a fermé"
-  );
+  for (const co of [invite, troisieme]) {
+    assert.deepEqual(
+      co.dernier('parti'),
+      { t: 'parti', cause: 'quitte', slot: 0, hote: true },
+      "un invité n'apprend pas que la table a fermé"
+    );
+    assert.equal(co.c.salon, null, "l'invité reste rattaché à une table disparue");
+    // Et il retombe dans le hall avec une liste fraîche, sans avoir à la demander.
+    assert.ok(co.dernier('salons'), "l'invité éjecté n'a pas de quoi choisir une autre table");
+  }
   assert.equal(salle.duo.salons.has(id), false, 'la table survit à son hôte');
-  assert.equal(invite.c.salon, null, "l'invité reste rattaché à une table disparue");
-  // Et il retombe dans le hall avec une liste fraîche, sans avoir à la demander.
-  assert.ok(invite.dernier('salons'), "l'invité éjecté n'a pas de quoi choisir une autre table");
 });
 
 epreuve('l’invité qui part laisse la table ouverte', (salle) => {
@@ -513,12 +907,14 @@ epreuve('l’invité qui part laisse la table ouverte', (salle) => {
 
   assert.deepEqual(
     hote.dernier('parti'),
-    { t: 'parti', cause: 'quitte', hote: false },
+    { t: 'parti', cause: 'quitte', slot: 1, hote: false },
     "l'hôte n'apprend pas que son invité s'en va"
   );
   assert.equal(salle.duo.salons.has(id), true, "la table de l'hôte a été fermée sans lui");
   assert.equal(hote.c.salon, id, "l'hôte a été renvoyé au hall alors qu'il pouvait attendre");
-  assert.equal(spectateur.dernier('salons').l.length, 1, 'la table libérée n’est pas reproposée');
+  const vue = spectateur.dernier('salons').l;
+  assert.equal(vue.length, 1, 'la table libérée n’est pas reproposée');
+  assert.equal(vue[0].assis, 1, 'la vitrine compte encore l’invité parti');
 });
 
 epreuve('une déconnexion vaut un départ', (salle) => {
@@ -528,7 +924,7 @@ epreuve('une déconnexion vaut un départ', (salle) => {
   invite.ferme();
   assert.deepEqual(
     hote.dernier('parti'),
-    { t: 'parti', cause: 'deconnexion', hote: false },
+    { t: 'parti', cause: 'deconnexion', slot: 1, hote: false },
     'une socket qui se ferme ne prévient pas le voisin'
   );
   assert.equal(salle.duo.chiffres().clients, avant - 1, 'le client parti compte encore');
@@ -548,7 +944,7 @@ epreuve('le balayage oublie la table dont l’hôte a disparu', (salle, h) => {
   assert.equal(salle.duo.salons.has(id), false, 'la table d’un hôte disparu survit');
   assert.deepEqual(
     invite.dernier('parti'),
-    { t: 'parti', cause: 'expire', hote: true },
+    { t: 'parti', cause: 'expire', slot: 0, hote: true },
     "l'invité attend un hôte qui ne reviendra pas"
   );
   assert.equal(invite.c.salon, null);
@@ -570,7 +966,7 @@ epreuve('le balayage oublie l’invitation trop vieille, jamais la table occupé
   h.bat(12_000);
 
   assert.equal(salle.duo.salons.has(abandonnee), false, 'une invitation morte encombre la liste');
-  assert.equal(salle.duo.salons.has(occupee), true, 'une table où l’on joue a été balayée');
+  assert.equal(salle.duo.salons.has(occupee), true, 'une table où l’on s’assoit a été balayée');
 });
 
 epreuve('le balayage envoie un ping à tout le monde', (salle, h) => {
@@ -629,6 +1025,7 @@ epreuve('la présence dit qui est à table, et qui joue', (salle, h) => {
   assert.equal(salle.duo.enLigne().CARL.partie, false, 'la fin de la partie solo ne se voit pas');
 
   // Une fois le duo décollé, le serveur le sait sans qu'on le lui dise.
+  hote.dis({ t: 'lancer' });
   h.bat(1000, 8);
   assert.deepEqual(
     salle.duo.enLigne().ALICE,
@@ -730,8 +1127,9 @@ epreuve('la coque annoncée est ramenée à une coque connue', (salle) => {
   const spectateur = salle.arrive('CARL');
   const alice = salle.arrive('ALICE');
 
-  // Cette chaîne s'affiche chez l'autre joueur et dans la liste des invitations :
-  // tout ce qui vient du réseau doit être ramené à un identifiant connu.
+  // Cette chaîne s'affiche chez les autres joueurs et dans la liste des
+  // invitations : tout ce qui vient du réseau doit être ramené à un identifiant
+  // connu.
   for (const inventee of ['<script>', 'ORION', '', 42, null, { coque: 'orion' }]) {
     alice.dis({ t: 'coque', coque: inventee });
     assert.equal(alice.c.coque, 'orion', `la coque ${JSON.stringify(inventee)} a été acceptée`);
@@ -742,6 +1140,16 @@ epreuve('la coque annoncée est ramenée à une coque connue', (salle) => {
   // Et le changement rejoue la liste : l'invitation porte la coque de son hôte.
   alice.dis({ t: 'creer' });
   assert.equal(spectateur.dernier('salons').l[0].coque, 'vulcain');
+
+  // Même assis à sa table : elle reste en vitrine tant qu'il reste un siège, et
+  // la vitrine doit suivre — avant, une table d'un seul gardait l'ancien
+  // vaisseau à l'affiche jusqu'au prochain balayage.
+  alice.dis({ t: 'coque', coque: 'helios' });
+  assert.equal(
+    spectateur.dernier('salons').l[0].coque,
+    'helios',
+    'la vitrine garde l’ancienne coque'
+  );
 });
 
 epreuve('un pseudo vide ou biscornu ne casse pas la table', (salle) => {
@@ -764,11 +1172,11 @@ epreuve('un message mal formé ou inconnu ne fait rien', (salle) => {
   assert.equal(salle.duo.chiffres().salons, 0);
 });
 
-// --- Ce que l'autre joueur apprend, et quand ---------------------------------
+// --- Ce que les autres joueurs apprennent, et quand ---------------------------
 
-epreuve('changer de coque dans la salle d’attente prévient l’autre joueur', (salle) => {
+epreuve('changer de coque dans la salle d’attente prévient toute la table', (salle) => {
   const { hote, invite } = salle.table();
-  const avant = invite.des('pair').length;
+  const avant = invite.des('equipage').length;
 
   hote.dis({ t: 'coque', coque: 'vulcain' });
 
@@ -776,9 +1184,10 @@ epreuve('changer de coque dans la salle d’attente prévient l’autre joueur',
   // le SALON. `s.hote` valait alors undefined, la garde d'entrée renvoyait sans
   // rien faire, et l'invité gardait sous les yeux le vaisseau d'avant jusqu'au
   // décompte. Aucune erreur nulle part : juste un message qui ne partait pas.
-  assert.ok(invite.des('pair').length > avant, 'le changement de coque n’a prévenu personne');
-  assert.equal(invite.dernier('pair').coque, 'vulcain');
-  assert.equal(invite.dernier('pair').nom, 'ALICE');
+  assert.ok(invite.des('equipage').length > avant, 'le changement de coque n’a prévenu personne');
+  const equipage = invite.dernier('equipage');
+  assert.equal(equipage.joueurs[0].coque, 'vulcain');
+  assert.equal(equipage.joueurs[0].nom, 'ALICE');
 });
 
 epreuve('une table qui expire le dit à son hôte', (salle, horloge) => {
@@ -798,6 +1207,8 @@ epreuve('une table qui expire le dit à son hôte', (salle, horloge) => {
   assert.ok(parti, 'l’hôte n’a jamais appris que sa table avait expiré');
   assert.equal(parti.cause, 'expire');
   assert.equal(parti.hote, false, 'c’est SA table qui a expiré, pas celle d’un autre');
+  // Pas de numéro ici : personne n'est parti, c'est la table elle-même qui meurt.
+  assert.ok(!('slot' in parti), 'l’expiration invente le numéro d’un partant');
 });
 
 epreuve('un hôte déjà déconnecté ne reçoit pas d’adieu', (salle, horloge) => {

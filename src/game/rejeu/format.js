@@ -65,7 +65,16 @@ import {
 //       joueur. Il n'en portait qu'un, ce qui suffisait au rejeu et au
 //       spectateur — on y rejoue la partie d'un seul — mais interdisait de
 //       réparer une divergence entre deux joueurs sans échanger leurs vaisseaux.
-export const VERSION = 16;
+//  17 — le jeu en réseau passe à TROIS joueurs : l'instantané porte une LISTE de
+//       bords indexée par numéro (`bords[i]`), vaisseau2/bord2 disparaissent,
+//       les vaisseaux se simulent dans l'ordre des numéros et les positions de
+//       départ dépendent du nombre de pilotes. Un enregistrement à deux bords ne
+//       se rejoue pas dans un monde à N : ses instantanés ne se relisent pas, et
+//       l'ordre de simulation d'avant racontait une autre partie.
+//       La même version couvre l'entrée PAR-DERRIÈRE : à partir de la difficulté
+//       neuf, le tirage des trajectoires en compte une quatrième, et toute la
+//       composition des vagues concernées change avec lui.
+export const VERSION = 17;
 
 // --- Écriture ---------------------------------------------------------------
 
