@@ -2313,6 +2313,10 @@ export class Game {
     // Le nombre d'amis connectés se lit sur l'écran d'accueil sans y entrer.
     const pastille = this.overlayRoot.querySelector('#amis-pastille');
     if (pastille) this._rafraichitPastilleAmis(this.overlayRoot);
+    // ET L'ÉCRAN DES COPAINS SE REPEINT. Il gardait l'instantané de son
+    // ouverture : un copain qui partait restait « en ligne » à l'écran aussi
+    // longtemps qu'on le regardait — précisément le moment où l'on veut savoir.
+    if (this.state === 'amis') this._repeintAmis?.();
   }
 
   async _consommeLienAmi() {
@@ -3036,8 +3040,17 @@ export class Game {
     const peint = (r) => {
       if (!el.isConnected) return;
       this._amis = r;
+      // L'écran se repeint quand une présence change — voir _surPresence. La
+      // référence meurt avec l'élément : el.isConnected garde l'entrée.
+      this._repeintAmis = () => {
+        if (el.isConnected && this._amis) peint(this._amis);
+      };
       corps.innerHTML = '';
-      const enLigne = r.enLigne || this._presence || {};
+      // LA POUSSÉE L'EMPORTE SUR L'INSTANTANÉ. `r.enLigne` date de l'ouverture de
+      // l'écran ; `_presence` est réécrit par le serveur à chaque battement. Dans
+      // l'autre ordre, un copain parti restait « en ligne » tant qu'on ne
+      // fermait pas l'écran — c'est le défaut vu par Paul.
+      const enLigne = this._presence || r.enLigne || {};
       const combien = (r.amis || []).filter((a) => enLigne[a.nom]).length;
       sous.textContent = !jeton()
         ? 'Il faut un pilote pour avoir des copains.'
@@ -3066,12 +3079,18 @@ export class Game {
         ligne.className = `ami-ligne${p ? ' ami-en-ligne' : ''}`;
         ligne.innerHTML = `<span class="ami-nom">${esc(a.nom)}</span>
           <span class="ami-etat">${p ? (p.partie ? 'en partie' : 'en ligne') : 'hors ligne'}</span>`;
+        // LES ACTES ONT LEUR PROPRE RANGÉE. Posés directement dans la ligne, ils
+        // se partageaient la largeur avec le nom : sur un téléphone, la rangée
+        // d'un copain en ligne débordait et le ✕ tombait seul à la ligne,
+        // orphelin en bas à gauche — vu sur la capture de Paul.
+        const actes = document.createElement('div');
+        actes.className = 'ami-actes';
         if (p) {
           const appel = document.createElement('button');
           appel.className = 'btn-ghost petit voix-appel';
           appel.textContent = '🎙 Parler';
           appel.addEventListener('click', () => this.voix.appelle(a.nom));
-          ligne.append(appel);
+          actes.append(appel);
           // On ne propose de regarder que ceux qui jouent : proposer de regarder
           // quelqu'un assis dans un menu ne mène nulle part.
           if (p.partie) {
@@ -3079,7 +3098,7 @@ export class Game {
             voir.className = 'btn-ghost petit';
             voir.textContent = '👁 Regarder';
             voir.addEventListener('click', () => this.demandeARegarder(a.nom));
-            ligne.append(voir);
+            actes.append(voir);
           }
         }
         // SES MEILLEURES PARTIES, qu'il soit en ligne ou non — c'est justement ce
@@ -3089,14 +3108,15 @@ export class Game {
         profil.className = 'btn-ghost petit';
         profil.textContent = '★ Ses parties';
         profil.addEventListener('click', () => this.showProfil(a.nom, () => this.showAmis()));
-        ligne.append(profil);
+        actes.append(profil);
 
         const retirer = document.createElement('button');
         retirer.className = 'btn-ghost petit';
         retirer.textContent = '✕';
         retirer.title = 'Retirer de mes copains';
         retirer.addEventListener('click', async () => peint(await gesteAmi('oublier', a.nom)));
-        ligne.append(retirer);
+        actes.append(retirer);
+        ligne.append(actes);
         corps.append(ligne);
       }
 

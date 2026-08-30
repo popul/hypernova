@@ -4673,6 +4673,32 @@ body.touch .btn-call-touch {
   background: var(--panel);
 }
 
+/* LES ACTES D'UNE RANGÉE FONT BLOC. Posés un à un dans la ligne, ils passaient à
+   la ligne un par un quand la place manquait : sur la capture de Paul, « Parler »
+   et « Ses parties » restaient en haut et le ✕ tombait seul en bas à gauche,
+   orphelin. Groupés, ils se poussent à droite tant qu'ils tiennent, et descendent
+   ENSEMBLE, alignés à droite, quand ils ne tiennent plus. */
+.ami-actes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+/* SUR TÉLÉPHONE, LES ACTES ONT TOUJOURS LEUR PROPRE LIGNE. Le repli « ils
+   descendent quand ça ne tient plus » dépendait de la largeur du texte — et la
+   police d'affichage charge APRÈS la première mise en page : mesurée avec la
+   police de repli, la rangée tenait ; rendue avec la vraie, le ✕ sortait du
+   cadre. Une mise en page qui change selon l'ordre d'arrivée des polices n'est
+   pas une mise en page. En dessous de 760 px, la descente est systématique. */
+@media (max-width: 760px) {
+  .ami-actes {
+    flex-basis: 100%;
+  }
+}
+
 /* Un ami connecté se voit d'un coup d'œil : c'est toute la raison d'avoir une
    liste plutôt qu'un carnet d'adresses. */
 .ami-en-ligne {

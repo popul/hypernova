@@ -844,3 +844,37 @@ test('le rattrapage est plafonné par image rendue', () => {
 test('le rattrapage ne rend jamais un pas négatif', () => {
   assert.equal(pasDeRattrapage(130, { tampon: 200, seuil: 120 }), 0);
 });
+
+// --- LA PRÉSENCE DIT AUSSI LES DÉPARTS ----------------------------------------
+//
+// Un copain « en ligne » qui ne l'est plus n'est pas un détail d'affichage :
+// c'est à lui qu'on propose de parler, de regarder sa partie, de jouer. Chaque
+// bouton pointé sur un absent est une promesse cassée.
+
+epreuve('un départ se diffuse immédiatement, sans attendre le battement', (salle) => {
+  const alice = salle.arrive('ALICE');
+  const bob = salle.arrive('BOB');
+  assert.ok(bob.dernier('presence').l.ALICE, 'BOB devrait voir ALICE en ligne');
+
+  // ALICE ferme son onglet : la couche transport appelle onClose.
+  alice.ouverte = false;
+  alice.onClose?.();
+
+  const l = bob.dernier('presence').l;
+  assert.ok(!l.ALICE, 'ALICE est partie et BOB la voit encore en ligne');
+  assert.ok(l.BOB, 'BOB doit toujours se voir lui-même');
+});
+
+epreuve('une socket morte sans adieu disparaît au battement suivant', (salle, horloge) => {
+  const alice = salle.arrive('ALICE');
+  const bob = salle.arrive('BOB');
+  // Le téléphone d'ALICE perd le réseau : pas de close, juste une socket qui ne
+  // répond plus. C'est le ping du balayage qui la révèle — l'écriture échoue et
+  // la couche transport appelle onClose.
+  alice.ouverte = false;
+  alice.ping = () => alice.onClose?.();
+  horloge.bat(12000);
+
+  const l = bob.dernier('presence').l;
+  assert.ok(!l.ALICE, 'une socket morte reste comptée comme en ligne');
+});
