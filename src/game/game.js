@@ -112,6 +112,7 @@ import {
   SURVIE,
   DEFAULT_MODS,
   modsEquipage,
+  REGARD_ATTENTE,
   BOSS_PHASES,
   MODULE_RARETE,
   COQUES,
@@ -523,22 +524,22 @@ export class Game {
     if (this._demandes.length < 4) this._demandes.push(ev);
   }
 
-  _executeEvenement(ev) {
+  _executeEvenement(ev, bord = this) {
     switch (ev) {
       case EV.PIROUETTE_GAUCHE:
-        this._tryRoll(-1);
+        this._tryRoll(-1, bord);
         break;
       case EV.PIROUETTE_DROITE:
-        this._tryRoll(1);
+        this._tryRoll(1, bord);
         break;
       case EV.BOMBE:
-        this._tryBomb();
+        this._tryBomb(bord);
         break;
       case EV.OVERDRIVE:
-        this._tryOverdrive();
+        this._tryOverdrive(bord);
         break;
       case EV.APPEL:
-        this._tryCall();
+        this._tryCall(bord);
         break;
       default:
         break;
@@ -592,38 +593,57 @@ export class Game {
   // La pirouette se paie sur la jauge de furie, un peu. C'est ce qui la relie au
   // reste de l'économie : la même ressource sert à esquiver et à frapper, donc
   // chaque tonneau est une fraction de bombe qu'on n'aura pas.
-  _tryRoll(dir) {
-    if (this.state !== 'playing' || this.paused || !this.player.alive) return;
-    if (this.energy < ROLL.cost) {
-      this.audio.deny();
+  // LES POUVOIRS SONT CEUX D'UN POSTE, PAS DU JOUEUR LOCAL.
+  //
+  // Ils ne connaissaient que `this` : la bombe d'un copain ne détruisait rien
+  // chez moi, son Appel ne rappelait aucune gemme, sa pirouette ne le déplaçait
+  // pas. Or tout cela touche l'arène, qui est commune — deux machines cessaient
+  // donc de raconter la même partie dès qu'un bouton était pressé. Chaque
+  // pouvoir prend maintenant le bord qui l'exerce ; ce qui se voit et s'entend
+  // (jauge, annonce, refus) reste au seul intéressé.
+  _tryRoll(dir, bord = this) {
+    if (this.state !== 'playing' || this.paused) return;
+    const vaisseau = this._vaisseauDu(bord);
+    if (!vaisseau?.alive) return;
+    if (bord.energy < ROLL.cost) {
+      if (bord === this) this.audio.deny();
       return;
     }
-    if (!this.player.startRoll(dir)) return;
-    this.energy -= ROLL.cost;
-    this.hud.setEnergy(this.energy / OVERDRIVE.max);
-    this.audio.roll(dir);
-    this.fx.burst(this.player.position, 0x8ffbff, { count: 12, speed: 9, life: 0.3, spread: 1.2 });
+    if (!vaisseau.startRoll(dir)) return;
+    bord.energy -= ROLL.cost;
+    if (bord === this) {
+      this.hud.setEnergy(this.energy / OVERDRIVE.max);
+      this.audio.roll(dir);
+    }
+    this.fx.burst(vaisseau.position, 0x8ffbff, { count: 12, speed: 9, life: 0.3, spread: 1.2 });
   }
 
   // L'Appel. Une onde part du vaisseau et balaie l'écran : tout l'argent qu'elle
   // touche rentre. Elle ne coûte pas d'énergie — l'énergie est la ressource de
   // combat, et mélanger les deux économies ferait de la collecte un choix de
   // survie. Elle coûte l'UNIQUE charge de la vague.
-  _tryCall() {
-    if (this.state !== 'playing' || this.paused || !this.player.alive) return;
-    if (this.callLeft <= 0) {
-      this.audio.deny();
+  _tryCall(bord = this) {
+    if (this.state !== 'playing' || this.paused) return;
+    const vaisseau = this._vaisseauDu(bord);
+    if (!vaisseau?.alive) return;
+    if (bord.callLeft <= 0) {
+      if (bord === this) this.audio.deny();
       return;
     }
-    this.callLeft--;
-    this.callWave = {
-      origin: this.player.position.clone(),
+    bord.callLeft--;
+    // UNE ONDE PAR PILOTE. Il n'y en avait qu'une pour tout le jeu : à deux, le
+    // second Appel effaçait le premier en plein vol.
+    this.callWaves.push({
+      origin: vaisseau.position.clone(),
       radius: 0,
-      max: this.stats.callRadius,
+      max: bord.stats.callRadius,
       pris: 0,
-    };
-    this.audio.call();
-    this.hud.setCall(this.callLeft, this.stats.callCharges);
+      moi: bord === this,
+    });
+    if (bord === this) {
+      this.audio.call();
+      this.hud.setCall(this.callLeft, this.stats.callCharges);
+    }
   }
 
   // L'onde s'étend au lieu de tout ramasser d'un coup : on la VOIT passer, et
@@ -643,8 +663,10 @@ export class Game {
       if (loin >= 3) this.characters.teachOnce('callFirst', IS_TOUCH);
     }
 
-    const w = this.callWave;
-    if (!w) return;
+    for (const w of [...this.callWaves]) this._avanceAppel(w, dt);
+  }
+
+  _avanceAppel(w, dt) {
     w.radius += (w.max / PICKUPS.callSweep) * dt;
     w.pris += this.pickups.call(w.origin, w.radius);
     // En survie l'onde ne rabat pas de l'argent — il n'y en a pas — mais les
@@ -656,8 +678,9 @@ export class Game {
     // portait. Un pouvoir dont on ne voit pas la limite ne s'apprend pas.
     this.fx.shockwave(w.origin, 0xffc857, w.radius);
     if (w.radius >= w.max) {
-      if (w.pris > 0) this.audio.callHit(w.pris);
-      this.callWave = null;
+      if (w.pris > 0 && w.moi) this.audio.callHit(w.pris);
+      const i = this.callWaves.indexOf(w);
+      if (i >= 0) this.callWaves.splice(i, 1);
     }
   }
 
@@ -748,14 +771,16 @@ export class Game {
 
   // Bouton panique, pas bouton « annuler la mort » : coûteuse, en recharge, à portée
   // limitée, et elle ne rapporte aucun crédit — bomber n'est jamais rentable.
-  _tryBomb() {
-    if (this.energy < OVERDRIVE.bombCost || this.bombCooldown > 0) {
-      this.audio.deny();
+  _tryBomb(bord = this) {
+    const vaisseau = this._vaisseauDu(bord);
+    if (!vaisseau?.alive) return;
+    if (bord.energy < OVERDRIVE.bombCost || bord.bombCooldown > 0) {
+      if (bord === this) this.audio.deny();
       return;
     }
-    this.energy -= OVERDRIVE.bombCost;
-    this.hud.setEnergy(this.energy / OVERDRIVE.max);
-    this.bombCooldown = OVERDRIVE.bombCooldown;
+    bord.energy -= OVERDRIVE.bombCost;
+    bord.bombCooldown = OVERDRIVE.bombCooldown;
+    if (bord === this) this.hud.setEnergy(this.energy / OVERDRIVE.max);
 
     // LA BOMBE EST UN APPEL, TOUJOURS. Ce n'est plus une explosion qu'on déclenche,
     // c'est un copain qu'on siffle.
@@ -770,32 +795,42 @@ export class Game {
     // complète mettrait le joueur en plan quatre-vingts pour cent du temps et
     // invulnérable presque en permanence. Ce ne serait plus une arme, ce serait un
     // abri. La fiction est la même à chaque bombe ; c'est son AMPLEUR qui se gagne.
-    if (this._lanceSoutien({ bref: this.odTimer <= 0 })) return;
+    // LA SÉQUENCE SE JOUE AUTOUR DU BOMBARDIER, SUR TOUTES LES MACHINES. Elle
+    // n'avance qu'au temps simulé et ne tire rien au sort : lancée à la même
+    // image avec le même vaisseau, elle inflige partout les mêmes dégâts. Un
+    // seul soutien à la fois — si un copain a déjà sifflé, le suivant s'en tient
+    // au front d'onde, et cette règle-là se décide pareil partout puisqu'elle ne
+    // lit qu'un état commun.
+    if (this._lanceSoutien({ bref: bord.odTimer <= 0, bord })) return;
 
     // N'efface que les tirs PROCHES : la menace lointaine reste à gérer.
     const rr = OVERDRIVE.bombRadius * OVERDRIVE.bombRadius;
     this.enemyBullets.forEachActive((b) => {
-      if (b.mesh.position.distanceToSquared(this.player.position) > rr) return;
+      if (b.mesh.position.distanceToSquared(vaisseau.position) > rr) return;
       this.fx.burst(b.mesh.position, 0xff3df0, { count: 2, speed: 4, life: 0.25 });
       this.enemyBullets.kill(b);
     });
     // Puis un front qui part du vaisseau et balaie l'arène en un peu moins d'une
     // seconde. Retarder ainsi la détonation est ce qui lui permet enfin d'atteindre
     // la formation lointaine et le boss, sans rien retirer à son effet immédiat.
-    this.bombFront = {
-      origin: this.player.position.clone(),
+    this.bombFronts.push({
+      origin: vaisseau.position.clone(),
       radius: OVERDRIVE.bombRadius,
       hit: new Set(),
       ringTimer: 0,
-    };
+    });
     for (const e of this.enemies.list) {
       if (e.alive && e.state === 'diving') e.state = 'returning';
     }
-    this.fx.shockwave(this.player.position, 0x8ffbff, OVERDRIVE.bombRadius * 2);
-    this.fx.addShake(1.2);
-    this.fx.hitStop(0.12);
-    this.audio.explosionBig();
-    this.hud.announce('NOVA BOMB', '', 900);
+    this.fx.shockwave(vaisseau.position, 0x8ffbff, OVERDRIVE.bombRadius * 2);
+    this.fx.addShake(bord === this ? 1.2 : 0.5);
+    if (bord === this) {
+      this.fx.hitStop(0.12);
+      this.audio.explosionBig();
+      this.hud.announce('NOVA BOMB', '', 900);
+    } else {
+      this.audio.explosionBig();
+    }
   }
 
   // LE COLOSSE. Il n'existe que dans un champ de débris — ailleurs, rien ne
@@ -855,12 +890,13 @@ export class Game {
 
   // Le soutien aérien. Les dégâts restent ICI, jamais dans le module d'animation :
   // une seule simulation à un seul endroit, sinon le rejeu n'est plus vérifiable.
-  _lanceSoutien({ bref = false } = {}) {
+  _lanceSoutien({ bref = false, bord = this } = {}) {
     const deja = new Set();
     const ok = this.soutien.start({
       game: this,
       bref,
-      coqueJoueur: this.coque,
+      vaisseau: this._vaisseauDu(bord),
+      coqueJoueur: bord.coque,
       onImpact: (pos, rayon) => {
         // UN ENNEMI NE PREND QU'UNE FOIS. Les vingt-deux impacts se recouvrent —
         // un ennemi se trouve dans le rayon de trois d'entre eux en moyenne — et
@@ -895,14 +931,24 @@ export class Game {
     return true;
   }
 
-  _tryOverdrive() {
-    if (this.energy < OVERDRIVE.odCost) {
-      this.audio.deny(); // ne déclenche PAS la bombe par erreur : le maintien est un choix
+  _tryOverdrive(bord = this) {
+    const vaisseau = this._vaisseauDu(bord);
+    if (!vaisseau?.alive) return;
+    if (bord.energy < OVERDRIVE.odCost) {
+      // ne déclenche PAS la bombe par erreur : le maintien est un choix
+      if (bord === this) this.audio.deny();
       return;
     }
-    this.energy = 0;
+    bord.energy = 0;
+    bord.odTimer = OVERDRIVE.odDuration;
+    if (bord !== this) {
+      // La furie d'un copain se voit — ses balles changent de teinte et ses
+      // ennemis meurent plus vite — mais elle ne prend pas MON écran.
+      this.fx.shockwave(vaisseau.position, 0xffc857, 12);
+      this.fx.burst(vaisseau.position, 0xffe066, { count: 22, speed: 16, life: 0.6 });
+      return;
+    }
     this.hud.setEnergy(0);
-    this.odTimer = OVERDRIVE.odDuration;
     this.hud.setOverdrive(true);
 
     // CE QUI SE PASSE DOIT SE VOIR ET S'ENTENDRE.
@@ -2497,9 +2543,15 @@ export class Game {
     this.duo.signale(nom, 'regarde', null);
     this._ditAmis(`Demande envoyée à ${nom} — il doit accepter…`);
     clearTimeout(this._attenteRegard);
-    this._attenteRegard = setTimeout(() => {
-      if (!this.spectateur) this._ditAmis(`${nom} n'a pas répondu.`);
-    }, 14000);
+    // On attend AUSSI LONGTEMPS QUE LA DEMANDE VIT EN FACE. À quatorze secondes
+    // on annonçait « il n'a pas répondu » alors que le bandeau était encore chez
+    // lui : le demandeur repartait, et l'acceptation arrivait dans le vide.
+    this._attenteRegard = setTimeout(
+      () => {
+        if (!this.spectateur) this._ditAmis(`${nom} n'a pas répondu.`);
+      },
+      (REGARD_ATTENTE + 3) * 1000
+    );
   }
 
   // La ligne d'état de l'écran des copains, quand il est affiché.
@@ -2933,9 +2985,17 @@ export class Game {
     b('Accepter', 'btn-ghost petit voix-oui', () => this._accepteRegard(qui));
     b('Refuser', 'btn-ghost petit', () => this.duo.signale(qui, 'regard-non', null));
     document.body.append(barre);
-    // Une demande qui reste à l'écran pendant une vague est une gêne : elle
-    // s'efface d'elle-même, et le copain saura que c'est non.
-    setTimeout(() => barre.remove(), 12000);
+    // ON LA FAIT ENTENDRE, ET ON LA DIT OÙ LE JOUEUR REGARDE.
+    //
+    // Le bandeau est en haut ; les yeux sont en bas, sur le vaisseau. Un son et
+    // une annonce au centre suffisent à faire lever la tête — sans eux, la
+    // demande est invisible pour quelqu'un qui joue, ce qui est exactement le
+    // moment où on la lui envoie.
+    this.audio.call?.();
+    this.hud.announce(`${qui} veut vous regarder`, 'Accepter en haut de l’écran', 3200);
+    // Et elle attend le temps d'une vague au lieu de douze secondes.
+    clearTimeout(this._attenteDemandeRegard);
+    this._attenteDemandeRegard = setTimeout(() => barre.remove(), REGARD_ATTENTE * 1000);
   }
 
   _accepteRegard(qui) {
@@ -3812,6 +3872,11 @@ export class Game {
       credits: 0,
       lives: PLAYER.baseLives,
       respawnTimer: 0,
+      // Les pouvoirs sont à CHACUN : sa jauge, sa recharge, ses Appels. Ils
+      // vivaient sur le seul joueur local, donc la bombe d'un copain n'existait
+      // pas chez moi — ses ennemis mouraient chez lui et pas chez moi.
+      bombCooldown: 0,
+      callLeft: 0,
       // Sa partie à LUI est-elle terminée ? Pas la même chose que « il n'a plus
       // de vies » : entre deux vagues, un pilote à zéro vie revient (voir
       // startWave). `fini` ne se pose qu'à son annonce de fin, et c'est lui qui
@@ -4379,11 +4444,11 @@ export class Game {
     this.energy = 0;
     this.odTimer = 0;
     this.callLeft = 0;
-    this.callWave = null;
+    this.callWaves = [];
     this.reflexCooldown = 0;
-    this.bombFront = null;
+    this.bombFronts = [];
     this.callLeft = 0; // Appels restants pour la vague en cours
-    this.callWave = null; // onde d'Appel en cours d'expansion
+    this.callWaves = []; // ondes d'Appel en expansion, une par pilote
     this.fragments = 0; // morceaux du Registre récupérés sur les routes longues
     // L'escale armée par le dernier détour : { vague, tirage } ou null. Le détour
     // mène QUELQUE PART — une surface, des anneaux, un champ de débris — et c'est
@@ -4398,7 +4463,9 @@ export class Game {
     this.waveBestTier = 1;
     // L'Appel se recharge à chaque vague, jamais entre-temps.
     this.callLeft = this.stats.callCharges;
-    this.callWave = null;
+    // Chaque pilote retrouve ses Appels au début de la vague, pas seulement moi.
+    for (const b of this.bordsDistants) b.callLeft = b.stats.callCharges;
+    this.callWaves = [];
     this.hud.setCall(this.callLeft, this.stats.callCharges);
     this._energyPressStart = 0;
     this.director.reset();
@@ -4568,7 +4635,9 @@ export class Game {
     this.waveBestTier = 1;
     // L'Appel se recharge à chaque vague, jamais entre-temps.
     this.callLeft = this.stats.callCharges;
-    this.callWave = null;
+    // Chaque pilote retrouve ses Appels au début de la vague, pas seulement moi.
+    for (const b of this.bordsDistants) b.callLeft = b.stats.callCharges;
+    this.callWaves = [];
     this.hud.setCall(this.callLeft, this.stats.callCharges);
 
     let def;
@@ -5414,8 +5483,8 @@ export class Game {
       this._peintBordsHud();
     }
     this.enemies.clear();
-    this.bombFront = null;
-    this.callWave = null;
+    this.bombFronts = [];
+    this.callWaves = [];
     this.odTimer = 0;
     this.bombCooldown = 0;
     this.reflexCooldown = 0;
@@ -5637,7 +5706,18 @@ export class Game {
         if (qui !== this.duo.direct) this.duo.signale(qui, 'vc', c);
       }
     }
-    if (this.cmd.ev) this._executeEvenement(this.cmd.ev);
+    // TOUS LES POUVOIRS, DANS L'ORDRE DES NUMÉROS. On n'exécutait que les miens :
+    // la bombe d'un copain ne tuait rien chez moi, et nos deux parties se
+    // séparaient au premier bouton pressé. L'ordre des numéros est l'invariant
+    // habituel — deux pouvoirs déclenchés à la même image doivent s'appliquer
+    // dans le même ordre partout.
+    if (this.variante === 'duo' && this.bordsDistants.length) {
+      for (const p of this._postesOrdonnes()) {
+        if (p.bord.cmd?.ev) this._executeEvenement(p.bord.cmd.ev, p.bord);
+      }
+    } else if (this.cmd.ev) {
+      this._executeEvenement(this.cmd.ev);
+    }
 
     // Overdrive : cadence accrue, balles perforantes, tirs ennemis au ralenti.
     // Le tir prend l'allure de la fureur pendant l'Overdrive, et la reprend
@@ -5660,7 +5740,11 @@ export class Game {
       }
     }
     const odActive = this.odTimer > 0;
-    if (this.bombCooldown > 0) this.bombCooldown -= dt;
+    // La recharge court pour CHACUN : celle d'un copain avançait à zéro chez
+    // moi, donc sa bombe suivante partait ici avant de partir chez lui.
+    for (const p of this._postesOrdonnes()) {
+      if (p.bord.bombCooldown > 0) p.bord.bombCooldown -= dt;
+    }
 
     // Le directeur monte la pression tant que le joueur ne se fait pas toucher.
     this.director.update(dt);
@@ -5712,7 +5796,13 @@ export class Game {
       // fixée une fois : un coup encaissé juste avant pourrait sinon la faire
       // expirer au milieu du bombardement, pendant que le vaisseau est en l'air et
       // que le joueur n'a plus la main.
-      if (!this.soutien.bref) this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.4);
+      // L'INVULNÉRABILITÉ VA AU VAISSEAU SOULEVÉ, pas au mien : c'est le
+      // bombardier qui est hors de portée pendant que ses ailiers passent, et à
+      // plusieurs ce n'est pas forcément moi. La donner au mauvais rendait un
+      // pilote intouchable chez lui et touchable chez les autres — donc des
+      // vies différentes d'une machine à l'autre.
+      const bombardier = this.soutien.vaisseau || this.player;
+      if (!this.soutien.bref) bombardier.invulnTimer = Math.max(bombardier.invulnTimer, 0.4);
     }
     const arme = this.armes[this.coque];
     if (arme) {
@@ -5882,12 +5972,17 @@ export class Game {
   // qu'elle traverse. L'ancienne version frappait tout instantanément dans un rayon
   // fixe — donc jamais la formation en haut de l'écran, et jamais le boss.
   _updateBombFront(dt) {
-    const f = this.bombFront;
-    if (!f) return;
+    // UN FRONT PAR BOMBE. Il n'y en avait qu'un pour tout le jeu : deux bombes
+    // lâchées coup sur coup et la première s'effaçait, ses ennemis épargnés.
+    for (const f of [...this.bombFronts]) this._avanceFront(f, dt);
+  }
+
+  _avanceFront(f, dt) {
     const prev = f.radius;
     f.radius += OVERDRIVE.bombFrontSpeed * dt;
     if (prev > OVERDRIVE.bombFrontMax) {
-      this.bombFront = null;
+      const i = this.bombFronts.indexOf(f);
+      if (i >= 0) this.bombFronts.splice(i, 1);
       return;
     }
     const inner = Math.max(0, f.radius - OVERDRIVE.bombFrontThickness);

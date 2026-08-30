@@ -1052,6 +1052,41 @@ epreuve('la présence est poussée, et suit les départs', (salle) => {
 
 // --- La signalisation de la voix ---------------------------------------------
 
+// --- DEMANDER À REGARDER LA PARTIE D'UN COPAIN --------------------------------
+//
+// Le parcours le plus demandé du jeu, et le seul qui n'avait AUCUNE épreuve :
+// Paul a signalé « quand je clique sur regarder, il ne voit pas ma demande ».
+// La transmission, elle, marchait — mesuré des deux côtés sur le banc. Mais
+// rien ne l'empêchait de cesser de marcher demain, et personne ne l'aurait vu.
+
+epreuve('une demande de regard atteint un copain EN PLEINE PARTIE', (salle) => {
+  const louis = salle.arrive('LOUIS', { mode: 'survie' });
+  const paul = salle.arrive('PAUL');
+  // LOUIS joue : c'est précisément l'instant où l'on veut le regarder, et
+  // c'est celui où il ne faut surtout pas que le message se perde.
+  louis.dis({ t: 'joue', oui: true });
+  const presence = paul.dernier('presence');
+  assert.equal(presence.l.LOUIS?.partie, true, 'la présence doit dire qu’il joue');
+
+  paul.dis({ t: 'signal', vers: 'LOUIS', sujet: 'regarde', d: null });
+  const recu = louis.dernier('signal');
+  assert.ok(recu, 'la demande n’arrive pas chez le joueur en partie');
+  assert.equal(recu.sujet, 'regarde');
+  assert.equal(recu.de, 'PAUL', 'la demande doit dire de qui elle vient');
+
+  // Et la réponse repart par le même chemin.
+  louis.dis({ t: 'signal', vers: 'PAUL', sujet: 'regard-oui', d: null });
+  assert.equal(paul.dernier('signal')?.sujet, 'regard-oui', 'l’acceptation n’arrive pas');
+});
+
+epreuve('une demande de regard ne part pas vers un inconnu', (salle) => {
+  const louis = salle.arrive('LOUIS');
+  const etranger = salle.arrive('ZOE');
+  salle.amitie = () => false;
+  etranger.dis({ t: 'signal', vers: 'LOUIS', sujet: 'regarde', d: null });
+  assert.deepEqual(louis.des('signal'), [], 'un inconnu peut demander à regarder');
+});
+
 epreuve('la signalisation ne passe qu’entre amis', (salle) => {
   const alice = salle.arrive('ALICE');
   const bob = salle.arrive('BOB');

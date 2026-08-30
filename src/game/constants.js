@@ -926,6 +926,19 @@ export const REFLEX = {
 // se marchent sur les ailes. La table est indexée par le nombre de bords
 // VIVANTS au départ de la vague ; ces valeurs restent à ajuster une fois qu'on
 // aura vu deux ou trois enfants y jouer une soirée.
+// COMBIEN DE TEMPS UNE DEMANDE DE REGARD RESTE À L'ÉCRAN.
+//
+// Elle tenait douze secondes, sans un son, en haut de l'écran — pendant que le
+// joueur regarde son vaisseau, en bas, et esquive. Signalé par Paul : « il ne
+// voit pas ma demande ». Ce n'était pas un défaut de transmission (le serveur
+// relaie, le bandeau s'affiche, mesuré des deux côtés) mais un défaut
+// d'ATTENTION : une invitation muette qui s'efface toute seule avant qu'on ait
+// levé les yeux n'a jamais existé pour celui à qui elle s'adressait.
+//
+// Quarante-cinq secondes, c'est le temps d'une vague : on finit ce qu'on fait,
+// on lève les yeux entre deux formations, et la proposition est encore là.
+export const REGARD_ATTENTE = 45;
+
 export const MULT_JOUEURS = {
   2: { hp: 1.35, fire: 1.25, dive: 1.25 },
   3: { hp: 1.7, fire: 1.45, dive: 1.45 },

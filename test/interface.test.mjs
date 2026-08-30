@@ -59,3 +59,33 @@ test('le HUD reste hors de portée du doigt, sauf ses boutons', () => {
   // pourrait plus piloter à travers. Ses boutons, eux, le réactivent un par un.
   assert.match(bloc('#hud'), /pointer-events:\s*none/);
 });
+
+// --- UNE DEMANDE DE REGARD DOIT SE FAIRE REMARQUER ---------------------------
+//
+// Paul : « quand je clique sur regarder, il ne voit pas ma demande ». Le
+// message arrivait pourtant, et le bandeau s'affichait — mesuré des deux côtés
+// sur le banc. Ce qui manquait, c'était de quoi LEVER LES YEUX : aucun son,
+// aucune annonce au centre de l'écran, et un effacement automatique au bout de
+// douze secondes. Pendant une vague, le joueur regarde son vaisseau en bas ; un
+// bandeau muet en haut qui s'efface tout seul n'a jamais existé pour lui.
+test('la demande de regard s’entend, s’annonce, et attend le temps d’une vague', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
+  const debut = source.indexOf('_demandeDeRegard(qui) {');
+  assert.ok(debut > 0, '_demandeDeRegard a disparu');
+  const corps = source.slice(debut, source.indexOf('\n  _accepteRegard(', debut));
+
+  assert.match(corps, /this\.audio\.call\?\.\(\)/, 'la demande doit s’entendre');
+  assert.match(
+    corps,
+    /this\.hud\.announce\(/,
+    'la demande doit s’annoncer là où le joueur regarde'
+  );
+  // Et surtout : plus de délai en dur. Douze secondes étaient trop courtes, et
+  // le nombre nu ne disait pas pourquoi.
+  assert.match(corps, /REGARD_ATTENTE \* 1000/, 'le délai doit venir de REGARD_ATTENTE');
+  assert.ok(!/\b12000\b/.test(corps), 'un délai de douze secondes traîne encore');
+
+  const { REGARD_ATTENTE } = await import('../src/game/constants.js');
+  assert.ok(REGARD_ATTENTE >= 30, `une demande qui dure ${REGARD_ATTENTE}s se rate en jouant`);
+});
