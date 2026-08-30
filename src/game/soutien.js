@@ -529,9 +529,14 @@ export class SoutienAerien {
   // Rend false si la séquence ne peut pas démarrer. Un seul motif de refus qui
   // vaille : elle est déjà en cours. Refuser silencieusement serait pire que tout —
   // l'appelant a déjà prélevé la jauge quand il arrive ici.
-  start({ game, coqueJoueur, onImpact, onDone, bref = false } = {}) {
+  // `vaisseau` : le bombardier. À plusieurs, ce n'est pas forcément le mien —
+  // la séquence se joue à l'identique sur toutes les machines, autour du
+  // vaisseau de celui qui a sifflé. Absent, c'est le joueur local : le solo ne
+  // change pas d'une ligne.
+  start({ game, coqueJoueur, onImpact, onDone, bref = false, vaisseau = null } = {}) {
     if (this._enCours) return false;
-    if (!game?.player?.group) return false;
+    this.vaisseau = vaisseau || game?.player || null;
+    if (!this.vaisseau?.group) return false;
 
     // Un appel bref rejoue la MÊME partition, plus vite et à un seul ailier. On ne
     // récrit pas de chorégraphie : elle est réglée, et deux versions qui
@@ -548,7 +553,7 @@ export class SoutienAerien {
 
     // LA SEULE VALEUR À RESTAURER. Relevée avant toute écriture, reposée à la fin
     // et à l'annulation. Voir l'en-tête, point 3.
-    this._yInitial = game.player.group.position.y;
+    this._yInitial = this.vaisseau.group.position.y;
 
     const centre = COQUES.find((c) => c.id === coqueJoueur)?.id || COQUES[0].id;
     const autres = COQUES.filter((c) => c.id !== centre);
@@ -584,8 +589,8 @@ export class SoutienAerien {
     // arrière-bas et remontent en formation. Entrer par-derrière, c'est entrer par
     // où le joueur est entré — on les reconnaît comme des vaisseaux amis avant même
     // de distinguer leur silhouette.
-    const px = game.player.group.position.x;
-    const pz = game.player.group.position.z;
+    const px = this.vaisseau.group.position.x;
+    const pz = this.vaisseau.group.position.z;
     const cx = THREE.MathUtils.clamp(px, -SUIVI_MAX, SUIVI_MAX) * SUIVI;
     for (const a of this._ailiers) {
       a.entree.set(cx + a.cote * 24, -1.5, pz + 18);
@@ -595,7 +600,7 @@ export class SoutienAerien {
     }
 
     game.audio?.jumpGo?.();
-    game.fx?.shockwave?.(game.player.group.position, 0x8ffbff, 5);
+    game.fx?.shockwave?.(this.vaisseau.group.position, 0x8ffbff, 5);
     game.hud?.announce?.('SOUTIEN AÉRIEN', autres.map((c) => c.nom).join(' · '), 1400);
     return true;
   }
@@ -664,7 +669,7 @@ export class SoutienAerien {
   // en easeOut (un décollage est brutal puis se pose) et on redescend en easeInOut
   // (un retour en formation se négocie des deux côtés).
   _eleve(jeu, t) {
-    const groupe = jeu?.player?.group;
+    const groupe = this.vaisseau?.group;
     if (!groupe) return;
     // AUCUNE ÉLÉVATION EN APPEL BREF, et c'est tout l'équilibre de la chose. La
     // hauteur est ce qui rend l'invulnérabilité lisible ; ne pas s'élever, c'est
@@ -941,7 +946,9 @@ export class SoutienAerien {
   // reste ensuite. Cette méthode est appelée par les DEUX sorties (fin normale et
   // annulation) — deux chemins de remise en état, c'est un chemin de trop.
   _range() {
-    const groupe = this._game?.player?.group;
+    // On repose la hauteur du vaisseau QU'ON A SOULEVÉ, pas du mien : à
+    // plusieurs, ce n'est pas forcément le même.
+    const groupe = this.vaisseau?.group;
     if (groupe) groupe.position.y = this._yInitial;
     for (const a of this._ailiers) a.groupe.visible = false;
     this._ailiers.length = 0;

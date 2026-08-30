@@ -67,7 +67,11 @@ test('ma commande passe par la file comme celle des autres, pas par un raccourci
   duo.amorce([0]); // les DELAI premières images, pour moi comme pour eux
   duo.frame = 0;
   duo.publie([9, 9]); // publiée à l'image 0, donc POUR l'image DELAI
-  assert.deepEqual(duo.mienne(), [0], 'à l’image 0 je dois jouer l’amorce, pas ce que je viens de lire');
+  assert.deepEqual(
+    duo.mienne(),
+    [0],
+    'à l’image 0 je dois jouer l’amorce, pas ce que je viens de lire'
+  );
   duo.frame = DELAI;
   assert.deepEqual(duo.mienne(), [9, 9], 'ma commande ne me revient pas à l’image publiée');
 });
@@ -248,4 +252,54 @@ test('tout appel de méthode sur le duo correspond à une méthode qui existe', 
     [],
     `game.js appelle des méthodes qui n’existent pas sur Duo : ${manquantes.join(', ')}`
   );
+});
+
+// --- LES POUVOIRS APPARTIENNENT À UN POSTE, PAS AU JOUEUR LOCAL ---------------
+//
+// La bombe, l'Appel, la pirouette et l'Overdrive touchent l'ARÈNE, qui est
+// commune : des ennemis meurent, des balles disparaissent, des gemmes rentrent,
+// un vaisseau se déplace. Tant qu'ils n'étaient exécutés que pour `this`, la
+// bombe d'un copain ne détruisait rien chez moi — les deux machines cessaient
+// de raconter la même partie au premier bouton pressé.
+//
+// On ne peut pas importer game.js sous Node ; on lit donc son texte et l'on
+// vérifie les deux promesses structurelles : chaque pouvoir reçoit le bord qui
+// l'exerce, et l'exécution des événements parcourt les postes DANS L'ORDRE DES
+// NUMÉROS — le même invariant que les commandes.
+test('les pouvoirs prennent le bord qui les exerce, jamais le joueur local seul', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
+
+  for (const pouvoir of ['_tryBomb', '_tryCall', '_tryOverdrive']) {
+    const decl = new RegExp(`\\n  ${pouvoir}\\((bord = this|dir, bord = this)\\)`);
+    assert.match(source, decl, `${pouvoir} doit recevoir le bord qui l’exerce`);
+  }
+  assert.match(source, /\n {2}_tryRoll\(dir, bord = this\)/, '_tryRoll doit recevoir son bord');
+
+  // Le répartiteur transmet le bord à chacun.
+  const bloc = source.slice(source.indexOf('_executeEvenement(ev, bord = this)'));
+  const corps = bloc.slice(0, bloc.indexOf('\n  }'));
+  for (const appel of [
+    '_tryRoll(-1, bord)',
+    '_tryRoll(1, bord)',
+    '_tryBomb(bord)',
+    '_tryOverdrive(bord)',
+    '_tryCall(bord)',
+  ]) {
+    assert.ok(corps.includes(appel), `_executeEvenement doit appeler ${appel}`);
+  }
+
+  // Et la boucle qui l'appelle passe par _postesOrdonnes : l'ordre des numéros
+  // est ce qui fait que deux pouvoirs simultanés s'appliquent pareil partout.
+  assert.match(
+    source,
+    /for \(const p of this\._postesOrdonnes\(\)\) \{\s*\n\s*if \(p\.bord\.cmd\?\.ev\) this\._executeEvenement\(p\.bord\.cmd\.ev, p\.bord\);/,
+    'les événements doivent être exécutés poste par poste, dans l’ordre des numéros'
+  );
+
+  // Les ondes sont des LISTES : à plusieurs, deux bombes coexistent.
+  assert.ok(source.includes('this.bombFronts.push('), 'les fronts de bombe doivent s’empiler');
+  assert.ok(source.includes('this.callWaves.push('), 'les ondes d’Appel doivent s’empiler');
+  assert.ok(!/this\.bombFront\b(?!s)/.test(source), 'il reste un front de bombe unique');
+  assert.ok(!/this\.callWave\b(?!s)/.test(source), 'il reste une onde d’Appel unique');
 });
