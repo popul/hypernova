@@ -53,7 +53,7 @@ import { ArriveeEscale } from './escale-arrivee.js';
 import { Aura } from './aura.js';
 import { PiloteAuto } from './pilote-auto.js';
 import { Colosse } from './asteroide.js';
-import { Duo, PAS as PAS_DUO } from './duo.js';
+import { Duo, PAS as PAS_DUO, pasDeRattrapage } from './duo.js';
 import { Installation } from './installation.js';
 import { Voix } from './voix.js';
 import { DemoArme } from './demo-arme.js';
@@ -2370,6 +2370,12 @@ export class Game {
         return this._rejoindreAccepte(de, d);
       case 'rejoindre-non':
         this._ditRegard(`${de} préfère finir seul.`);
+        // Le bouton revient : refuser n'est pas définitif, on peut redemander
+        // plus tard sans quitter le spectacle.
+        {
+          const b = document.getElementById('regard-rejoindre');
+          if (b) b.hidden = false;
+        }
         return this.hud.announce('Refusé', `${de} préfère finir sa partie seul`, 2400);
       // Les commandes du pas verrouillé, quand on joue à deux SANS salon.
       case 'c':
@@ -2408,11 +2414,18 @@ export class Game {
         return;
       case 'vc':
         // La file est bornée À LA RÉCEPTION aussi : pendant une pause, la boucle
-        // de jeu ne tourne pas du tout, donc personne n'irait la vider. Elle
-        // grossirait tout le temps que dure la pause, sans limite.
+        // de jeu ne tourne pas du tout, donc personne n'irait la vider. Mais si
+        // l'on purge, LA VUE TOMBE AVEC : une file amputée n'est plus une suite
+        // de commandes, et continuer à la consommer ferait diverger la
+        // simulation en silence. L'ancienne purge gardait la vue — c'était le
+        // « les ennemis n'apparaissent pas forcément » de Paul.
         if (this.spectateur?.de === de) {
           const f = this.spectateur.file;
-          if (f.length > Game.RETARD_MAX * 2) f.length = 0;
+          if (f.length > Game.RETARD_PATHOLOGIQUE) {
+            f.length = 0;
+            this.spectateur.vue = false;
+            this.spectateur.amorti = false;
+          }
           f.push(d);
         }
         return;
@@ -2657,7 +2670,11 @@ export class Game {
     };
     b('Accepter', 'btn-ghost petit voix-oui', () => this._accepteRejoindre(qui));
     b('Refuser', 'btn-ghost petit', () => this.duo.signale(qui, 'rejoindre-non', null));
-    this.overlayRoot.append(barre);
+    // SUR BODY, COMME LES TROIS AUTRES BANDEAUX. Celui-ci était posé dans
+    // #overlay — pointer-events: none — et ses boutons étaient intouchables au
+    // doigt. La CSS rétablit le pointeur, mais on aligne aussi le parent :
+    // quatre bandeaux, un seul endroit.
+    document.body.append(barre);
     this.audio.bossAlarm?.();
   }
 
@@ -2840,7 +2857,11 @@ export class Game {
     rejoindre.id = 'regard-rejoindre';
     rejoindre.textContent = 'Jouer avec lui';
     rejoindre.addEventListener('click', () => {
-      rejoindre.disabled = true;
+      // Il DISPARAÎT : un bouton désactivé garde sa couleur d'appel et a l'air
+      // d'attendre encore un clic — vu sur la capture de Paul, vert fluo après
+      // l'envoi. La demande partie, il n'y a plus rien à presser ; il revient si
+      // l'autre refuse.
+      rejoindre.hidden = true;
       this.demandeARejoindre();
     });
     barre.append(rejoindre);
@@ -2869,36 +2890,29 @@ export class Game {
   // soixante paquets régulièrement espacés, il en livre trois d'un coup puis
   // rien. Sans réserve, l'image saccaderait au rythme du réseau plutôt qu'à
   // celui du jeu.
-  // Au-delà de ça, on ne rattrape plus : on se resynchronise. Quatre secondes de
-  // retard, c'est déjà une autre partie que celle qu'on croit regarder.
-  static RETARD_MAX = 240;
+  // Au-delà de ça, le flux n'est plus un spectacle : une minute et demie de
+  // retard ne se rattrape pas en douce, on se rebranche au prochain tableau.
+  static RETARD_PATHOLOGIQUE = 5400;
 
   _updateRegard(dtReel) {
     const sp = this.spectateur;
     if (!sp || !sp.vue) return;
 
-    // ON NE RATTRAPE PAS LE PASSÉ, ON SE REBRANCHE SUR LE PRÉSENT.
-    //
-    // Quand le spectateur met en pause — ou passe son onglet en arrière-plan,
-    // ce qui gèle sa boucle — l'hôte, lui, continue d'émettre. La file grossit
-    // pendant tout ce temps. Au retour, l'ancien code essayait de la rejouer
-    // image par image, plafonné par le rattrapage : le spectateur regardait donc
-    // le passé, de plus en plus loin derrière, et ça se lit exactement comme une
-    // désynchronisation. Signalé par Paul, et surtout « quand le spectateur se
-    // met en pause et reprend ».
-    //
-    // On jette donc le retard et on attend le prochain instantané de vague —
-    // c'est le point de rendez-vous qui existe déjà, celui-là même qui sert à
-    // entrer en spectateur.
-    if (sp.file.length > Game.RETARD_MAX) {
+    const retard = sp.file.length;
+    if (retard > Game.RETARD_PATHOLOGIQUE) {
       sp.file.length = 0;
       sp.vue = false;
       sp.amorti = false;
-      this._ditRegard(`Trop de retard — on reprend au prochain tableau`);
+      note('regard-perdu', { ou: `vague ${this.wave}`, retard });
+      this._ditRegard('Trop de retard — on reprend au prochain tableau');
       return;
     }
 
-    let n = this.duo.pas(dtReel);
+    // LE RETARD SE CONSOMME, IL NE SE JETTE PLUS. Voir pasDeRattrapage : jeter
+    // coupait la suite ordonnée des commandes et faisait diverger la simulation
+    // en silence — et attendre le prochain tableau gelait l'écran pendant tout
+    // un combat de boss.
+    let n = this.duo.pas(dtReel) + pasDeRattrapage(retard);
     while (n-- > 0) {
       if (sp.file.length <= (sp.amorti ? 0 : 6)) {
         // On laisse la réserve se remplir avant de partir, et on s'arrête net

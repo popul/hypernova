@@ -4775,11 +4775,23 @@ body.touch .btn-call-touch {
   align-items: center;
   gap: 10px;
   padding: 8px 14px;
-  border-radius: 999px;
+  /* La pilule ne vaut que pour une seule ligne. Dès que le contenu passe à la
+     ligne — un nom long, deux boutons de 44 px — un rayon de 999 px transforme le
+     bandeau en œuf qui avale le haut de l'écran. Vu sur la capture de Paul. */
+  border-radius: 22px;
   background: rgba(8, 12, 30, 0.92);
   border: 1px solid var(--cyan-dim);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
   z-index: 60;
+  /* LE POINTEUR, EXPLICITEMENT. Un de ces bandeaux est posé dans #overlay, qui
+     est en pointer-events: none : sans ce rétablissement, ses boutons étaient
+     TRAVERSÉS par le doigt — « Accepter » ne répondait à rien. Le banc d'essai
+     validait pourtant le flux, parce qu'un .click() de script court-circuite la
+     détection de toucher : il cliquait un bouton qu'aucun doigt ne pouvait
+     atteindre. C'est le défaut signalé par Paul — « impossible d'accepter une
+     demande pour rejoindre » — et la raison d'être de l'épreuve
+     elementFromPoint du banc. */
+  pointer-events: auto;
 }
 
 .voix-nom {

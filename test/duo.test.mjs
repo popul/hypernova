@@ -14,6 +14,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Duo } from '../server/duo.js';
+// Le rattrapage vit côté CLIENT : même nom de fichier, autre monde — le serveur
+// relaie des commandes, le client les consomme.
+import { pasDeRattrapage } from '../src/game/duo.js';
 
 // La même normalisation que le serveur (server/index.js) : sans elle, « Louis » et
 // « LOUIS » seraient deux pilotes.
@@ -808,4 +811,36 @@ epreuve('un hôte déjà déconnecté ne reçoit pas d’adieu', (salle, horloge
 
   assert.equal(salle.duo.salons.has(id), false);
   assert.equal(alice.des('parti').length, avant, 'on écrit sur une socket fermée');
+});
+
+// --- LE RATTRAPAGE DU SPECTATEUR ----------------------------------------------
+//
+// Quand sa file grossit — onglet en fond, réseau qui hoquette — le spectateur
+// consomme l'excédent en accéléré. L'ancienne réponse jetait la file : couper une
+// suite ordonnée de commandes en son milieu, c'est recoller la simulation sur les
+// commandes d'après, et elle divergeait en silence. Et attendre le prochain
+// tableau gelait l'écran pendant tout un combat de boss.
+
+test('sous le seuil, le rattrapage ne touche à rien', () => {
+  for (const retard of [0, 10, 45, 119, 120]) {
+    assert.equal(pasDeRattrapage(retard), 0, `retard ${retard} : l’amortisseur normal suffit`);
+  }
+});
+
+test('au-delà du seuil, on consomme l’excédent en gardant un tampon', () => {
+  // 300 images de retard : on en avale 255 et on en garde 45 d'avance, pour ne
+  // pas repartir à sec au premier hoquet suivant.
+  assert.equal(pasDeRattrapage(300), 255);
+  assert.equal(pasDeRattrapage(121), 76);
+});
+
+test('le rattrapage est plafonné par image rendue', () => {
+  // Dix secondes de simulation par battement d'écran, pas plus : au-delà, c'est
+  // l'appareil du spectateur qu'on gèlerait à la place du spectacle.
+  assert.equal(pasDeRattrapage(2000), 600);
+  assert.equal(pasDeRattrapage(5000), 600);
+});
+
+test('le rattrapage ne rend jamais un pas négatif', () => {
+  assert.equal(pasDeRattrapage(130, { tampon: 200, seuil: 120 }), 0);
 });

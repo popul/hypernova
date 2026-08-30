@@ -30,6 +30,27 @@ const RACINE = '/api';
 // Combien d'images d'avance on prend. Quatre à soixante images par seconde
 // laissent soixante-six millisecondes d'aller-retour avant le premier hoquet.
 export const DELAI = 4;
+
+// LE RATTRAPAGE DU SPECTATEUR : combien d'images consommer EN PLUS ce tour-ci
+// quand sa file a grossi — onglet passé en fond, réseau qui hoquette, appareil
+// qui ralentit.
+//
+// L'ancienne réponse jetait la file et attendait l'instantané du prochain
+// tableau. Deux torts, tous deux vus en vrai. Pendant un combat de boss, le
+// prochain tableau est à plusieurs minutes : l'écran restait GELÉ tout du long.
+// Et jeter des commandes au milieu d'un flux qui n'est qu'une suite ordonnée,
+// c'est recoller la simulation sur les commandes d'APRÈS : elle divergeait en
+// silence — un vaisseau ailleurs, des morts qui n'arrivent pas — jusqu'au
+// tableau suivant.
+//
+// On consomme donc l'excédent en accéléré : six cents images de simulation par
+// image rendue au plus — dix secondes de retard avalées en un battement, sans
+// rien perdre ni rien corrompre. Le seuil laisse vivre l'amortisseur normal, et
+// le tampon garde une seconde d'avance pour ne pas repartir à sec.
+export function pasDeRattrapage(retard, { tampon = 45, seuil = 120, maxParImage = 600 } = {}) {
+  if (retard <= seuil) return 0;
+  return Math.max(0, Math.min(retard - tampon, maxParImage));
+}
 // Le pas de la simulation. Le même chiffre des deux côtés, toujours.
 export const PAS = 1 / 60;
 // Au-delà, on abandonne le rattrapage : un onglet remis au premier plan après
