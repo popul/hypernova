@@ -4990,3 +4990,57 @@ body.touch .btn-call-touch {
   opacity: 0.55;
   cursor: default;
 }
+
+/* --- QUI EST QUI ------------------------------------------------------------
+   Trois coques identiques dans la même arène : sans repère, on ne sait plus
+   laquelle on pilote. Une couleur par poste relie trois choses — l'anneau posé
+   au sol sous le vaisseau, le nom qui le suit, et sa ligne dans le tableau. */
+
+.hud-noms {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hud-nom {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Le nom est ANCRÉ SOUS le vaisseau et centré dessus : posé au-dessus, il
+     entrait dans la zone où arrivent les ennemis, c'est-à-dire là où l'œil doit
+     rester libre. */
+  margin: 0 0 0 -3.5em;
+  width: 7em;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--teinte, #8ffbff);
+  /* Un halo sombre plutôt qu'un fond : le nom reste lisible sur une explosion
+     sans poser un rectangle opaque au milieu du jeu. */
+  text-shadow:
+    0 0 3px #05040f,
+    0 0 6px #05040f,
+    0 1px 2px #05040f;
+  transition: opacity 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Le mien s'efface : je sais qui je suis, et mon propre nom en permanence au
+   milieu de l'écran est du bruit. L'anneau, lui, reste. */
+.hud-nom.moi {
+  opacity: 0.35;
+  font-size: 10px;
+}
+
+.bord-pastille {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teinte, #8ffbff);
+  box-shadow: 0 0 6px var(--teinte, #8ffbff);
+  flex: 0 0 auto;
+}

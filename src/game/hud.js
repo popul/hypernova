@@ -32,6 +32,10 @@ export class Hud {
       </div>
       <div class="hud-lives" id="hud-lives"></div>
       <div class="hud-bords" id="hud-bords"></div>
+      <!-- LES ÉTIQUETTES DE PILOTE. Elles suivent les vaisseaux à l'écran :
+           trois coques identiques dans la même arène, et sans elles on ne sait
+           plus laquelle on pilote. -->
+      <div class="hud-noms" id="hud-noms"></div>
       <div class="hud-energy" id="hud-energy">
         <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
         <div class="energy-label" id="energy-label">X</div>
@@ -70,6 +74,7 @@ export class Hud {
         'combo-fill',
         'hud-lives',
         'hud-bords',
+        'hud-noms',
         'boss-bar',
         'boss-fill',
         'boss-acte',
@@ -129,12 +134,15 @@ export class Hud {
   // il n'existe pas. Il faut pouvoir dire d'un coup d'œil, en plein combat, s'il
   // reste des vies au copain qu'on ne couvre pas.
   setBords(liste) {
-    const cle = JSON.stringify(liste.map((b) => [b.nom, b.vies]));
+    const cle = JSON.stringify(liste.map((b) => [b.nom, b.vies, b.couleur]));
     if (this._cache.bords === cle) return;
     this._cache.bords = cle;
+    // La pastille reprend la couleur de l'anneau posé sous son vaisseau : c'est
+    // ce qui relie une ligne du tableau à un point de l'arène.
     this.el['hud-bords'].innerHTML = liste
       .map(
         (b) => `<div class="bord-ligne">
+          <span class="bord-pastille" style="--teinte:${b.couleur || '#8ffbff'}"></span>
           <span class="bord-nom">${esc(b.nom)}</span>
           <span class="bord-vies">${
             b.vies > 0 ? '<span class="life"></span>'.repeat(Math.min(9, b.vies)) : '✕'
@@ -294,6 +302,27 @@ export class Hud {
   }
 
   // Petit "+N" doré qui flotte à l'écran, à la position (px) donnée.
+  // LES NOMS AU-DESSUS DES VAISSEAUX. `postes` : `{nom, x, y, couleur, moi}`,
+  // déjà projetés à l'écran par le jeu — le HUD ne connaît pas la caméra. On
+  // recycle les éléments au lieu de les refaire : c'est appelé à chaque image.
+  setNoms(postes) {
+    const zone = this.el['hud-noms'];
+    while (zone.childElementCount > postes.length) zone.lastElementChild.remove();
+    while (zone.childElementCount < postes.length) {
+      const el = document.createElement('span');
+      el.className = 'hud-nom';
+      zone.appendChild(el);
+    }
+    postes.forEach((p, i) => {
+      const el = zone.children[i];
+      if (el.textContent !== p.nom) el.textContent = p.nom;
+      el.classList.toggle('moi', !!p.moi);
+      el.style.setProperty('--teinte', p.couleur);
+      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+      el.style.opacity = p.visible === false ? '0' : '1';
+    });
+  }
+
   creditPop(x, y, text, big = false) {
     const pops = this.el['credit-pops'];
     if (pops.childElementCount > 14) pops.firstElementChild.remove();

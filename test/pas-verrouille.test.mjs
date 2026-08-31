@@ -644,3 +644,80 @@ test('l’histoire de mes commandes ne grandit pas sans fin', () => {
   // Et elle garde les RÉCENTES : c'est celles-là qu'on réclame.
   assert.ok(duo.histoire.has(duo._dernierPour), 'la dernière commande publiée a été oubliée');
 });
+
+test('un achat ne prend effet dans la simulation qu’avec le bordage', async () => {
+  // `buy` posait les nouvelles statistiques tout de suite. Chez les autres,
+  // elles n'arrivaient qu'avec la commande suivante, quelques images plus tard :
+  // pendant ce trou, le même vaisseau tirait trois flux ici et un seul là-bas.
+  // Relevé dans le journal d'une VRAIE partie en 1.26.1 — vague 2, image 60 :
+  // une balle d'écart, trois cents points de vie, et les énergies des deux
+  // pilotes échangées, chaque machine créditant la sienne.
+  const { readFile } = await import('node:fs/promises');
+  const jeu = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
+
+  const debut = jeu.indexOf('_appliqueEffetAchat({ vies = 0 } = {})');
+  assert.ok(debut > 0, 'l’effet d’un achat n’est plus centralisé');
+  const corps = jeu.slice(debut, jeu.indexOf('\n  }', debut));
+  assert.match(
+    corps,
+    /this\._viesEnAttente = \(this\._viesEnAttente \|\| 0\) \+ vies;\s*\n\s*return;/,
+    'en réseau, l’achat doit être mis en attente'
+  );
+  assert.match(
+    corps,
+    /this\.stats = computeStats/,
+    'en solo, l’achat doit s’appliquer tout de suite'
+  );
+
+  // Et plus aucun achat ne pose les statistiques de son côté.
+  const achat = jeu.slice(jeu.indexOf('\n  buy(id) {'));
+  const corpsAchat = achat.slice(0, achat.indexOf('\n  }'));
+  assert.ok(
+    !/this\.stats = computeStats/.test(corpsAchat),
+    'buy() pose encore les statistiques sans attendre le bordage'
+  );
+  assert.ok(!/this\.lives\+\+/.test(corpsAchat), 'buy() ajoute encore une vie sans attendre');
+
+  // Le bordage porte les vies VOULUES, sinon la coque achetée n'arriverait
+  // jamais nulle part.
+  assert.match(
+    jeu,
+    /v: this\.lives \+ \(this\._viesEnAttente \|\| 0\)/,
+    'le bordage oublie les vies en attente'
+  );
+});
+
+test('une trajectoire choisie trop tôt attend celui qui n’est pas encore arrivé', async () => {
+  // La décision était jetée si elle arrivait avant que je n'atteigne l'écran de
+  // trajectoire — or mon saut peut durer une demi-seconde de plus que le sien.
+  // Le choix passait dans le vide : lui entrait en boutique, moi je restais
+  // planté devant deux cartes grisées, pour toujours. Signalé en jouant :
+  // « il n'y a qu'un qui voit la boutique ».
+  const { readFile } = await import('node:fs/promises');
+  const jeu = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
+
+  const recu = jeu.slice(jeu.indexOf('  _surRoute(m) {'));
+  const corps = recu.slice(0, recu.indexOf('\n  }'));
+  assert.match(
+    corps,
+    /this\._routeRecue = m\.d;/,
+    'une décision arrivée trop tôt est encore jetée'
+  );
+  assert.ok(
+    !/if \(this\.state !== 'route' \|\| !m\?\.d\) return;/.test(corps),
+    'le garde qui jetait la décision est encore là'
+  );
+
+  // Et l'écran de trajectoire la consomme au lieu d'afficher un choix mort.
+  const ecran = jeu.slice(jeu.indexOf('  _showRouteChoice() {'));
+  assert.match(
+    ecran.slice(0, 6000),
+    /if \(this\._routeRecue\) \{[\s\S]{0,220}_appliqueRoute\(recue/,
+    'l’écran de trajectoire ignore une décision déjà reçue'
+  );
+
+  // Celui qui n'a pas choisi doit VOIR ce qui a été choisi : subir une vague
+  // plus dure sans savoir pourquoi n'est pas une règle du jeu, c'est un bug.
+  assert.match(jeu, /nom: choix\.nom \|\| null/, 'le nom de la route ne voyage pas');
+  assert.match(jeu, /\$\{deQui\} a choisi/, 'rien n’annonce le choix à ceux qui le subissent');
+});

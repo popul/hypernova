@@ -113,6 +113,8 @@ import {
   DEFAULT_MODS,
   modsEquipage,
   REGARD_ATTENTE,
+  COULEURS_POSTE,
+  COULEURS_POSTE_CSS,
   BOSS_PHASES,
   MODULE_RARETE,
   COQUES,
@@ -751,12 +753,11 @@ export class Game {
   }
 
   _prendModuleLocal(id, pos) {
-    // Un module ramassé modifie mes améliorations : même chemin qu'un achat.
-    this._bordSale = true;
     if (id === 'surcharge') {
       this.surcharge = Math.min(SURVIE.surchargeMax, this.surcharge + 1);
-      this._bordSale = true; // la surcharge change ma cadence : les autres doivent le savoir
-      this.stats = computeStats(this.levels, this.surcharge);
+      // La surcharge change ma cadence : même chemin qu'un achat, elle attend le
+      // bordage pour prendre effet partout à la même image.
+      this._appliqueEffetAchat();
       this.audio.moduleRamasse?.(1) ?? this.audio.buy();
       this.fx.burst(pos, 0xff3df0, { count: 22, speed: 11, life: 0.55 });
       this.fx.shockwave(pos, 0xff3df0, 6);
@@ -771,9 +772,11 @@ export class Game {
     if (!u) return;
     const niveau = (this.levels[id] || 0) + 1;
     this.levels[id] = Math.min(u.maxLevel, niveau);
-    this.stats = computeStats(this.levels, this.surcharge);
-    if (id === 'hull') this.lives = Math.min(PLAYER.maxLives + 2, this.lives + 1);
-    this.hud.setLives(this.lives);
+    // Une vie de plus ne se prend qu'en dessous du plafond — et, à plusieurs,
+    // elle attend le bordage comme le reste : voir `_appliqueEffetAchat`.
+    const gagne = id === 'hull' && this.lives < PLAYER.maxLives + 2 ? 1 : 0;
+    this._appliqueEffetAchat({ vies: gagne });
+    this.hud.setLives(this.lives + (this._viesEnAttente || 0));
     this._refreshShip();
     // La rareté du module décide de l'intensité du retour : une cadence de plus
     // n'est pas un lance-missiles, et le joueur doit l'entendre.
@@ -4090,8 +4093,96 @@ export class Game {
   // La décision de l'hôte arrive : on l'applique telle quelle. Les crédits de la
   // route sont pour tout le monde — c'est une récompense d'équipage, pas un butin.
   _surRoute(m) {
-    if (this.state !== 'route' || !m?.d) return;
-    this._appliqueRoute(m.d);
+    if (!m?.d) return;
+    // ELLE PEUT ARRIVER AVANT MOI, ET IL FAUT LA GARDER.
+    //
+    // On la jetait quand je n'étais pas encore sur l'écran de trajectoire — or
+    // mon saut peut durer une demi-seconde de plus que le sien. Le choix passait
+    // alors dans le vide : lui entrait en boutique, moi je restais planté devant
+    // deux cartes grisées, pour toujours. Signalé en jouant : « il n'y a qu'un
+    // qui voit la boutique ».
+    if (this.state !== 'route') {
+      this._routeRecue = m.d;
+      return;
+    }
+    this._appliqueRoute(m.d, this._quiChoisitLaRoute());
+  }
+
+  // QUI EST QUI, DANS L'ARÈNE ET DANS LE TABLEAU.
+  //
+  // Trois coques identiques volant ensemble, et l'on perd son propre vaisseau de
+  // vue — signalé en jouant. Un anneau posé AU SOL sous chacun, dans la couleur
+  // de son poste : au sol parce que le vaisseau roule et tangue, et qu'un repère
+  // qui roule avec lui ne se lit plus ; et parce que le sol est déjà le langage
+  // des flèches d'annonce et du colosse.
+  //
+  // Tout ici est du RENDU : on lit des positions, on n'en écrit aucune. Rien de
+  // ce qui suit ne peut faire diverger deux machines.
+  _anneauPoste(couleur) {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({
+      color: couleur,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const anneau = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.35, 28), mat);
+    anneau.rotation.x = -Math.PI / 2;
+    g.add(anneau);
+    // Une encoche vers l'avant : elle dit l'orientation sans dessiner de flèche,
+    // et distingue l'anneau d'une simple cible.
+    const nez = new THREE.Mesh(new THREE.RingGeometry(1.4, 1.7, 16, 1, -0.45, 0.9), mat);
+    nez.rotation.x = -Math.PI / 2;
+    g.add(nez);
+    g.position.y = 0.02;
+    this.scene.add(g);
+    return { g, mat };
+  }
+
+  // Appelée à chaque image RENDUE, jamais depuis le pas verrouillé.
+  _peintReperes() {
+    const enReseau = this.variante === 'duo' && this.bordsDistants.length > 0;
+    const postes = enReseau ? this._postesOrdonnes() : [];
+    this._anneaux = this._anneaux || [];
+    // Hors réseau, on efface : un anneau solitaire sous le seul vaisseau du jeu
+    // n'apprendrait rien à personne.
+    for (let i = postes.length; i < this._anneaux.length; i++) this._anneaux[i].g.visible = false;
+    if (!enReseau) return this.hud.setNoms?.([]);
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const etiquettes = [];
+    postes.forEach((p, i) => {
+      const couleur = COULEURS_POSTE[p.numero % COULEURS_POSTE.length];
+      if (!this._anneaux[i]) this._anneaux[i] = this._anneauPoste(couleur);
+      const a = this._anneaux[i];
+      a.mat.color.setHex(couleur);
+      const vif = !!p.vaisseau?.alive;
+      a.g.visible = vif;
+      if (!vif) return;
+      a.g.position.x = p.vaisseau.position.x;
+      a.g.position.z = p.vaisseau.position.z;
+      a.g.rotation.y = 0;
+      // Le mien bat doucement : c'est le seul que je dois retrouver d'un coup
+      // d'œil quand ça se bouscule.
+      const moi = p.bord === this;
+      a.mat.opacity = moi ? 0.5 + Math.sin(this.enemies.waveClock * 3) * 0.14 : 0.4;
+      this._tmp.copy(p.vaisseau.position).project(this.camera);
+      etiquettes.push({
+        nom: moi ? activePilot()?.name || 'VOUS' : p.bord.nom,
+        // AU-DESSUS DU VAISSEAU, ET DANS LE CADRE. Sous lui semblait plus sage —
+        // la zone du haut est celle d'où arrivent les ennemis — mais le vaisseau
+        // vole EN BAS de l'écran : mesuré, l'étiquette tombait à 896 pixels dans
+        // une fenêtre qui en fait 840. Elle passe donc juste au-dessus, et on la
+        // borne pour qu'un vaisseau collé à un bord ne l'emporte pas hors cadre.
+        x: Math.max(44, Math.min(rect.width - 44, (this._tmp.x * 0.5 + 0.5) * rect.width)),
+        y: Math.max(8, Math.min(rect.height - 18, (-this._tmp.y * 0.5 + 0.5) * rect.height - 34)),
+        couleur: COULEURS_POSTE_CSS[p.numero % COULEURS_POSTE_CSS.length],
+        moi,
+      });
+    });
+    this.hud.setNoms?.(etiquettes);
   }
 
   // L'arme d'un poste, construite à la demande pour SA coque. ORION n'en a pas :
@@ -4119,11 +4210,40 @@ export class Game {
     for (const e of this.armes.values()) e.arme?.clear?.();
   }
 
+  // CE QU'UN ACHAT CHANGE DANS LA SIMULATION N'EST PAS À MOI SEUL.
+  //
+  // `buy` posait les nouvelles statistiques tout de suite. Chez les autres, elles
+  // n'arrivaient qu'avec ma commande, quelques images plus tard : pendant ce
+  // trou, mon vaisseau tirait trois flux ici et un seul là-bas, et les ennemis
+  // ne prenaient pas les mêmes dégâts. Relevé dans le journal d'une vraie partie
+  // — vague 2, image 60, une balle d'écart, trois cents points de vie, et les
+  // énergies des deux pilotes échangées.
+  //
+  // À plusieurs, on ne pose donc RIEN soi-même : la vitrine et les prix suivent
+  // `levels`, mais ce que lit la simulation — `stats` et les vies — attend le
+  // bordage, qui arrive à la même image chez tout le monde, moi compris.
+  _appliqueEffetAchat({ vies = 0 } = {}) {
+    this._bordSale = true;
+    if (this.variante === 'duo' && this.bordsDistants.length) {
+      this._viesEnAttente = (this._viesEnAttente || 0) + vies;
+      return;
+    }
+    this.lives += vies;
+    this.stats = computeStats(this.levels, this.surcharge);
+  }
+
   // Ce que mes achats changent chez les autres : les améliorations, la
   // surcharge, la coque, et les vies gagnées HORS COMBAT — celles du combat sont
   // déjà simulées partout.
   _monBordage() {
-    return { n: { ...this.levels }, s: this.surcharge, v: this.lives, c: this.coque };
+    // Les vies VOULUES, celles en attente comprises : c'est ce bordage qui les
+    // posera, chez moi comme chez les autres, à la même image.
+    return {
+      n: { ...this.levels },
+      s: this.surcharge,
+      v: this.lives + (this._viesEnAttente || 0),
+      c: this.coque,
+    };
   }
 
   // Poser l'état d'un poste, à l'image où il a été estampillé. Le mien compris :
@@ -4136,6 +4256,7 @@ export class Game {
       this.levels = { ...b.n };
       this.surcharge = b.s;
       this.lives = b.v;
+      this._viesEnAttente = 0;
       this.stats = computeStats(this.levels, this.surcharge);
       this.hud.setLives(this.lives);
       this._refreshShip();
@@ -4173,7 +4294,13 @@ export class Game {
 
   // Le HUD du jeu en réseau : la liste des autres pilotes, nom et vies.
   _peintBordsHud() {
-    this.hud.setBords(this.bordsDistants.map((b) => ({ nom: b.nom, vies: b.lives })));
+    this.hud.setBords(
+      this.bordsDistants.map((b) => ({
+        nom: b.nom,
+        vies: b.lives,
+        couleur: COULEURS_POSTE_CSS[b.numero % COULEURS_POSTE_CSS.length],
+      }))
+    );
   }
 
   // LE PAS VERROUILLÉ, VU DU JEU.
@@ -4681,6 +4808,7 @@ export class Game {
     this.waveGrazes = 0;
     this.energy = 0;
     this.odTimer = 0;
+    this._viesEnAttente = 0;
     this.callLeft = 0;
     this.callWaves = [];
     this.reflexCooldown = 0;
@@ -5267,6 +5395,13 @@ export class Game {
     // sur deux trajectoires et ne jouent plus la même partie. Les autres voient
     // les mêmes cartes, apprennent qui tranche, et attendent : leur écran se
     // ferme tout seul quand la décision arrive.
+    // Une décision arrivée pendant mon saut m'attend : on la joue tout de suite
+    // plutôt que d'afficher un écran qui n'a plus rien à décider.
+    if (this._routeRecue) {
+      const recue = this._routeRecue;
+      this._routeRecue = null;
+      return this._appliqueRoute(recue, this._quiChoisitLaRoute());
+    }
     const aMoiDeChoisir = this._jeChoisisLaRoute();
     for (const b of el.querySelectorAll('.route')) {
       if (!aMoiDeChoisir) {
@@ -5307,6 +5442,8 @@ export class Game {
         fragment: !!choix.fragment,
         credits: choix.credits | 0,
         mods: choix.risque ? { ...choix.risque.mods } : null,
+        // Le nom voyage pour que les autres SACHENT ce qu'ils vont affronter.
+        nom: choix.nom || null,
       });
     }
     this.overlayRoot.innerHTML = '';
@@ -5324,7 +5461,7 @@ export class Game {
 
   // Ce que la trajectoire change, et rien d'autre. Écrit une seule fois pour que
   // celui qui décide et ceux qui reçoivent en fassent exactement autant.
-  _appliqueRoute(choix) {
+  _appliqueRoute(choix, deQui = null) {
     // Le palier d'où l'on part : il décide du souvenir joué en transition. Il se
     // déduit de la vague, il n'a donc pas à voyager avec la décision.
     const stageIdx = STAGES.indexOf(stageForWave(this.wave));
@@ -5344,6 +5481,16 @@ export class Game {
     this.hud.setCredits(this.credits);
     this.routeMods = choix.mods ? { ...choix.mods } : null;
     this.audio.buy();
+    // ON DIT CE QUI A ÉTÉ CHOISI. Subir une trajectoire sans savoir laquelle,
+    // c'est se retrouver dans une vague plus dure sans comprendre pourquoi — et
+    // la décision appartient à l'équipage même quand un seul la prend.
+    if (deQui) {
+      this.hud.announce(
+        `${deQui} a choisi`,
+        choix.nom || (choix.fragment ? 'Le détour' : 'La voie directe'),
+        2800
+      );
+    }
 
     if (!choix.fragment) {
       this.openShop();
@@ -5400,7 +5547,7 @@ export class Game {
     if (apres > avant) {
       const gagnees = PALIERS[apres].vies || 0;
       if (gagnees) {
-        this.lives += gagnees;
+        this._appliqueEffetAchat({ vies: gagnees });
         // Des vies gagnées à l'escale, donc hors combat : elles ne se déduisent
         // de rien chez les autres, il faut les leur dire. Sinon j'ai quatre vies
         // ici et trois là-bas, et la vague suivante me fait « revenir avec une
@@ -5524,14 +5671,8 @@ export class Game {
     }
     this.credits -= price;
     this.levels[id]++;
-    if (id === 'hull') {
-      this.lives++;
-      this.hud.setLives(this.lives);
-    }
-    this.stats = computeStats(this.levels, this.surcharge);
-    // À plusieurs, cet achat doit rejoindre les autres machines : il part avec
-    // ma prochaine commande, donc il s'appliquera partout à la même image.
-    this._bordSale = true;
+    this._appliqueEffetAchat({ vies: id === 'hull' ? 1 : 0 });
+    this.hud.setLives(this.lives + (this._viesEnAttente || 0));
     // Ce qu'on achète se voit sur la coque, sinon ce n'est pas un achat : c'est
     // une case cochée.
     this._refreshShip();
@@ -6005,6 +6146,10 @@ export class Game {
       this.jump.update(this.fx.timeScale ? dt / this.fx.timeScale : dt);
       return;
     }
+
+    // LES REPÈRES SE PEIGNENT À CHAQUE IMAGE RENDUE, jamais depuis le pas
+    // verrouillé : ils ne lisent que des positions, ils n'en écrivent aucune.
+    if (this.state === 'playing') this._peintReperes();
 
     if (this.spectateur) {
       this._updateRegard(dt);

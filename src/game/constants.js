@@ -937,6 +937,18 @@ export const REFLEX = {
 //
 // Quarante-cinq secondes, c'est le temps d'une vague : on finit ce qu'on fait,
 // on lève les yeux entre deux formations, et la proposition est encore là.
+// À QUI EST CE VAISSEAU.
+//
+// Trois coques identiques dans la même arène, et l'on ne sait plus laquelle on
+// pilote — signalé en jouant : « on ne distingue pas bien qui est qui ». Une
+// couleur par POSTE, pas par coque : elle ne change pas d'une partie à l'autre
+// pour un même siège, et c'est elle qui relie l'anneau au sol, le nom au-dessus
+// du vaisseau, et la ligne du HUD. Trois teintes déjà présentes dans le jeu,
+// franchement distinctes même sur un petit écran et pour un œil qui confond le
+// rouge et le vert : cyan, ambre, magenta.
+export const COULEURS_POSTE = [0x8ffbff, 0xffc857, 0xff3df0];
+export const COULEURS_POSTE_CSS = ['#8ffbff', '#ffc857', '#ff3df0'];
+
 export const REGARD_ATTENTE = 45;
 
 export const MULT_JOUEURS = {
