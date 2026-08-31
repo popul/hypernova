@@ -216,6 +216,12 @@ export class DemoArme {
     const p = game.player.position;
     p.x = this.centreX + Math.sin(this.horloge * PERIODE) * this.amplitude;
     game.player.group.rotation.z = -Math.cos(this.horloge * PERIODE) * 0.16;
+    // La vitrine déplace la coque en écrivant sa POSITION, sans jamais passer par
+    // le vol : sa vitesse ne veut donc rien dire. On la pose à zéro pour que
+    // VULCAIN se croie planté et démontre son tapis — ce qui est vrai, d'ailleurs,
+    // puisque le balayage de la vitrine dérive à 2,3 u/s, sous le seuil de pose.
+    game.player.vx = 0;
+    game.player.vz = 0;
 
     for (const c of this.cibles) {
       if (!c.alive) {

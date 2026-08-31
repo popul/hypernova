@@ -1004,7 +1004,10 @@ export const COQUES = [
     phrase: 'Elle a creusé, de ses propres bras, le métal dont KORN est fait.',
     arme: "Missiles lourds qui n'explosent qu'au contact d'une coque",
     jauge: 'salve',
-    resume: 'Ne tire pas tout de suite. Attends qu’ils se resserrent.',
+    // LA SEULE LIGNE DE TEXTE QUI ENSEIGNE L'ENCLUME, et le joueur la lit avant
+    // même de décoller. Deux impératifs, pas une explication : ce qu'il faut
+    // faire des mains, dans l'ordre où on le fait.
+    resume: 'Bouge : la forge se remplit. Arrête-toi : tout part.',
   },
 ];
 

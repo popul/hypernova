@@ -8,11 +8,22 @@
 //
 // Quatre décisions structurent le fichier, et aucune n'est un détail :
 //
-//  1. LA RÉSERVE. La forge produit une charge toutes les deux secondes, mais le
-//     lanceur ne la sort que s'il y a quelque chose à atteindre au-dessus. Se
-//     mettre à l'écart REMPLIT le ventre (jusqu'à cinq), passer sous la nuée le
-//     VIDE d'un coup. C'est ce qui met le pilotage au centre : les mains ne font
-//     plus « esquiver et tirer », elles font « charger, puis se placer ».
+//  1. L'ENCLUME. La forge produit une charge toutes les 1,7 s et la GARDE. Ce
+//     qui décide de la sortie n'est pas un bouton — il n'y en a pas, le tir est
+//     automatique dans tout le jeu — c'est la VITESSE DU VAISSEAU. Tant qu'on se
+//     déplace, le ventre se remplit ; dès qu'on se pose, tout part, un missile
+//     toutes les 0,22 s, jusqu'à ce qu'on reparte. Une enclume ne frappe pas en
+//     courant.
+//
+//     C'est la seule mécanique du jeu où l'IMMOBILITÉ est le geste offensif, et
+//     c'est là qu'est son prix : s'arrêter, ici, c'est offrir sa coque. Le volume
+//     de feu ne s'achète donc pas, il se GAGNE — il vaut exactement le temps
+//     qu'on a passé à bouger avant de se poser.
+//
+//     La règle précédente — « le lanceur ne sort une charge que s'il y a
+//     quelque chose au-dessus » — reste, mais elle a changé de rôle : elle
+//     n'est plus le levier, elle est le garde-fou qui empêche de vider le ventre
+//     dans un ciel vide. Le levier, désormais, c'est le pied.
 //
 //  2. LE CONTACT, ET RIEN D'AUTRE. Il n'y a plus de mèche : un missile qui ne
 //     rencontre personne ne détone pas, il s'ÉTEINT. C'est ce qui donne son prix au
@@ -60,9 +71,10 @@ const MONTEE = 6.5;
 // il faut moins anticiper. C'est la lecture juste de « frappe plus près ».
 const MONTEE_PAR_MOTEUR = 1.12;
 // Deux moteurs ne poussent jamais pareil. Trois centièmes et demi d'écart suffisent :
-// à vingt unités de montée, deux missiles d'une même salve arrivent à un dixième de
-// seconde l'un de l'autre, et la salve se lit comme un roulement au lieu d'un seul
-// coup. C'est le rôle que tenait l'écart de mèche avant qu'il n'y ait plus de mèche.
+// à vingt unités de montée, deux charges d'un même tapis se décalent d'un dixième
+// de seconde de plus que ne le veut leur départ, et le tapis se lit comme un
+// roulement irrégulier au lieu d'un métronome. C'est le rôle que tenait l'écart de
+// mèche avant qu'il n'y ait plus de mèche.
 //
 // `ecart` et pas Math.random : la vitesse décide de l'instant du contact, donc de
 // qui est pris, donc de l'issue de la partie. Un tirage hors du générateur semé et
@@ -120,14 +132,43 @@ const INTERVALLE = 1.7;
 // `firerate`. À six niveaux, l'intervalle tombe à 0,96 s : la forge double son
 // débit sans jamais changer la nature de l'arme.
 const INTERVALLE_PAR_CADENCE = 1 / 1.13;
-const RESERVE_MAX = 5;
-// Le débit du lanceur quand la réserve se vide. Cinq salves en neuf dixièmes de
-// seconde : assez serré pour que ça se lise comme un TAPIS et non comme cinq tirs.
+// ---- Le ventre ----
+//
+// Cinq charges de base, DEUX DE PLUS par niveau de `cannons` — soit neuf au
+// dernier. C'est ce que ce module achète sur cette coque, et il fallait qu'il
+// cesse d'acheter autre chose : « un missile de plus, tiré en même temps, à côté
+// du premier » était le module d'ORION mot pour mot, et il CONTREDISAIT la coque
+// — plus on couvrait de largeur, moins il fallait se placer.
+//
+// La contenance, elle, ne couvre rien du tout. Elle allonge le tapis qu'un seul
+// arrêt peut cracher. Elle ne sert donc qu'à celui qui sait s'arrêter au bon
+// endroit, ce qui est très exactement le contraire d'une aide.
+const RESERVE_BASE = 5;
+const RESERVE_PAR_CANON = 2;
+// Le nombre de braises taillées sous la coque. `cannons` monte à deux niveaux
+// (voir upgrades.js) : cinq et quatre font neuf, et une épreuve le vérifie plutôt
+// que de le croire.
+const RESERVE_PLAFOND = 9;
+// Le débit du lanceur quand la réserve se vide. Neuf charges en deux secondes :
+// assez serré pour que ça se lise comme un TAPIS et non comme neuf tirs.
 const DELAI_SALVE = 0.22;
-// L'écart entre deux missiles d'une même salve (`cannons`). À 3, deux souffles de
-// rayon 3,2 se recouvrent d'un cheveu : la bande est continue, sans qu'aucun des
-// deux ne gaspille son rayon dans celui de l'autre.
-const ECART_SALVE = 3.0;
+
+// ---- Le pied ----
+//
+// Sous quelle vitesse le vaisseau compte pour POSÉ. Trois unités par seconde,
+// soit 19 % de sa vitesse de pointe (16) : assez bas pour qu'on ne se pose pas
+// par hasard en dérivant, assez haut pour pardonner les micro-corrections du
+// pouce sur un écran.
+const SEUIL_POSE = 3;
+// Et combien de temps il faut le tenir avant que la première charge ne sorte.
+//
+// CETTE CONSTANTE N'EST PAS UN CONFORT, C'EST UNE CORRECTION. Sans elle, changer
+// de direction ouvrirait le lanceur : la vitesse passe par zéro en le faisant.
+// Le vaisseau freine à 14/s ; depuis la vitesse maximale il tombe sous le seuil
+// en sept images (0,12 s) et un demi-tour le traverse en deux. Douze centièmes
+// séparent donc proprement « je me pose » de « je change d'avis » — et ils
+// s'entendent : il y a un dixième de silence, et puis ça part.
+const CALAGE = 0.12;
 // Au-delà de quelle distance latérale la forge considère qu'il n'y a rien à
 // atteindre. C'est ce chiffre qui décide si l'on charge ou si l'on décharge.
 //
@@ -199,13 +240,16 @@ const PLUME = 1.6;
 // resterait rien pour les explosions — c'est-à-dire pour ce qu'on regarde.
 const PAS_TRACE = 0.05;
 
-// Vingt-quatre en vol. Le pire cas ne se devine pas, il se met en scène : ventre
-// plein (cinq), veille fermée, puis on passe sous la nuée. Cinq salves de trois
-// partent en 1,1 s et la production continue derrière — vingt et un missiles en
-// l'air simultanément, mesurés, au dernier niveau de `cannons` et de `firerate`.
-// Vingt était le compte de l'époque où l'on volait trois secondes ; à 3,6 s le
-// lanceur refusait en silence, exactement au moment qu'on avait passé dix secondes
-// à préparer.
+// Vingt-quatre en vol. Le pire cas ne se devine pas, il se compte : ventre plein au
+// dernier niveau de `cannons` (neuf), on se pose sous la nuée, neuf charges partent
+// en deux secondes, et la forge continue derrière — au dernier niveau de `firerate`
+// elle en rend deux de plus avant que la première n'ait fini ses 3,6 s de vol. Onze
+// en l'air, donc, et le compte tombe de moitié par rapport à l'éventail d'avant :
+// on posait alors trois missiles par salve.
+//
+// Vingt-quatre reste. Ce n'est plus la marge d'un pire cas serré, c'est deux fois
+// le pire cas — et le jour où trois VULCAIN joueront ensemble, chacun ayant son
+// exemplaire, il n'y aura rien à revoir ici.
 const NB_CHARGES = 24;
 // Seize souffles. Le tapis complet n'en allume jamais plus de cinq à la fois — les
 // missiles ne rencontrent pas leur cible au même instant, et c'est justement ce qui
@@ -230,6 +274,10 @@ const ETEINT = 0x46626f;
 const C_INERTE = new THREE.Color(INERTE);
 const C_CHAUDE = new THREE.Color(CHAUDE);
 const C_ETEINT = new THREE.Color(ETEINT);
+// Le blanc du ventre quand la coque est posée et que ça va partir. C'est la même
+// couleur que le cœur d'une détonation : ce qui est blanc, dans cette arme, est
+// ce qui est en train de sortir.
+const C_COEUR = new THREE.Color(COEUR);
 
 // Ce qu'il reste de la secousse quand c'est la salve d'un COPAIN qui tombe. Le
 // partage est celui que game.js applique déjà à la bombe : le souffle est dans
@@ -253,6 +301,12 @@ export class ArmeVulcain {
     this.reserve = 0;
     this.tProduction = INTERVALLE;
     this.tSalve = 0;
+    // Depuis combien de temps le vaisseau tient sous le seuil. C'est LE compteur
+    // de l'arme : c'est lui qui ouvre le lanceur, et pas la vitesse instantanée.
+    this.tCalage = 0;
+    // Une charge que la forge a faite alors que le ventre était déjà plein. Elle
+    // n'a nulle part où aller : elle sort par le tube, en marche ou non.
+    this.trop = false;
 
     // Géométries partagées par tout le pool : c'est la règle de la maison, et elle
     // vaut ici plus qu'ailleurs puisqu'un souffle peut naître vingt fois de suite.
@@ -406,7 +460,7 @@ export class ArmeVulcain {
     const groupe = new THREE.Group();
     const geo = new THREE.OctahedronGeometry(0.17);
     this.braises = [];
-    for (let i = 0; i < RESERVE_MAX; i++) {
+    for (let i = 0; i < RESERVE_PLAFOND; i++) {
       const braise = new THREE.Mesh(
         geo,
         new THREE.MeshBasicMaterial({
@@ -417,7 +471,9 @@ export class ArmeVulcain {
           blending: THREE.AdditiveBlending,
         })
       );
-      braise.position.x = (i - (RESERVE_MAX - 1) / 2) * 0.42;
+      // Pas de position ici : elle dépend de la contenance ACHETÉE, qui se lit
+      // sur le bord servi et change d'un poste à l'autre. `_montreReserve` la
+      // repose à chaque image, et les places non achetées restent invisibles.
       groupe.add(braise);
       this.braises.push(braise);
     }
@@ -444,6 +500,11 @@ export class ArmeVulcain {
     return INTERVALLE * Math.pow(INTERVALLE_PAR_CADENCE, bord.levels?.firerate || 0);
   }
 
+  // Ce que le ventre peut contenir. `cannons` sur cette coque, et rien d'autre.
+  _capacite(bord) {
+    return RESERVE_BASE + RESERVE_PAR_CANON * (bord.levels?.cannons || 0);
+  }
+
   // `bord` : le poste de pilotage servi. Le jeu lui-même quand c'est moi, un objet
   // de `game.bordsDistants` quand c'est un copain. `bord = game` par défaut,
   // c'est-à-dire le solo, et rien n'y change.
@@ -457,42 +518,100 @@ export class ArmeVulcain {
     // Le reste — le souffle, les étincelles, le grondement, les braises du ventre
     // sous la coque — se passe dans l'arène et appartient à tout le monde.
     this._local = bord === game;
-    this._produit(dt, bord);
+    // Le pied AVANT la forge et le lanceur : c'est lui qui décide de tout le
+    // reste de l'image, et il se lit sur le vaisseau du bord servi — jamais sur
+    // le mien, sans quoi ma pose ferait tirer la forge d'un copain.
+    this._calage(dt, game, vaisseau);
+    this._produit(dt, game, bord);
     this._lance(dt, game, bord, vaisseau);
     this._avanceCharges(dt, game, bord);
     this._avanceSouffles(dt);
     this._montreReserve(bord, vaisseau);
   }
 
-  // La forge tourne toute seule, à son rythme, et se tait quand le ventre est
-  // plein. La minuterie reste alors armée sur un intervalle COMPLET : sans ça, la
-  // première charge dépensée serait remplacée dans la frame suivante et la réserve
-  // n'aurait plus de fond — on ne pourrait plus jamais la vider.
-  _produit(dt, bord) {
-    const intervalle = this._intervalle(bord);
-    if (this.reserve >= RESERVE_MAX) {
-      this.tProduction = intervalle;
-      return;
+  // LE PIED. Toute l'arme tient dans ces six lignes : on mesure la vitesse du
+  // vaisseau dans le plan, et on compte depuis combien de temps elle est basse.
+  //
+  // Le compteur, et pas la vitesse : c'est la différence entre « je me pose » et
+  // « je change d'avis ». Un demi-tour traverse le seuil en deux images, une pose
+  // le tient. Voir CALAGE.
+  _calage(dt, game, vaisseau) {
+    const avant = this.tCalage >= CALAGE;
+    const v = Math.hypot(vaisseau.vx || 0, vaisseau.vz || 0);
+    this.tCalage = v > SEUIL_POSE ? 0 : this.tCalage + dt;
+
+    // L'ENCLUME SE PLANTE. C'est le seul instant où le joueur apprend la règle
+    // sans qu'on la lui écrive : il s'arrête, quelque chose s'allume sous sa
+    // coque, et le tapis part. Il ne se produit que si le ventre a de quoi
+    // partir — se poser les mains vides n'annonce rien et ne doit rien promettre.
+    //
+    // Dans l'arène et non chez moi seul : voir un copain planter la sienne à
+    // l'autre bout de l'aire est exactement l'information qui manque quand on
+    // joue à deux, et c'est la même règle que pour la pose d'une charge.
+    if (!avant && this.tCalage >= CALAGE && this.reserve > 0) {
+      const p = vaisseau.position;
+      game.fx.burst(this._tmp.set(p.x, 0, p.z + 0.6), CHAUDE, {
+        count: 10,
+        speed: 3.2,
+        life: 0.32,
+        spread: 0.5,
+      });
+      game.audio?.enclumePosee?.(p.x);
     }
+  }
+
+  // La forge tourne toute seule, à son rythme, et ne s'arrête JAMAIS. Quand le
+  // ventre est plein, ce qu'elle vient de faire ne rentre nulle part : ça devient
+  // un trop-plein, et le trop-plein sort par le tube (voir `_lance`).
+  //
+  // La minuterie se réarme sur un intervalle COMPLET dans les deux cas : sans ça,
+  // la première charge dépensée serait remplacée à l'image suivante et la réserve
+  // n'aurait plus de fond — on ne pourrait plus jamais la vider.
+  _produit(dt, game, bord) {
     this.tProduction -= dt;
     if (this.tProduction > 0) return;
-    this.tProduction += intervalle;
-    this.reserve++;
+    this.tProduction += this._intervalle(bord);
+    if (this.reserve < this._capacite(bord)) {
+      this.reserve++;
+      return;
+    }
+    // LA LEÇON SE DONNE ICI, et nulle part ailleurs. Le ventre déborde : c'est,
+    // par construction, le moment où le joueur court depuis huit secondes sans
+    // s'être posé une fois. Il n'y a pas de meilleur instant pour lui dire la
+    // règle, et il n'y en a pas de pire pour la lui écrire sur un écran de
+    // titre qu'il a passé en tapant.
+    if (this._local && !this.trop) game.characters?.teachOnce?.('enclumeFirst');
+    this.trop = true;
   }
 
   _lance(dt, game, bord, vaisseau) {
     if (this.tSalve > 0) this.tSalve -= dt;
-    if (this.reserve <= 0 || this.tSalve > 0) return;
+    if (this.tSalve > 0) return;
     if (!this._quelqueChoseAuDessus(game, bord, vaisseau)) return;
-    this.reserve--;
+
+    if (this.trop) {
+      // LE TROP-PLEIN PASSE AVANT TOUT, en marche ou non. C'est le filet de celui
+      // qui ne s'arrête jamais : il tire quand même, une charge toutes les 1,7 s,
+      // au petit bonheur. Il n'est jamais bloqué — il est seulement moins bon que
+      // celui qui se pose, et c'est le bon gradient : ne rien comprendre marche
+      // mal, comprendre devient énorme.
+      this.trop = false;
+    } else if (this.tCalage >= CALAGE && this.reserve > 0) {
+      this.reserve--;
+    } else return;
+
     this.tSalve = DELAI_SALVE;
     this._pose(game, bord, vaisseau);
   }
 
   // VULCAIN ne tire pas sous un ciel vide : « j'y ai déjà mis ce qu'il faut »
-  // suppose qu'il y ait un « là ». C'est ce test, et rien d'autre, qui fait exister
-  // la réserve — et il transforme la position du vaisseau en levier : s'écarter
-  // charge, se replacer décharge.
+  // suppose qu'il y ait un « là ».
+  //
+  // Ce test FAISAIT la réserve, du temps où s'écarter chargeait et se replacer
+  // déchargeait. Le pied a pris ce rôle (voir l'en-tête, § 1) et il lui reste
+  // celui de garde-fou : se poser sous un ciel vide ne gâche pas le ventre. La
+  // différence compte, parce qu'on peut désormais charger SANS quitter la zone où
+  // l'on frôle — c'est-à-dire sans quitter le jeu.
   //
   // Pas de bouclage de l'arène dans le calcul, alors que le vaisseau, lui, boucle.
   // C'est volontaire : le missile ne boucle pas non plus, et une veille qui verrait
@@ -512,16 +631,21 @@ export class ArmeVulcain {
     return false;
   }
 
+  // UNE charge à la fois, toujours, quel que soit le niveau de `cannons`. Il y
+  // avait ici un éventail latéral, et c'était une faute : il faisait de VULCAIN un
+  // ORION lent. Plus on l'achetait, plus on couvrait de largeur, donc MOINS il
+  // fallait se placer — le module signature de la coque détruisait son verbe.
+  //
+  // Les charges d'un même arrêt partent donc l'une derrière l'autre, du même
+  // point : la première ouvre un trou dans le rang bas, la deuxième passe par le
+  // trou et va chercher le rang du dessus. Le tapis n'est plus large, il FORE, et
+  // sa longueur vaut exactement le temps qu'on a passé à bouger avant.
   _pose(game, bord, vaisseau) {
     const p = vaisseau.position;
-    const nb = 1 + (bord.levels?.cannons || 0);
-    const montee = this._montee(bord);
-    const rayon = this._rayon(bord);
-    for (let i = 0; i < nb; i++) {
-      const c = this.charges.find((x) => !x.active);
-      if (!c) break;
+    const c = this.charges.find((x) => !x.active);
+    if (c) {
       c.active = true;
-      c.x = p.x + (i - (nb - 1) / 2) * ECART_SALVE;
+      c.x = p.x;
       c.z = p.z - 1.4; // devant les bras de lancement, jamais dans la coque
       // LE SEUL TIRAGE SEMÉ DE L'ARME, et il décide bel et bien : la vitesse fixe
       // l'instant du contact, donc qui est pris, donc l'issue. Il reste donc dans
@@ -529,9 +653,9 @@ export class ArmeVulcain {
       // par missile réellement sorti, dans l'ordre où game.js sert les postes.
       // C'est à cette condition, et à elle seule, que toutes les machines puisent
       // le même nombre de fois.
-      c.v = montee * (1 + ecart(ECART_MOTEUR));
+      c.v = this._montee(bord) * (1 + ecart(ECART_MOTEUR));
       c.vol = PORTEE;
-      c.rayon = rayon;
+      c.rayon = this._rayon(bord);
       this._reposeVisuel(c);
     }
     // Le départ de la salve s'entend chez tout le monde, comme le canon d'un
@@ -806,15 +930,26 @@ export class ArmeVulcain {
     // caméra regarde le plan de jeu à trente-huit degrés au-dessus de l'horizon.
     this.ventre.position.set(p.x, -0.2, p.z + 1.2);
     const intervalle = this._intervalle(bord);
+    const capacite = this._capacite(bord);
+    // POSÉ : le ventre passe au blanc et grossit. C'est le télégraphe de toute la
+    // coque — ce qui est blanc est en train de sortir, ce qui est orange attend —
+    // et il tient sur la seule chose que le joueur regarde déjà, son vaisseau.
+    const pose = this.tCalage >= CALAGE;
     for (let i = 0; i < this.braises.length; i++) {
+      const braise = this.braises[i];
+      // Les places qu'on n'a pas achetées n'existent pas. La contenance se VOIT
+      // donc sous la coque dès la sortie du hangar, avant même d'avoir servi.
+      braise.visible = i < capacite;
+      if (!braise.visible) continue;
+      braise.position.x = (i - (capacite - 1) / 2) * 0.42;
       let force = 0;
       if (i < this.reserve) force = 1;
       // Celle qui est en train d'être forgée se remplit sous les yeux : la
       // prochaine charge s'annonce, elle ne surgit pas.
       else if (i === this.reserve) force = 1 - Math.max(0, this.tProduction) / intervalle;
-      const braise = this.braises[i];
-      braise.material.opacity = 0.05 + 0.6 * force;
-      braise.scale.setScalar(0.45 + 0.55 * force);
+      braise.material.color.copy(pose && force >= 1 ? C_COEUR : C_CHAUDE);
+      braise.material.opacity = (0.05 + 0.6 * force) * (pose ? 1.3 : 1);
+      braise.scale.setScalar((0.45 + 0.55 * force) * (pose ? 1.25 : 1));
     }
   }
 
@@ -830,6 +965,11 @@ export class ArmeVulcain {
     this.reserve = 0;
     this.tProduction = INTERVALLE;
     this.tSalve = 0;
+    // Pied LEVÉ et non posé : une vague qui commence ne doit pas cracher son
+    // ventre parce que le vaisseau n'a pas encore bougé. Il faudra se poser
+    // pour de bon, comme partout ailleurs.
+    this.tCalage = 0;
+    this.trop = false;
     this.ventre.visible = false;
   }
 
@@ -841,8 +981,10 @@ export class ArmeVulcain {
   // missile lâché avant un module `missiles` garde le souffle pour lequel il a été
   // forgé.
   //
-  // Format : [réserve, minuterie de forge, délai de salve, nombre de missiles] puis
-  // cinq nombres par missile. Ce qui n'est pas là — l'armement, l'extinction, la
+  // Format : [réserve, minuterie de forge, délai de salve, calage, trop-plein,
+  // nombre de missiles] puis cinq nombres par missile. Le CALAGE en fait partie :
+  // il vaut jusqu'à douze centièmes de tir, et une vague restaurée pied levé
+  // rendrait une charge à celui qui était déjà posé. Ce qui n'est pas là — l'armement, l'extinction, la
   // minuterie d'étincelles — se recalcule à la frame suivante à partir de ce qui y
   // est : c'est la raison pour laquelle l'annonce se déduit de la DISTANCE aux
   // ennemis et le battement de l'ALTITUDE, et non d'un compteur qu'il faudrait
@@ -853,28 +995,30 @@ export class ArmeVulcain {
   // d'`update`. Ce format décrit UNE forge — celle d'un poste — et c'est à game.js
   // de collectionner celles de tous les postes dans son propre instantané.
   instantane() {
-    const etat = [this.reserve, this.tProduction, this.tSalve, 0];
+    const etat = [this.reserve, this.tProduction, this.tSalve, this.tCalage, this.trop ? 1 : 0, 0];
     let n = 0;
     for (const c of this.charges) {
       if (!c.active) continue;
       etat.push(c.x, c.z, c.v, c.vol, c.rayon);
       n++;
     }
-    etat[3] = n;
+    etat[5] = n;
     return etat;
   }
 
   restaure(etat) {
     this.clear();
-    if (!etat || etat.length < 4) return;
+    if (!etat || etat.length < 6) return;
     this.reserve = etat[0];
     this.tProduction = etat[1];
     this.tSalve = etat[2];
-    const n = etat[3];
+    this.tCalage = etat[3];
+    this.trop = !!etat[4];
+    const n = etat[5];
     for (let i = 0; i < n; i++) {
       const c = this.charges[i];
       if (!c) break;
-      const k = 4 + i * 5;
+      const k = 6 + i * 5;
       c.active = true;
       c.x = etat[k];
       c.z = etat[k + 1];

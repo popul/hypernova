@@ -86,7 +86,14 @@ import {
 //       améliorations de chacun voyagent avec sa commande. Un enregistrement de
 //       la version 18 décrit une partie où le rayon d'un copain ne brûlait rien
 //       et où ses achats n'existaient pas : il ne se rejoue pas ici.
-export const VERSION = 19;
+//  20 — VULCAIN tire à l'ARRÊT (l'enclume) et pose UNE charge à la fois au lieu
+//       d'un éventail de `cannons`. Deux raisons, et chacune suffirait : la forge
+//       ne consomme plus le même NOMBRE de tirages semés par tir — un au lieu de
+//       un par missile de l'éventail — donc tout le hasard commun d'un
+//       enregistrement d'avant décroche dès le premier tapis ; et son instantané
+//       porte deux champs de plus (le calage, le trop-plein) que l'ancien format
+//       ne sait pas relire.
+export const VERSION = 20;
 
 // --- Écriture ---------------------------------------------------------------
 

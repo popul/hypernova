@@ -1333,6 +1333,31 @@ export class AudioEngine {
   //
   // Le panoramique vient de l'abscisse de la pose : quand on sème un tapis en
   // traversant l'arène, on l'entend se dérouler de gauche à droite.
+  // L'ENCLUME QUI SE PLANTE (VULCAIN). Le vaisseau s'immobilise, le lanceur
+  // s'ouvre, et il faut que ça s'ENTENDE avant que la première charge ne parte —
+  // sinon la règle de la coque ne se découvre qu'en regardant un ventre de
+  // braises, c'est-à-dire jamais, puisqu'on regarde les ennemis.
+  //
+  // Un coup mat, et rien d'autre. Il ne doit surtout pas ressembler à un tir : le
+  // tir, c'est ce qui suit. Un ré très grave qui tombe d'une octave en cinq
+  // centièmes donne la masse, et un frottement bref donne le métal qui touche le
+  // métal. Volume délibérément bas — il revient toutes les deux secondes chez un
+  // bon pilote, et un son qui revient si souvent doit se placer SOUS la musique.
+  enclumePosee(x = 0) {
+    if (!this.ctx) return;
+    const sortie = this._pan(x);
+    sortie.connect(this.sfxBus);
+    this._tone({
+      type: 'triangle',
+      freq: hz(2),
+      freqEnd: hz(-10),
+      dur: 0.09,
+      gain: 0.055,
+      dest: sortie,
+    });
+    this._noise({ dur: 0.07, gain: 0.028, filterFreq: 2400, filterEnd: 700, dest: sortie });
+  }
+
   chargePosee(x = 0) {
     if (!this.ctx) return;
     const sortie = this._pan(x);

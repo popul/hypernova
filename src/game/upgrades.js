@@ -39,7 +39,7 @@ export const UPGRADES = [
     maxLevel: 2,
     basePrice: 260,
     priceMul: 2.9,
-    desc: 'ORION : un flux de tir de plus. HÉLIOS : un rayon plus large. VULCAIN : une charge de plus par salve.',
+    desc: 'ORION : un flux de tir de plus. HÉLIOS : un rayon plus large. VULCAIN : deux charges de réserve de plus.',
   },
   {
     id: 'missiles',

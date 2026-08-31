@@ -78,6 +78,12 @@ const LINES = {
     'Le temps vient de se plier. Pas toi. Sers-t’en : tu as une seconde qui n’existe pas.',
   ],
   grazeFirst: ['Tu viens de la frôler à quatre centimètres. Refais-le : ça charge la jauge.'],
+  // VULCAIN, et lui seul. Dite au moment où le ventre déborde — c'est-à-dire au
+  // moment exact où le joueur est en train de gâcher la coque en ne s'arrêtant
+  // jamais. Une seule phrase, un seul impératif, et la raison après.
+  enclumeFirst: [
+    'Ton ventre déborde et tu cours toujours. Arrête-toi : une enclume ne frappe pas en courant.',
+  ],
   bombReady: ["Nova Bomb armée. X, et tout ce qui est devant toi cesse d'exister. Tu en as une."],
   bombReadyTouch: [
     "Nova Bomb armée. Le bouton ✦, et tout ce qui est devant toi cesse d'exister. Tu en as une.",
@@ -172,6 +178,7 @@ const EMOTION_BY_KEY = {
   kornJump: 'neutre',
   novaAnswer: 'alerte',
   grazeFirst: 'neutre',
+  enclumeFirst: 'alerte',
   rollFirst: 'determine',
   rollFirstTouch: 'determine',
   reflexFirst: 'alerte',
