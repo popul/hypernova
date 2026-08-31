@@ -770,12 +770,11 @@ export class Game {
     }
     const u = UPGRADES.find((x) => x.id === id);
     if (!u) return;
-    const niveau = (this.levels[id] || 0) + 1;
-    this.levels[id] = Math.min(u.maxLevel, niveau);
+    const niveau = Math.min(u.maxLevel, (this._niveauxVitrine()[id] || 0) + 1);
     // Une vie de plus ne se prend qu'en dessous du plafond — et, à plusieurs,
     // elle attend le bordage comme le reste : voir `_appliqueEffetAchat`.
     const gagne = id === 'hull' && this.lives < PLAYER.maxLives + 2 ? 1 : 0;
-    this._appliqueEffetAchat({ vies: gagne });
+    this._appliqueEffetAchat({ vies: gagne, niveau: { id, valeur: niveau } });
     this.hud.setLives(this.lives + (this._viesEnAttente || 0));
     this._refreshShip();
     // La rareté du module décide de l'intensité du retour : une cadence de plus
@@ -784,7 +783,7 @@ export class Game {
     this.audio.moduleRamasse?.(rarete) ?? this.audio.buy();
     this.fx.burst(pos, 0x4ff2ff, { count: 16 + Math.round(rarete * 14), speed: 9, life: 0.5 });
     this.fx.shockwave(pos, 0x4ff2ff, 3.5 + rarete * 3);
-    this.hud.announce(u.name.toUpperCase(), `Niveau ${this.levels[id]}`, 1500);
+    this.hud.announce(u.name.toUpperCase(), `Niveau ${this._niveauxVitrine()[id]}`, 1500);
     this.hud.creditPop(
       ...(() => {
         this._tmp.copy(pos).project(this.camera);
@@ -4222,12 +4221,29 @@ export class Game {
   // À plusieurs, on ne pose donc RIEN soi-même : la vitrine et les prix suivent
   // `levels`, mais ce que lit la simulation — `stats` et les vies — attend le
   // bordage, qui arrive à la même image chez tout le monde, moi compris.
-  _appliqueEffetAchat({ vies = 0 } = {}) {
+  // `niveau` : `{id, valeur}` quand l'achat monte une amélioration.
+  //
+  // LES NIVEAUX AUSSI SONT LUS PAR LA SIMULATION, et c'est ce que la première
+  // correction avait manqué : la couture décide si un vaisseau traverse le bord
+  // de l'arène, et le palier de fureur décide des dégâts d'une balle. Les poser
+  // tout de suite, c'était rejouer exactement le défaut qu'on venait de fermer —
+  // mesuré au banc, arcade à deux : identiques jusqu'à l'image 873, séparées dès
+  // l'image 875, la première de la vague qui suit la boutique.
+  //
+  // Rien de ce que lit la simulation ne se pose donc soi-même : ni les niveaux,
+  // ni les statistiques, ni les vies. La vitrine et les prix, eux, voient tout
+  // de suite ce qu'on vient d'acheter — voir `_niveauxVitrine`.
+  _appliqueEffetAchat({ vies = 0, niveau = null } = {}) {
     this._bordSale = true;
     if (this.variante === 'duo' && this.bordsDistants.length) {
       this._viesEnAttente = (this._viesEnAttente || 0) + vies;
+      if (niveau) {
+        this._achatsEnAttente = this._achatsEnAttente || {};
+        this._achatsEnAttente[niveau.id] = niveau.valeur;
+      }
       return;
     }
+    if (niveau) this.levels[niveau.id] = niveau.valeur;
     this.lives += vies;
     this.stats = computeStats(this.levels, this.surcharge);
   }
@@ -4239,7 +4255,7 @@ export class Game {
     // Les vies VOULUES, celles en attente comprises : c'est ce bordage qui les
     // posera, chez moi comme chez les autres, à la même image.
     return {
-      n: { ...this.levels },
+      n: this._niveauxVitrine() === this.levels ? { ...this.levels } : this._niveauxVitrine(),
       s: this.surcharge,
       v: this.lives + (this._viesEnAttente || 0),
       c: this.coque,
@@ -4257,6 +4273,7 @@ export class Game {
       this.surcharge = b.s;
       this.lives = b.v;
       this._viesEnAttente = 0;
+      this._achatsEnAttente = null;
       this.stats = computeStats(this.levels, this.surcharge);
       this.hud.setLives(this.lives);
       this._refreshShip();
@@ -4827,9 +4844,6 @@ export class Game {
     this.bombCooldown = 0;
     this.waveDeath = false;
     this.waveBestTier = 1;
-    // Une frontière de vague : c'est là, et seulement là, qu'on s'autorise à
-    // RÉDUIRE le budget réseau — voir `Duo.ajusteDelai`.
-    this._frontiereDelai = true;
     // L'Appel se recharge à chaque vague, jamais entre-temps.
     this.callLeft = this.stats.callCharges;
     // Chaque pilote retrouve ses Appels au début de la vague, pas seulement moi
@@ -5008,6 +5022,32 @@ export class Game {
     this.waveGrazes = 0;
     this.waveDeath = false;
     this.waveBestTier = 1;
+    // CHAQUE VAGUE COMMENCE D'UNE POSITION CONNUE, POUR TOUT LE MONDE.
+    //
+    // Entre deux vagues, des animations purement locales touchent le vaisseau —
+    // le saut l'emporte dans l'hyperespace puis le ramène par interpolation, et
+    // cette interpolation ne retombe pas exactement sur son point de départ.
+    // Mesuré au banc : à la première image de la vague suivante, mon vaisseau
+    // était à 0,89 unité de là où le copain le croyait, et symétriquement chez
+    // lui. Une animation qui écrit dans une valeur de simulation finit toujours
+    // par se payer.
+    //
+    // Plutôt que de chasser chaque animation, on repose tout le monde : la place
+    // dépend du NUMÉRO, jamais de qui regarde, et l'élan est remis à zéro. Toute
+    // dérive accumulée entre deux vagues meurt ici.
+    if (this.variante === 'duo' && this.bordsDistants.length) {
+      const places = this.nJoueursPartie >= 3 ? [-4.8, 0, 4.8] : [-3.2, 3.2];
+      for (const p of this._postesOrdonnes()) {
+        p.vaisseau.group.position.set(places[p.numero] ?? 0, 0, ARENA.playerZ);
+        p.vaisseau.vx = 0;
+        p.vaisseau.vz = 0;
+      }
+    }
+
+    // Une frontière de vague : c'est là, et seulement là, qu'on s'autorise à
+    // RÉDUIRE le budget réseau — voir `Duo.ajusteDelai`.
+    this._frontiereDelai = true;
+
     // L'Appel se recharge à chaque vague, jamais entre-temps.
     this.callLeft = this.stats.callCharges;
     // CHAQUE PILOTE RETROUVE SES COMPTEURS DE VAGUE, pas seulement moi. Le
@@ -5626,7 +5666,13 @@ export class Game {
     this.bullets.clear();
     this.enemyBullets.clear();
     this.missiles.clear();
-    this.combo = { chain: 0, mult: 1, timer: 0 };
+    // LA CHAÎNE SE CASSE POUR TOUT L'ÉQUIPAGE. Chaque machine n'effaçait que la
+    // sienne : celle d'un copain survivait chez moi à la boutique et pas chez
+    // lui, et comme la chaîne nourrit la jauge et multiplie les points, nos deux
+    // parties repartaient avec des économies différentes. Mesuré au banc, arcade
+    // à deux : identiques jusqu'à la dernière image de la vague 1, séparées à la
+    // première de la vague 2.
+    for (const p of this._postesOrdonnes()) p.bord.combo = { chain: 0, mult: 1, timer: 0 };
     this.hud.setCombo(1, 0);
     this.shop.open(this._shopState());
     this.characters.onShopOpen();
@@ -5647,12 +5693,20 @@ export class Game {
     this.shop.reroll(this._shopState());
   }
 
+  // Les niveaux que MONTRE la vitrine : les confirmés, plus ceux que je viens
+  // d'acheter et qui attendent d'être annoncés à la table. La simulation, elle,
+  // ne lit que les confirmés — voir `_appliqueEffetAchat`.
+  _niveauxVitrine() {
+    if (!this._achatsEnAttente) return this.levels;
+    return { ...this.levels, ...this._achatsEnAttente };
+  }
+
   _shopState() {
     return {
       credits: this.credits,
-      levels: this.levels,
+      levels: this._niveauxVitrine(),
       wave: this.wave + 1,
-      lives: this.lives,
+      lives: this.lives + (this._viesEnAttente || 0),
       // La coque pilotée : c'est elle qui décide si un module propre à une coque
       // a le droit d'être proposé.
       coque: this.coque,
@@ -5662,7 +5716,7 @@ export class Game {
   buy(id) {
     const upgrade = UPGRADES.find((u) => u.id === id);
     if (!upgrade || this.state !== 'shop') return;
-    const level = this.levels[id];
+    const level = this._niveauxVitrine()[id];
     const maxedHull = id === 'hull' && this.lives >= PLAYER.maxLives;
     const price = priceOf(upgrade, level);
     if (level >= upgrade.maxLevel || maxedHull || this.credits < price) {
@@ -5670,8 +5724,10 @@ export class Game {
       return;
     }
     this.credits -= price;
-    this.levels[id]++;
-    this._appliqueEffetAchat({ vies: id === 'hull' ? 1 : 0 });
+    this._appliqueEffetAchat({
+      vies: id === 'hull' ? 1 : 0,
+      niveau: { id, valeur: (this._niveauxVitrine()[id] || 0) + 1 },
+    });
     this.hud.setLives(this.lives + (this._viesEnAttente || 0));
     // Ce qu'on achète se voit sur la coque, sinon ce n'est pas un achat : c'est
     // une case cochée.
@@ -6668,8 +6724,18 @@ export class Game {
         const rr = e.def.radius + this.bullets.radius;
         const d2 = b.mesh.position.distanceToSquared(e.group.position);
         if (d2 < rr * rr) {
-          const tireur = this._bordDuNumero(b.proprio ?? 0) || this;
-          const pierceMax = perforation(tireur);
+          // UNE BALLE ORPHELINE N'EST À PERSONNE.
+          //
+          // Son tireur a quitté la partie : son bord n'existe plus, et le repli
+          // vers `this` la donnait au joueur LOCAL — donc à un pilote différent
+          // sur chaque machine. Mesuré au banc, trio à trois coques : le pilote
+          // part à l'image 504, ses balles restent en vol, et à l'image 521 le
+          // même ennemi tué crédite le poste 0 ici et le poste 1 là-bas. La
+          // chaîne, la jauge et les dégâts repartaient ensuite chacun de leur
+          // côté. Elle frappe donc sans fureur ni perforation — celles d'un
+          // absent — et sa victime ne rapporte à personne.
+          const tireur = this._bordDuNumero(b.proprio ?? 0);
+          const pierceMax = tireur ? perforation(tireur) : 1;
           b.hitIds.push(e.id);
           b.pierce++;
           if (b.pierce >= pierceMax) this.bullets.kill(b);
@@ -6695,10 +6761,11 @@ export class Game {
           // LA FUREUR. Elle ne vaut que pendant l'Overdrive, et elle s'ajoute au
           // coup critique plutôt que de le remplacer : bien viser en pleine furie
           // doit rester le meilleur moment du jeu.
-          const fureur = tireur.odTimer > 0 ? FUREUR.degats[tireur.levels.fureur | 0] || 0 : 0;
+          const fureur =
+            tireur && tireur.odTimer > 0 ? FUREUR.degats[tireur.levels.fureur | 0] || 0 : 0;
           const degats = (critique ? PRECISION.degats : 1) + fureur;
           if (this.enemies.damage(e, degats, this))
-            this._onEnemyKilled(e, critique ? 'precision' : 'cannon', tireur.numero);
+            this._onEnemyKilled(e, critique ? 'precision' : 'cannon', tireur ? tireur.numero : -1);
           if (b.pierce >= pierceMax) break;
         }
       }
@@ -6712,7 +6779,9 @@ export class Game {
         if (m.mesh.position.distanceToSquared(e.group.position) < rr * rr) {
           this.missiles.kill(m);
           this.fx.explosionSmall(m.mesh.position, 0xffc857);
-          if (this.enemies.damage(e, 3, this)) this._onEnemyKilled(e, 'missile', m.proprio ?? 0);
+          // Même règle pour un missile dont le lanceur est parti.
+          if (this.enemies.damage(e, 3, this))
+            this._onEnemyKilled(e, 'missile', this._bordDuNumero(m.proprio ?? 0) ? m.proprio : -1);
           break;
         }
       }

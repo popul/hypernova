@@ -446,8 +446,14 @@ test('les dégâts et la récompense se lisent sur le TIREUR, pas sur moi', asyn
   );
   assert.match(
     bloc,
-    /_onEnemyKilled\(e, critique \? 'precision' : 'cannon', tireur\.numero\)/,
-    'le kill doit revenir au tireur'
+    /_onEnemyKilled\(\s*e,\s*critique \? 'precision' : 'cannon',\s*tireur \? tireur\.numero : -1\s*\)/,
+    'le kill doit revenir au tireur — et à personne quand il a quitté la partie'
+  );
+  // UNE BALLE ORPHELINE N'EST À PERSONNE. Le repli vers `this` la donnait au
+  // joueur local, donc à un pilote différent sur chaque machine.
+  assert.ok(
+    !/this\._bordDuNumero\(b\.proprio \?\? 0\) \|\| this/.test(bloc),
+    'une balle dont le tireur est parti retombe encore sur le joueur local'
   );
 
   // Et la récompense se pose sur le bord du tueur, pas sur `this`.
@@ -655,13 +661,20 @@ test('un achat ne prend effet dans la simulation qu’avec le bordage', async ()
   const { readFile } = await import('node:fs/promises');
   const jeu = await readFile(new URL('../src/game/game.js', import.meta.url), 'utf8');
 
-  const debut = jeu.indexOf('_appliqueEffetAchat({ vies = 0 } = {})');
+  const debut = jeu.indexOf('_appliqueEffetAchat({ vies = 0, niveau = null } = {})');
   assert.ok(debut > 0, 'l’effet d’un achat n’est plus centralisé');
   const corps = jeu.slice(debut, jeu.indexOf('\n  }', debut));
   assert.match(
     corps,
-    /this\._viesEnAttente = \(this\._viesEnAttente \|\| 0\) \+ vies;\s*\n\s*return;/,
+    /this\._viesEnAttente = \(this\._viesEnAttente \|\| 0\) \+ vies;/,
     'en réseau, l’achat doit être mis en attente'
+  );
+  // LES NIVEAUX AUSSI attendent : la couture décide si un vaisseau traverse le
+  // bord de l'arène, et le palier de fureur décide des dégâts d'une balle.
+  assert.match(
+    corps,
+    /this\._achatsEnAttente\[niveau\.id\] = niveau\.valeur;/,
+    'les niveaux achetés ne sont pas mis en attente'
   );
   assert.match(
     corps,
@@ -677,6 +690,10 @@ test('un achat ne prend effet dans la simulation qu’avec le bordage', async ()
     'buy() pose encore les statistiques sans attendre le bordage'
   );
   assert.ok(!/this\.lives\+\+/.test(corpsAchat), 'buy() ajoute encore une vie sans attendre');
+  assert.ok(
+    !/this\.levels\[id\]\+\+/.test(corpsAchat),
+    'buy() monte encore un niveau sans attendre le bordage'
+  );
 
   // Le bordage porte les vies VOULUES, sinon la coque achetée n'arriverait
   // jamais nulle part.

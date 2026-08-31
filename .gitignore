@@ -12,3 +12,4 @@ dist-fiches/
 # qui ne ramasse que test/**/*.test.mjs, les ignore — et ils n'ont pas non plus
 # à entrer dans l'historique : ce sont des brouillons de mesure, pas du produit.
 test/_*.mjs
+public/_banc.js
