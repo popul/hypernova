@@ -4213,16 +4213,29 @@ export class Game {
         // donc si le canal des amis le dit encore en ligne, il est en boutique,
         // pas disparu — on lui laisse ses cinq secondes suivantes.
         if (!this._attenteDuoDepuis) this._attenteDuoDepuis = performance.now();
-        if (d.direct && performance.now() - this._attenteDuoDepuis > 5000) {
-          const muets = d.pairs.filter(
-            (p) =>
-              !d.partis.has(p.numero) &&
-              !d.recues.get(p.numero)?.has(d.frame) &&
-              !this._presence?.[p.nom]
-          );
+        const attendDepuis = performance.now() - this._attenteDuoDepuis;
+        // ON RÉCLAME CE QUI MANQUE, PLUTÔT QUE DE L'ATTENDRE.
+        //
+        // Une demi-seconde de silence, c'est déjà dix fois un aller-retour
+        // normal : la commande ne viendra pas toute seule, parce qu'elle n'a
+        // jamais été émise — la socket était morte au moment de l'envoi. On la
+        // redemande, et on recommence toutes les demi-secondes tant qu'elle
+        // manque. La réponse renvoie la rafale entière, pas la seule image
+        // réclamée : à qui il manque une commande, il en manque une suite.
+        if (attendDepuis > 500 && performance.now() - (this._derniereReclame || 0) > 500) {
+          this._derniereReclame = performance.now();
+          for (const p of d.muets()) d.redemande(p.numero, d.frame);
+        }
+        // ET L'ON FINIT PAR RENONCER. Après quinze secondes sans un mot — un
+        // téléphone éteint, un tunnel sans fin, un serveur redémarré — mieux
+        // vaut continuer sans lui que rester figé pour toujours. Le serveur
+        // déclare normalement un disparu en douze secondes ; ceci est le filet
+        // sous le filet.
+        if (attendDepuis > 15000) {
+          const muets = d.muets();
           if (muets.length) {
             note('duo-perdu', {
-              ou: `vague ${this.wave}`,
+              ou: `vague ${this.wave} image ${d.frame}`,
               avec: muets.map((p) => p.nom).join(','),
             });
             for (const p of muets) d.marquePart(p.numero);
@@ -4232,6 +4245,7 @@ export class Game {
         return;
       }
       this._attenteDuoDepuis = 0;
+      this._derniereReclame = 0;
       this._duoAttend = false;
       // Ma commande part avec de l'avance ; celles des autres arrivent pour
       // MAINTENANT, ordonnées par numéro de joueur comme les bords distants.

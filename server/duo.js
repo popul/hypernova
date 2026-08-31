@@ -172,6 +172,10 @@ export class Duo {
       // La trajectoire choisie par l'hôte : une décision COMMUNE, relayée telle
       // quelle. Personne ne passe l'écran de choix sans elle, donc tout le monde
       // l'a avant d'entamer la vague suivante.
+      // La réclamation d'une commande perdue, et la commande renvoyée : mêmes
+      // octets, même chemin. Le serveur ne sait pas ce qu'il relaie, et c'est
+      // très bien ainsi.
+      case 'redemande':
       case 'route':
       case 'etat-vague':
       case 'emp':

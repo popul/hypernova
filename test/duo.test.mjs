@@ -640,6 +640,22 @@ epreuve(
   }
 );
 
+epreuve('une commande réclamée traverse la table comme les autres', (salle) => {
+  const { hote, invite, troisieme } = salle.trio();
+  const temoin = salle.arrive('ZOE');
+
+  // Une socket meurt — changement de réseau, écran verrouillé, serveur
+  // redémarré — et tout ce qui part pendant ce temps-là disparaît sans un mot.
+  // Le pas verrouillé s'arrête alors sur l'image manquante et n'en repart
+  // jamais : il faut pouvoir la réclamer.
+  const cri = '{"de":0,"t":"redemande","j":2,"f":412}';
+  troisieme.dis(cri);
+  assert.deepEqual(hote.bruts, [cri], 'la réclamation n’atteint pas celui qu’elle vise');
+  assert.deepEqual(invite.bruts, [cri], 'la réclamation doit passer par la table, telle quelle');
+  assert.deepEqual(troisieme.bruts, [], 'la réclamation revient à son émetteur');
+  assert.deepEqual(temoin.bruts, [], 'la réclamation fuit hors de la table');
+});
+
 epreuve('la photo de frontière et les empreintes passent par la table', (salle) => {
   const { hote, invite, troisieme } = salle.trio();
   const temoin = salle.arrive('ZOE');

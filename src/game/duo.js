@@ -50,6 +50,10 @@ export const DELAI_MAX = 12;
 // image sur deux. Deux images de marge absorbent la gigue ordinaire.
 export const MARGE_GIGUE = 2;
 
+// Dix secondes de commandes gardées : au-delà, un pair qui n'a pas reparlé n'est
+// plus en retard, il est parti — et c'est le serveur qui le dira.
+const HISTOIRE_MAX = 600;
+
 // LE RATTRAPAGE DU SPECTATEUR : combien d'images consommer EN PLUS ce tour-ci
 // quand sa file a grossi — onglet passé en fond, réseau qui hoquette, appareil
 // qui ralentit.
@@ -149,6 +153,15 @@ export class Duo {
     this._envoiA = new Map(); // image publiée → temps mur de l'envoi
     // Les états d'améliorations en transit, par numéro puis par image.
     this.bordages = new Map();
+    // CE QUE J'AI PUBLIÉ, GARDÉ SOUS LA MAIN.
+    //
+    // Le pas verrouillé s'arrête sur une commande manquante — c'est sa vertu, il
+    // préfère attendre à diverger. Mais rien ne la faisait jamais revenir : une
+    // seule commande perdue et la table restait figée pour toujours. Mesuré au
+    // banc : deux pertes, et les deux machines s'arrêtent aux images 14 et 10.
+    // On garde donc dix secondes de son propre passé, de quoi répondre à qui
+    // redemande.
+    this.histoire = new Map();
   }
 
   // --- Connexion -------------------------------------------------------------
@@ -264,6 +277,39 @@ export class Duo {
   pause(oui) {
     if (this.direct) return this.signale(this.direct, 'pause', { oui: !!oui });
     this._envoie({ t: 'pause', oui: !!oui, nom: this._dernier?.nom || '' });
+  }
+
+  // JE BLOQUE SUR UNE IMAGE : je réclame ce qui manque.
+  //
+  // Sur une socket ouverte, rien ne se perd — c'est du TCP. Mais une socket ne
+  // reste pas ouverte : elle meurt quand le téléphone change de réseau, quand
+  // l'écran se verrouille, quand un intermédiaire coupe une connexion inactive,
+  // ou quand le serveur redémarre pour une mise à jour. Tout ce que j'émets
+  // pendant ce temps-là part dans le vide, silencieusement — et le pas verrouillé
+  // attend pour toujours une commande qui ne reviendra jamais.
+  redemande(numero, image) {
+    this._envoie({ t: 'redemande', j: this.moi, de: numero, f: image });
+  }
+
+  // Quelqu'un réclame une de mes commandes : je la renvoie, elle et toutes celles
+  // qui suivent — s'il lui en manque une, il lui en manque probablement une
+  // rafale, et un aller-retour par image coûterait plus cher que le tout.
+  _repondALaRedemande(image) {
+    for (const [f, e] of this.histoire) {
+      if (f < image) continue;
+      if (this.direct) this.signale(this.direct, 'c', { f, d: e.d, b: e.b });
+      else this._envoie({ t: 'c', j: this.moi, f, d: e.d, b: e.b });
+    }
+  }
+
+  // Les pairs dont la commande manque pour l'image courante. C'est la liste de
+  // ceux à qui réclamer — et, au bout du compte, de ceux qu'il faudra déclarer
+  // partis si le silence dure.
+  muets() {
+    if (this.etat !== 'partie') return [];
+    return this.pairs.filter(
+      (p) => !this.partis.has(p.numero) && !this.recues.get(p.numero)?.has(this.frame)
+    );
   }
 
   // La trajectoire choisie, de l'hôte vers la table.
@@ -390,6 +436,10 @@ export class Duo {
         return this.r.onFinAutre?.(m);
       case 'pause':
         return this.r.onPause?.(m);
+      case 'redemande':
+        // Elle ne me concerne que si c'est MA commande qu'on réclame.
+        if (m.de === this.moi) this._repondALaRedemande(m.f);
+        return;
       case 'route':
         return this.r.onRoute?.(m);
       case 'etat-vague':
@@ -508,6 +558,11 @@ export class Duo {
     // d'une image par image, sans jamais rien réécrire.
     const pour = Math.max(this.frame + this.delai, (this._dernierPour ?? -1) + 1);
     this._dernierPour = pour;
+    this.histoire.set(pour, { d: donnees, b: bordage || null });
+    if (this.histoire.size > HISTOIRE_MAX) {
+      const vieux = this.histoire.keys().next().value;
+      this.histoire.delete(vieux);
+    }
     this.recoisCommande(this.moi, pour, donnees, bordage);
     // On note QUAND on a envoyé pour cette image-là. Quand la commande d'un pair
     // pour la même image arrive, l'écart donne l'aller-retour réel, en images,

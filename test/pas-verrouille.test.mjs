@@ -574,3 +574,73 @@ test('une estampille de commande ne recule jamais, même quand le délai baisse'
   // Et aucune ne retombe sur une image déjà couverte par l'amorce.
   assert.ok(vues[0] >= DELAI, `la première publication écrase l’amorce (image ${vues[0]})`);
 });
+
+// --- QUAND UNE COMMANDE SE PERD ----------------------------------------------
+//
+// Sur une socket ouverte, rien ne se perd : c'est du TCP. Mais une socket ne
+// reste pas ouverte — elle meurt quand le téléphone change de réseau, quand
+// l'écran se verrouille, quand un intermédiaire coupe une connexion inactive, ou
+// quand le serveur redémarre pour une mise à jour. Tout ce qu'on émet pendant ce
+// temps-là part dans le vide, sans un mot : `_envoie` ne fait rien quand la
+// socket n'est pas prête, et le relais du serveur saute un destinataire fermé.
+//
+// Le pas verrouillé s'arrête alors sur l'image manquante — c'est sa vertu, il
+// préfère attendre à diverger — mais rien ne la faisait jamais revenir. Mesuré
+// au banc AVANT correction : deux commandes perdues, et les deux machines se
+// figent définitivement aux images 14 et 10.
+test('une commande perdue se réclame et revient', () => {
+  const { duo, envoyes } = duoEnPartie(1);
+  duo.amorce([0]);
+  for (let f = 0; f < 6; f++) {
+    duo.frame = f;
+    duo.publie([f]);
+  }
+  // Un pair réclame ma commande de l'image DELAI + 2 : je renvoie celle-là ET
+  // toutes les suivantes — à qui il manque une commande, il en manque une suite,
+  // et un aller-retour par image coûterait plus cher que le tout.
+  envoyes.length = 0;
+  const reclamee = DELAI + 2;
+  duo._recois(JSON.stringify({ t: 'redemande', j: 0, de: 1, f: reclamee }));
+  const renvoyees = envoyes.filter((m) => m.t === 'c').map((m) => m.f);
+  assert.ok(renvoyees.length > 1, 'la réponse doit renvoyer la rafale, pas une seule image');
+  assert.ok(Math.min(...renvoyees) >= reclamee, 'on renvoie depuis l’image réclamée');
+  assert.ok(renvoyees.includes(reclamee), `l’image ${reclamee} n’est pas renvoyée`);
+
+  // Une réclamation qui vise quelqu'un d'autre ne me concerne pas.
+  envoyes.length = 0;
+  duo._recois(JSON.stringify({ t: 'redemande', j: 0, de: 2, f: reclamee }));
+  assert.deepEqual(envoyes, [], 'j’ai répondu à une réclamation qui ne m’était pas adressée');
+});
+
+test('les muets sont ceux dont la commande manque, et eux seuls', () => {
+  const { duo } = duoEnPartie(1);
+  duo.amorce([0]);
+  duo.frame = 0;
+  // Personne n'a parlé pour cette image : les deux pairs sont muets.
+  assert.deepEqual(
+    duo.muets().map((p) => p.numero),
+    [0, 2],
+    'les deux pairs devraient manquer'
+  );
+  duo._recois(JSON.stringify({ t: 'c', j: 0, f: 0, d: [1] }));
+  assert.deepEqual(
+    duo.muets().map((p) => p.numero),
+    [2],
+    'un pair qui a parlé ne doit plus compter comme muet'
+  );
+  // Un pair déjà déclaré parti n'est pas « muet » : on ne le réclame plus.
+  duo.marquePart(2);
+  assert.deepEqual(duo.muets(), [], 'on réclame encore à quelqu’un qui est parti');
+});
+
+test('l’histoire de mes commandes ne grandit pas sans fin', () => {
+  const { duo } = duoEnPartie(1);
+  duo.amorce([0]);
+  for (let f = 0; f < 900; f++) {
+    duo.frame = f;
+    duo.publie([f]);
+  }
+  assert.ok(duo.histoire.size <= 600, `l’histoire garde ${duo.histoire.size} images`);
+  // Et elle garde les RÉCENTES : c'est celles-là qu'on réclame.
+  assert.ok(duo.histoire.has(duo._dernierPour), 'la dernière commande publiée a été oubliée');
+});
