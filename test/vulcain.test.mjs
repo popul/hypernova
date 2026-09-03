@@ -20,7 +20,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { ArmeVulcain } from '../src/game/armes/vulcain.js';
-import { UPGRADES } from '../src/game/upgrades.js';
+import { UPGRADES, computeStats, emptyLevels } from '../src/game/upgrades.js';
+import { fluxDe } from '../src/game/player.js';
 
 const SEUIL_POSE = 3;
 const CALAGE = 0.12;
@@ -255,4 +256,29 @@ test('deux forges identiques puisent le même nombre de tirages', () => {
     return enVol(a);
   });
   assert.deepEqual(sorties, [1, 1], 'le nombre de missiles dépend encore des achats');
+});
+
+test('le canon de VULCAIN ne double jamais ses flux', () => {
+  // LE DÉFAUT QUE CETTE ÉPREUVE EXISTE POUR ATTRAPER, et il avait déjà été livré
+  // une fois. On avait retiré l'éventail au LANCEUR sans le retirer au CANON :
+  // « Canons jumelés » continuait donc de faire sortir trois traits cyan
+  // parallèles du nez de VULCAIN — c'est-à-dire ORION, sur la seule de ses armes
+  // qui lui ressemblait déjà. Le module ne doit plus rien lui donner d'autre que
+  // la contenance de son ventre.
+  for (const cannons of [0, 1, 2]) {
+    const stats = computeStats({ ...emptyLevels(), cannons }, 0);
+    assert.equal(stats.streams, 1 + cannons, 'la statistique elle-même a changé');
+    assert.equal(
+      fluxDe('vulcain', stats),
+      1,
+      `VULCAIN sort ${fluxDe('vulcain', stats)} flux au niveau ${cannons}`
+    );
+    // ORION, lui, garde son module intact : la règle est une exception, pas une
+    // suppression.
+    assert.equal(
+      fluxDe('orion', stats),
+      1 + cannons,
+      `ORION a perdu son module au niveau ${cannons}`
+    );
+  }
 });

@@ -2,7 +2,7 @@
 // La difficulté monte via le nombre, les PV, la fréquence des plongées et la vitesse des tirs.
 
 import * as THREE from 'three';
-import { WAVES, ENEMY, DIRECTOR, SURVIE, PENTE_ARCADE } from './constants.js';
+import { ARENA, WAVES, ENEMY, DIRECTOR, SURVIE, PENTE_ARCADE } from './constants.js';
 import { alea, mulberry32 } from '../core/rng.js';
 
 // Position de base d'un slot de formation (sans le balancement, appliqué en continu ailleurs).
@@ -92,14 +92,24 @@ export function variantsPour(diff) {
 export const ANNONCE_AVANCE = 2; // secondes de préavis
 export const ANNONCE_REMANENCE = 0.4; // la flèche survit un peu à l'entrée
 
-export function annoncesPourVague(spawns, { xMax = 14.5, zMax = 14 } = {}) {
+// UNE SEULE DÉFINITION DE « HORS CHAMP », lue par les deux bouts de la promesse :
+// `annoncesPourVague` s'en sert pour poser la flèche, `makeWave` pour garantir
+// qu'il reste du temps avant l'arrivée. Tant qu'elles la partagent, elles ne
+// peuvent pas se contredire — et c'est exactement la panne qu'on répare ici.
+export function horsChamp(depart, { xMax = ARENA.playerXMax, zMax = ARENA.playerZMax } = {}) {
+  return Math.abs(depart.x) > xMax || depart.z > zMax;
+}
+
+export function annoncesPourVague(
+  spawns,
+  { xMax = ARENA.playerXMax, zMax = ARENA.playerZMax } = {}
+) {
   const parRangee = new Map();
   for (const s of spawns) {
     if (s.type === 'boss' || !s.curve) continue;
     const depart = s.curve.getPoint(0);
-    const cote = Math.abs(depart.x) > xMax;
+    if (!horsChamp(depart, { xMax, zMax })) continue; // par le fond : ça se voit venir tout seul
     const dos = depart.z > zMax;
-    if (!cote && !dos) continue; // par le fond : ça se voit venir tout seul
     const cle = `${s.row}|${dos ? 'dos' : depart.x > 0 ? 'droite' : 'gauche'}`;
     const e = parRangee.get(cle);
     if (!e || s.delay < e.delay) {
@@ -218,16 +228,59 @@ export function makeWave(n, opts = {}) {
     const start = Math.floor((cols - rowDef.count) / 2);
     // Une rangée = un escadron qui entre d'un bloc, par une trajectoire tirée.
     const variant = variants[squadIndex % variants.length];
+    const courbes = [];
     for (let i = 0; i < rowDef.count; i++) {
       const col = start + i;
-      const end = slotBasePosition(rowIdx, col, cols, tmp).clone();
+      courbes.push(makeEntryCurve(variant, slotBasePosition(rowIdx, col, cols, tmp).clone()));
+    }
+
+    // LE PRÉAVIS EST DÛ AVANT LE DÉPART, PAS APRÈS.
+    //
+    // L'entrée par le dos porte, plus haut dans ce fichier, une promesse écrite :
+    // « elle est ANNONCÉE deux secondes avant par une flèche au sol […] sans
+    // l'annonce, se faire traverser par ce qu'on ne peut pas voir n'est pas une
+    // difficulté, c'est une injustice ». Cette promesse n'était pas tenue.
+    //
+    // La flèche s'affiche de `delay − ANNONCE_AVANCE` à `delay`. Or depuis la
+    // vague 5 la vague déferle en DEUX ASSAUTS, et les trois rangées de l'assaut A
+    // partent toutes à `clock = 0` : pour elles, la flèche et l'escadron
+    // naissaient à la même image. Préavis réel : ZÉRO. Mesuré sur cinq cents
+    // graines par vague, cela concernait 78 % des vagues 19 — et 100 % des vagues
+    // depuis la douzième contiennent un escadron dorsal.
+    //
+    // Ce que ça donnait à jouer : l'escadron part de z = 30, le bord bas de
+    // l'écran est à 16,3 et le vaisseau à 13. Il devenait donc visible 0,26 s
+    // après son départ et touchait à 0,34 s — SOIXANTE-DIX MILLISECONDES de
+    // fenêtre, là où le jeu s'interdit par ailleurs de tirer une balle qui
+    // arriverait en moins de 0,42 s (ENEMY.minReactionTime). On appliquait aux
+    // balles une règle d'honnêteté qu'on refusait aux coques.
+    //
+    // La réparation ne retire rien : ni un ennemi, ni une trajectoire, ni une
+    // agressivité. Elle repousse le DÉPART des seuls escadrons hors champ au
+    // moment où leur flèche aura fini de battre. L'assaut A garde ses entrées par
+    // le fond à l'image zéro ; ce qui vient des bords arrive deux secondes plus
+    // tard, annoncé. L'assaut B n'était déjà pas concerné : sa respiration vaut
+    // 2,8 s, plus que le préavis.
+    //
+    // ON REPOUSSE L'HORLOGE, PAS LE SEUL ESCADRON. Deux épreuves l'ont exigé, et
+    // elles avaient raison : décaler la rangée toute seule la faisait déborder
+    // sur l'assaut suivant (0,1 s de respiration au lieu de 2,8), et dans les
+    // quatre premières vagues elle doublait la rangée précédente, qui est
+    // pourtant la seule montée en douceur du jeu. En repoussant l'horloge, tout
+    // ce qui suit suit — l'ordre des rangées et la respiration entre assauts
+    // sont préservés par construction.
+    if (courbes.some((c) => horsChamp(c.getPoint(0))) && clock < ANNONCE_AVANCE) {
+      clock = ANNONCE_AVANCE;
+    }
+    const depart = clock;
+    for (let i = 0; i < rowDef.count; i++) {
       spawns.push({
         type: rowDef.type,
         row: rowIdx,
-        col,
+        col: start + i,
         cols,
-        curve: makeEntryCurve(variant, end),
-        delay: clock + i * WAVES.entryStagger,
+        curve: courbes[i],
+        delay: depart + i * WAVES.entryStagger,
       });
     }
     if (twoAssaults) {

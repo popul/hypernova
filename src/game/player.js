@@ -12,6 +12,20 @@ import { ARENA, PLAYER, OVERDRIVE, ROLL } from './constants.js';
 // une couture qui s'ouvre trop tôt (deux morceaux flottants) ou trop tard (un saut).
 const HALF_WIDTH = 1.85 * 0.78 + 0.1;
 
+// COMBIEN DE FLUX SORT LE CANON, selon la coque qui le porte.
+//
+// « Canons jumelés » donne un flux de plus à ORION. Sur VULCAIN il n'en donne
+// AUCUN, et c'est le point : ce module y achète la contenance du ventre, et rien
+// d'autre. Le laisser ouvrir aussi le canon remettait exactement ce qu'on venait
+// d'enlever au lanceur — trois traits de tir cyan parallèles, c'est-à-dire ORION,
+// sur la seule arme de VULCAIN qui lui ressemblait déjà.
+//
+// HÉLIOS ne tire pas au canon du tout, son rayon EST son tir : la règle ne le
+// concerne pas, et sa présence ici ne coûte rien.
+export function fluxDe(coque, stats) {
+  return coque === 'vulcain' ? 1 : stats.streams;
+}
+
 export class Player {
   constructor(scene, fiche = {}) {
     this.scene = scene;
@@ -390,7 +404,7 @@ export class Player {
       // LA BALLE PORTE LE NUMÉRO DE SON TIREUR. C'est ce qui permet, plus loin,
       // de la faire frapper avec la fureur de CE pilote et de lui rendre le
       // kill — au lieu de tout calculer avec l'état du joueur local.
-      this._shoot(stats, bullets, audio, fx, bord.numero ?? 0);
+      this._shoot(stats, bullets, audio, fx, bord.numero ?? 0, fluxDe(coque, stats));
     }
 
     // Missiles auto — la signature d'ORION. Sur les deux autres coques, le module
@@ -448,7 +462,7 @@ export class Player {
     return this._aim;
   }
 
-  _shoot(stats, bullets, audio, fx, proprio = 0) {
+  _shoot(stats, bullets, audio, fx, proprio = 0, flux = stats.streams) {
     const p = this.group.position;
     const speed = PLAYER.bulletSpeed;
     const spawn = (dx, angle = 0) => {
@@ -458,9 +472,9 @@ export class Player {
         proprio
       );
     };
-    if (stats.streams === 1) {
+    if (flux === 1) {
       spawn(0);
-    } else if (stats.streams === 2) {
+    } else if (flux === 2) {
       spawn(-0.5);
       spawn(0.5);
     } else {

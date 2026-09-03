@@ -93,7 +93,12 @@ import {
 //       enregistrement d'avant décroche dès le premier tapis ; et son instantané
 //       porte deux champs de plus (le calage, le trop-plein) que l'ancien format
 //       ne sait pas relire.
-export const VERSION = 20;
+//  21 — un escadron qui entre par un bord que l'écran ne montre pas ne part plus
+//       avant la fin de son préavis : l'horloge de la vague est repoussée à
+//       ANNONCE_AVANCE. Les vagues ont donc les mêmes ennemis aux mêmes places,
+//       mais pas aux mêmes instants — un enregistrement d'avant place ses entrées
+//       jusqu'à deux secondes trop tôt, et tout ce qui en découle avec.
+export const VERSION = 21;
 
 // --- Écriture ---------------------------------------------------------------
 

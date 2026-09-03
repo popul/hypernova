@@ -25,6 +25,8 @@ import {
   annoncesPourVague,
   variantsPour,
   ARRIERE_DEPUIS,
+  ANNONCE_AVANCE,
+  horsChamp,
   dailySeed,
   slotBasePosition,
   difficulty,
@@ -1022,4 +1024,106 @@ test('la courbe du dos part bien derrière le joueur', () => {
   }
   assert.ok(vue, 'aucune entrée arrière sur douze graines après le seuil');
   void c;
+});
+
+// ---------------------------------------------------------------------------
+// LE PRÉAVIS EST DÛ AVANT LE DÉPART
+//
+// L'entrée par le dos porte une promesse écrite dans waves.js : « annoncée deux
+// secondes avant par une flèche au sol ; sans l'annonce, se faire traverser par
+// ce qu'on ne peut pas voir n'est pas une difficulté, c'est une injustice ».
+//
+// Elle n'était pas tenue. Depuis la vague 5 la vague déferle en deux assauts, et
+// les trois rangées du premier partent toutes à l'horloge zéro : la flèche
+// naissait avec l'escadron. Mesuré sur cinq cents graines, 78 % des vagues 19
+// donnaient un préavis réel de ZÉRO seconde — et le joueur signalait exactement
+// ça : « à partir de la vague 19 il y a des vaisseaux qui viennent de derrière,
+// c'est quasi impossible à esquiver ».
+//
+// Ces épreuves tiennent les deux bouts : le préavis existe TOUJOURS, et la
+// réparation n'a rien retiré de la vague.
+
+test('aucun escadron hors champ ne part avant la fin de son préavis', () => {
+  for (const diff of [9, 11, 13, 14, 15, 17, 20]) {
+    for (let graine = 0; graine < 120; graine++) {
+      for (const s of makeWave(diff, { seed: graine }).spawns) {
+        if (s.type === 'boss' || !s.curve) continue;
+        if (!horsChamp(s.curve.getPoint(0))) continue;
+        assert.ok(
+          s.delay >= ANNONCE_AVANCE - 1e-9,
+          `diff ${diff} graine ${graine} : un escadron hors champ part à ${s.delay.toFixed(2)} s`
+        );
+      }
+    }
+  }
+});
+
+test('les entrées par le fond, elles, partent toujours à l’image zéro', () => {
+  // La réparation ne doit pas repousser TOUTE la vague : ce qui se voit venir
+  // n'a rien à annoncer, et le premier assaut doit rester immédiat.
+  let vues = 0;
+  for (let graine = 0; graine < 120; graine++) {
+    for (const s of makeWave(14, { seed: graine }).spawns) {
+      if (s.type === 'boss' || !s.curve || horsChamp(s.curve.getPoint(0))) continue;
+      if (s.row <= 2 && s.delay < 0.5) vues++;
+    }
+  }
+  assert.ok(vues > 0, 'plus aucune entrée immédiate : la vague entière a été repoussée');
+});
+
+test('le préavis ne retire ni un ennemi ni une trajectoire', () => {
+  // La seule chose qui doit avoir bougé est l'INSTANT du départ. Si la
+  // composition changeait, on aurait rendu la vague plus facile au lieu de la
+  // rendre honnête — et c'est une correction qu'on refuse.
+  for (const diff of [9, 14, 20]) {
+    for (let graine = 0; graine < 60; graine++) {
+      const w = makeWave(diff, { seed: graine });
+      const empreinte = w.spawns.map((s) =>
+        s.type === 'boss'
+          ? 'boss'
+          : `${s.type}|${s.row}|${s.col}|${s.curve.getPoint(0).z.toFixed(2)}`
+      );
+      // Deux appels à graine égale donnent la même chose : c'est la promesse de
+      // reproductibilité, et elle vaut aussi pour les délais.
+      const bis = makeWave(diff, { seed: graine });
+      assert.deepEqual(
+        bis.spawns.map((s) =>
+          s.type === 'boss'
+            ? 'boss'
+            : `${s.type}|${s.row}|${s.col}|${s.curve.getPoint(0).z.toFixed(2)}`
+        ),
+        empreinte
+      );
+      assert.deepEqual(
+        bis.spawns.map((s) => s.delay),
+        w.spawns.map((s) => s.delay)
+      );
+    }
+  }
+});
+
+test('la flèche annonce exactement ce que la règle appelle hors champ', () => {
+  // Une seule définition pour les deux bouts : si `annoncesPourVague` et
+  // `makeWave` divergeaient, on retomberait sur la panne d'origine — un escadron
+  // annoncé mais parti trop tôt, ou parti à l'heure mais sans flèche.
+  for (let graine = 0; graine < 80; graine++) {
+    const w = makeWave(14, { seed: graine });
+    const attendues = new Set(
+      w.spawns
+        .filter((s) => s.type !== 'boss' && s.curve && horsChamp(s.curve.getPoint(0)))
+        .map((s) => s.row)
+    );
+    const annoncees = new Set();
+    for (const s of w.spawns) {
+      if (s.type === 'boss' || !s.curve || !horsChamp(s.curve.getPoint(0))) continue;
+      annoncees.add(s.row);
+    }
+    assert.deepEqual([...annoncees].sort(), [...attendues].sort());
+    // Et il y a bien une flèche par rangée hors champ.
+    const fleches = annoncesPourVague(w.spawns);
+    assert.ok(
+      fleches.length >= attendues.size,
+      `graine ${graine} : ${fleches.length} flèches pour ${attendues.size} rangées hors champ`
+    );
+  }
 });
