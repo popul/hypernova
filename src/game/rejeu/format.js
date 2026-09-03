@@ -98,7 +98,12 @@ import {
 //       ANNONCE_AVANCE. Les vagues ont donc les mêmes ennemis aux mêmes places,
 //       mais pas aux mêmes instants — un enregistrement d'avant place ses entrées
 //       jusqu'à deux secondes trop tôt, et tout ce qui en découle avec.
-export const VERSION = 21;
+//  22 — l'entrée par le dos se fait par ESCADRON (cinq au plus) et non plus par
+//       rangée pleine : les colonnes en trop passent par le fond. La composition
+//       ne bouge pas — mêmes ennemis, mêmes places, vérifié sur six cents
+//       vagues — mais les ROUTES changent, et le tirage de la position de
+//       l'escadron décale le générateur semé pour tout ce qui suit.
+export const VERSION = 22;
 
 // --- Écriture ---------------------------------------------------------------
 

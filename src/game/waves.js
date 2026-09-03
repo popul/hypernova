@@ -73,6 +73,35 @@ const VARIANTS = ['left', 'right', 'top'];
 // monte plus doucement, sa leçon met plus longtemps à s'asseoir.
 export const ARRIERE_DEPUIS = 9;
 
+// COMBIEN D'ENNEMIS AU PLUS PEUVENT ARRIVER DANS LE DOS EN MÊME TEMPS.
+//
+// Signalement du joueur, après que le préavis eut été réparé : « à partir de la
+// vague 19, les ennemis arrivent de l'arrière mais SUR TOUT L'AXE DES ABSCISSES,
+// et ça rend très difficile de les éviter ». Mesuré, et il avait raison — plus
+// gravement que ce que la phrase laisse entendre.
+//
+// Une rangée entière entrait par le dos. Au moment où elle croise le plan du
+// vaisseau, ses voisins sont espacés de 1,5 unité ; or il en faut 3,2 pour se
+// glisser entre deux drones et 3,9 entre deux brutes. Autrement dit : ce n'était
+// pas une formation, c'était un MUR SANS PORTE, large de 13,3 unités sur une
+// arène qui en fait 29, et il y en avait 1,8 par vague. Mesuré sur 150 graines,
+// 100 % des vagues depuis la douzième — pas 78 %, pas la plupart : toutes.
+//
+// La flèche livrée hier disait donc au joueur d'où venait quelque chose qu'il ne
+// pouvait de toute façon pas traverser. Un préavis sans échappatoire n'est pas un
+// préavis, c'est un compte à rebours.
+//
+// Cinq, parce que c'est ce qui tient dans le quart de l'arène : un escadron de
+// cinq occupe environ 7,6 unités avec les rayons, il en reste vingt et une pour
+// aller ailleurs — et le vaisseau, à 16 u/s, traverse ça en une seconde et
+// quart, bien moins que les deux secondes que la flèche lui donne. Le danger
+// reste entier, il redevient CONTOURNABLE.
+//
+// Les colonnes qui ne rentrent pas dans l'escadron ne disparaissent pas : elles
+// arrivent par le fond, la seule entrée qui se voie venir toute seule. La vague
+// garde exactement les mêmes ennemis aux mêmes places.
+export const DOS_LARGEUR_MAX = 5;
+
 export function variantsPour(diff) {
   return diff >= ARRIERE_DEPUIS ? [...VARIANTS, 'back'] : VARIANTS;
 }
@@ -228,10 +257,21 @@ export function makeWave(n, opts = {}) {
     const start = Math.floor((cols - rowDef.count) / 2);
     // Une rangée = un escadron qui entre d'un bloc, par une trajectoire tirée.
     const variant = variants[squadIndex % variants.length];
+    // Voir DOS_LARGEUR_MAX : le dos entre par escadron, jamais par rangée pleine.
+    // Le tirage de la position est semé comme tout le reste — deux machines
+    // placent le même escadron au même endroit, et un rejeu le retrouve.
+    const dosLarge = variant === 'back' ? Math.min(rowDef.count, DOS_LARGEUR_MAX) : rowDef.count;
+    const dosDebut =
+      variant === 'back' && rowDef.count > dosLarge
+        ? Math.floor(rng() * (rowDef.count - dosLarge + 1))
+        : 0;
     const courbes = [];
     for (let i = 0; i < rowDef.count; i++) {
       const col = start + i;
-      courbes.push(makeEntryCurve(variant, slotBasePosition(rowIdx, col, cols, tmp).clone()));
+      const parLeDos = variant !== 'back' || (i >= dosDebut && i < dosDebut + dosLarge);
+      courbes.push(
+        makeEntryCurve(parLeDos ? variant : 'top', slotBasePosition(rowIdx, col, cols, tmp).clone())
+      );
     }
 
     // LE PRÉAVIS EST DÛ AVANT LE DÉPART, PAS APRÈS.

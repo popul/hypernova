@@ -26,6 +26,7 @@ import {
   variantsPour,
   ARRIERE_DEPUIS,
   ANNONCE_AVANCE,
+  DOS_LARGEUR_MAX,
   horsChamp,
   dailySeed,
   slotBasePosition,
@@ -1126,4 +1127,106 @@ test('la flèche annonce exactement ce que la règle appelle hors champ', () => 
       `graine ${graine} : ${fleches.length} flèches pour ${attendues.size} rangées hors champ`
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// LE DOS ENTRE PAR ESCADRON, JAMAIS PAR RANGÉE PLEINE
+//
+// Deuxième signalement du joueur, après la réparation du préavis : « les ennemis
+// arrivent de l'arrière mais SUR TOUT L'AXE DES ABSCISSES, ça rend très
+// difficile de les éviter ». Mesuré : une rangée entière entrait par le dos, et
+// au croisement du plan du vaisseau ses voisins sont espacés de 1,5 unité quand
+// il en faut 3,2 pour passer entre deux drones. Ce n'était pas une formation,
+// c'était un mur sans porte de 13,3 unités sur une arène de 29 — dans 100 % des
+// vagues depuis la douzième.
+//
+// Une flèche qui annonce un mur infranchissable n'est pas un préavis, c'est un
+// compte à rebours. D'où la largeur maximale.
+
+// Où un ennemi croise le plan du vaisseau, en x. C'est le seul instant qui
+// compte : avant il est derrière, après il est devant.
+function xAuCroisement(spawn) {
+  let meilleur = null;
+  for (let u = 0; u <= 1; u += 0.002) {
+    const p = spawn.curve.getPoint(1 - Math.pow(1 - u, 2));
+    if (meilleur === null || Math.abs(p.z - ARENA.playerZ) < Math.abs(meilleur.z - ARENA.playerZ)) {
+      meilleur = p;
+    }
+  }
+  return meilleur.x;
+}
+
+const estDorsal = (s) => s.curve && s.curve.getPoint(0).z > ARENA.playerZMax;
+
+test('aucun escadron dorsal ne dépasse la largeur permise', () => {
+  for (const diff of [9, 11, 13, 14, 15, 17, 20]) {
+    for (let graine = 0; graine < 100; graine++) {
+      const parRangee = new Map();
+      for (const s of makeWave(diff, { seed: graine }).spawns) {
+        if (s.type === 'boss' || !estDorsal(s)) continue;
+        parRangee.set(s.row, (parRangee.get(s.row) || 0) + 1);
+      }
+      for (const [row, n] of parRangee) {
+        assert.ok(
+          n <= DOS_LARGEUR_MAX,
+          `diff ${diff} graine ${graine} : ${n} ennemis dorsaux sur la rangée ${row}`
+        );
+      }
+    }
+  }
+});
+
+test('il reste toujours de quoi se ranger à côté du mur', () => {
+  // La promesse en une phrase : quoi qu'il arrive, il existe un endroit où se
+  // mettre. On la vérifie sur la largeur RÉELLEMENT occupée au croisement, pas
+  // sur le nombre d'ennemis.
+  const largeurArene = 2 * ARENA.playerXMax;
+  for (const diff of [9, 14, 20]) {
+    for (let graine = 0; graine < 100; graine++) {
+      const parRangee = new Map();
+      for (const s of makeWave(diff, { seed: graine }).spawns) {
+        if (s.type === 'boss' || !estDorsal(s)) continue;
+        if (!parRangee.has(s.row)) parRangee.set(s.row, []);
+        parRangee.get(s.row).push(xAuCroisement(s));
+      }
+      for (const [row, xs] of parRangee) {
+        const largeur = Math.max(...xs) - Math.min(...xs);
+        assert.ok(
+          largeur < largeurArene / 3,
+          `diff ${diff} graine ${graine} rangée ${row} : le mur fait ${largeur.toFixed(1)} u sur ${largeurArene}`
+        );
+      }
+    }
+  }
+});
+
+test('les colonnes évincées du dos arrivent par une route qui se voit venir', () => {
+  // Elles ne disparaissent pas — sinon on aurait allégé la vague au lieu de la
+  // rendre contournable, et c'est une correction qu'on refuse. Elles passent par
+  // le fond, la seule entrée qui n'a rien à annoncer.
+  let evincees = 0;
+  for (let graine = 0; graine < 200; graine++) {
+    const v = makeWave(14, { seed: graine });
+    const parRangee = new Map();
+    for (const s of v.spawns) {
+      if (s.type === 'boss' || !s.curve) continue;
+      if (!parRangee.has(s.row)) parRangee.set(s.row, []);
+      parRangee.get(s.row).push(s);
+    }
+    for (const [, ligne] of parRangee) {
+      const dorsaux = ligne.filter(estDorsal);
+      if (!dorsaux.length || dorsaux.length === ligne.length) continue;
+      // Rangée mixte : le reste doit venir du fond, pas d'un autre bord aveugle.
+      for (const s of ligne) {
+        if (estDorsal(s)) continue;
+        evincees++;
+        const depart = s.curve.getPoint(0);
+        assert.ok(
+          depart.z < -20 && !horsChamp(depart),
+          `une colonne évincée entre par ${depart.x.toFixed(1)}, ${depart.z.toFixed(1)}`
+        );
+      }
+    }
+  }
+  assert.ok(evincees > 0, 'aucune rangée mixte : le plafond ne s’applique jamais');
 });
